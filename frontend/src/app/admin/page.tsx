@@ -2694,7 +2694,7 @@ export default function AdminDashboardPage() {
                 </p>
               </div>
 
-              <div className="grid gap-3 xl:grid-cols-5">
+              <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
                 {lanes.map((status) => {
                   const laneOrders = orders.filter((order) => {
                     if (status === "PAID") {
