@@ -13,6 +13,7 @@ import {
   CreditCard,
   Crown,
   KeyRound,
+  Loader2,
   LogOut,
   Moon,
   Pencil,
@@ -20,10 +21,13 @@ import {
   QrCode,
   RefreshCw,
   Search,
+  Settings2,
   ShieldCheck,
+  SlidersHorizontal,
   Store,
   Sun,
   Trash2,
+  Upload,
   UserCheck,
   UserPlus,
   Users,
@@ -41,7 +45,7 @@ type LoginResponse = {
 type RestaurantUser = {
   id: string;
   email: string;
-  role: "SUPERADMIN" | "RESTAURANT_ADMIN" | "STAFF";
+  role: StaffRole;
   is_active: boolean;
   created_at: string;
 };
@@ -53,6 +57,15 @@ type RestaurantWithUsers = {
   payment_mode: PaymentMode;
   razorpay_account_id?: string | null;
   direct_upi_id?: string | null;
+  raw_upi_payload?: string | null;
+  logo_url?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  gstin?: string | null;
+  fssai_no?: string | null;
+  session_duration_minutes?: number;
+  verification_amount_cutoff?: string | number | null;
+  flagged_item_ids?: string[];
   created_at: string;
   updated_at: string;
   users: RestaurantUser[];
@@ -64,12 +77,20 @@ type RestaurantCreateForm = {
   payment_mode: PaymentMode;
   razorpay_account_id: string;
   direct_upi_id: string;
+  raw_upi_payload: string;
+  logo_url: string;
+  address: string;
+  phone: string;
+  gstin: string;
+  fssai_no: string;
+  session_duration_minutes: number;
+  verification_amount_cutoff: string;
 };
 
 type AdminUserForm = {
   email: string;
   password: string;
-  role: "RESTAURANT_ADMIN" | "STAFF";
+  role: StaffRole;
 };
 
 const SA_ACCESS_TOKEN_KEY = "superadmin_access_token";
@@ -176,8 +197,36 @@ export default function SuperadminPage() {
     payment_mode: "PAY_AT_COUNTER",
     razorpay_account_id: "",
     direct_upi_id: "",
+    raw_upi_payload: "",
+    logo_url: "",
+    address: "",
+    phone: "",
+    gstin: "",
+    fssai_no: "",
+    session_duration_minutes: 30,
+    verification_amount_cutoff: "",
   });
   const [isCreatingRestaurant, setIsCreatingRestaurant] = useState(false);
+
+  // Outlet Settings Modal state
+  const [settingsOutlet, setSettingsOutlet] = useState<RestaurantWithUsers | null>(null);
+  const [settingsForm, setSettingsForm] = useState<RestaurantCreateForm>({
+    name: "",
+    slug: "",
+    payment_mode: "PAY_AT_COUNTER",
+    razorpay_account_id: "",
+    direct_upi_id: "",
+    raw_upi_payload: "",
+    logo_url: "",
+    address: "",
+    phone: "",
+    gstin: "",
+    fssai_no: "",
+    session_duration_minutes: 30,
+    verification_amount_cutoff: "",
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+  const [isUploadingSettingsLogo, setIsUploadingSettingsLogo] = useState(false);
 
   // User creation
   const [adminUserForm, setAdminUserForm] = useState<AdminUserForm>({
@@ -323,6 +372,14 @@ export default function SuperadminPage() {
         payment_mode: restaurantForm.payment_mode,
         razorpay_account_id: restaurantForm.razorpay_account_id.trim() || null,
         direct_upi_id: restaurantForm.direct_upi_id.trim() || null,
+        raw_upi_payload: restaurantForm.raw_upi_payload.trim() || null,
+        logo_url: restaurantForm.logo_url.trim() || null,
+        address: restaurantForm.address.trim() || null,
+        phone: restaurantForm.phone.trim() || null,
+        gstin: restaurantForm.gstin.trim() || null,
+        fssai_no: restaurantForm.fssai_no.trim() || null,
+        session_duration_minutes: Number(restaurantForm.session_duration_minutes) || 30,
+        verification_amount_cutoff: restaurantForm.verification_amount_cutoff ? Number(restaurantForm.verification_amount_cutoff) : null,
       };
 
       const created = await apiRequest<RestaurantWithUsers>(
@@ -340,8 +397,16 @@ export default function SuperadminPage() {
         payment_mode: "PAY_AT_COUNTER",
         razorpay_account_id: "",
         direct_upi_id: "",
+        raw_upi_payload: "",
+        logo_url: "",
+        address: "",
+        phone: "",
+        gstin: "",
+        fssai_no: "",
+        session_duration_minutes: 30,
+        verification_amount_cutoff: "",
       });
-      setNotice(`Outlet "${created.name}" created successfully! Now assign an admin user.`);
+      setNotice(`Outlet "${created.name}" created successfully! Now assign a user.`);
       setStep("create_admin");
       void loadRestaurants();
     } catch (createError) {
@@ -352,6 +417,64 @@ export default function SuperadminPage() {
       setError(message);
     } finally {
       setIsCreatingRestaurant(false);
+    }
+  };
+
+  const openOutletSettings = (outlet: RestaurantWithUsers) => {
+    setSettingsOutlet(outlet);
+    setSettingsForm({
+      name: outlet.name,
+      slug: outlet.slug,
+      payment_mode: outlet.payment_mode || "PAY_AT_COUNTER",
+      razorpay_account_id: outlet.razorpay_account_id || "",
+      direct_upi_id: outlet.direct_upi_id || "",
+      raw_upi_payload: outlet.raw_upi_payload || "",
+      logo_url: outlet.logo_url || "",
+      address: outlet.address || "",
+      phone: outlet.phone || "",
+      gstin: outlet.gstin || "",
+      fssai_no: outlet.fssai_no || "",
+      session_duration_minutes: outlet.session_duration_minutes ?? 30,
+      verification_amount_cutoff: outlet.verification_amount_cutoff != null ? String(outlet.verification_amount_cutoff) : "",
+    });
+  };
+
+  const onSaveOutletSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!settingsOutlet) return;
+    setIsSavingSettings(true);
+    setError(null);
+
+    try {
+      const payload = {
+        name: settingsForm.name.trim(),
+        slug: settingsForm.slug.trim(),
+        payment_mode: settingsForm.payment_mode,
+        razorpay_account_id: settingsForm.razorpay_account_id.trim() || null,
+        direct_upi_id: settingsForm.direct_upi_id.trim() || null,
+        raw_upi_payload: settingsForm.raw_upi_payload.trim() || null,
+        logo_url: settingsForm.logo_url.trim() || null,
+        address: settingsForm.address.trim() || null,
+        phone: settingsForm.phone.trim() || null,
+        gstin: settingsForm.gstin.trim() || null,
+        fssai_no: settingsForm.fssai_no.trim() || null,
+        session_duration_minutes: Number(settingsForm.session_duration_minutes) || 30,
+        verification_amount_cutoff: settingsForm.verification_amount_cutoff ? Number(settingsForm.verification_amount_cutoff) : null,
+      };
+
+      await apiRequest(`/api/admin/restaurants/${settingsOutlet.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      setNotice(`Outlet "${settingsForm.name}" configuration updated successfully!`);
+      setSettingsOutlet(null);
+      void loadRestaurants();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save outlet settings.";
+      setError(message);
+    } finally {
+      setIsSavingSettings(false);
     }
   };
 
@@ -707,11 +830,25 @@ export default function SuperadminPage() {
                 >
                   <option value="PAY_AT_COUNTER">Pay At Counter (Verify/Collect at counter)</option>
                   <option value="RAZORPAY_GATEWAY">Razorpay Gateway (Instant automated)</option>
+                  <option value="BOTH">Both (Pay At Counter &amp; Razorpay Gateway)</option>
                 </select>
               </label>
 
-              {restaurantForm.payment_mode === "RAZORPAY_GATEWAY" && (
-                <label className="block space-y-1">
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Direct UPI ID</span>
+                <input
+                  type="text"
+                  value={restaurantForm.direct_upi_id}
+                  onChange={(e) =>
+                    setRestaurantForm((prev) => ({ ...prev, direct_upi_id: e.target.value }))
+                  }
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                  placeholder="merchant@upi"
+                />
+              </label>
+
+              {(restaurantForm.payment_mode === "RAZORPAY_GATEWAY" || restaurantForm.payment_mode === "BOTH") && (
+                <label className="block space-y-1 sm:col-span-2">
                   <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Razorpay Account ID</span>
                   <input
                     type="text"
@@ -719,7 +856,7 @@ export default function SuperadminPage() {
                     onChange={(e) =>
                       setRestaurantForm((prev) => ({ ...prev, razorpay_account_id: e.target.value }))
                     }
-                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
                     placeholder="acc_XXXXXXXXX"
                   />
                 </label>
@@ -759,19 +896,23 @@ export default function SuperadminPage() {
               </label>
 
               <label className="block space-y-1">
-                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold font-semibold">User Role</span>
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">User Role</span>
                 <select
                   value={adminUserForm.role}
                   onChange={(e) =>
                     setAdminUserForm((prev) => ({
                       ...prev,
-                      role: e.target.value as "RESTAURANT_ADMIN" | "STAFF",
+                      role: e.target.value as StaffRole,
                     }))
                   }
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
                 >
-                  <option value="RESTAURANT_ADMIN">Outlet Admin</option>
-                  <option value="STAFF">Store Staff</option>
+                  <option value="RESTAURANT_ADMIN">Outlet Admin / Owner</option>
+                  <option value="MANAGER">Store Manager</option>
+                  <option value="FLOOR_STAFF">Floor / Kitchen Supervisor</option>
+                  <option value="CASHIER">Cashier</option>
+                  <option value="WAITER">Waiter / Steward</option>
+                  <option value="STAFF">General Staff</option>
                 </select>
               </label>
 
@@ -939,6 +1080,16 @@ export default function SuperadminPage() {
 
                       <button
                         type="button"
+                        onClick={() => openOutletSettings(r)}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 text-[11px] font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition sm:text-xs sm:px-3"
+                        title="Configure Outlet Settings"
+                      >
+                        <Settings2 className="h-3.5 w-3.5 text-[var(--accent-brand)]" />
+                        <span className="hidden sm:inline">Settings</span>
+                      </button>
+
+                      <button
+                        type="button"
                         onClick={() => startAddUserForRestaurant(r.id)}
                         className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-2.5 py-1.5 text-[11px] font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition sm:text-xs sm:px-3"
                       >
@@ -1098,6 +1249,195 @@ export default function SuperadminPage() {
           </div>
         </section>
       </main>
+
+      {/* Outlet Settings Modal */}
+      {settingsOutlet && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-xs animate-in fade-in duration-200 overflow-y-auto">
+          <div className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl space-y-5 my-auto">
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-4">
+              <div className="flex items-center gap-3">
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-brand)] text-[var(--text-on-accent)]">
+                  <Settings2 className="h-5 w-5" />
+                </div>
+                <div>
+                  <h3 className="font-display text-lg font-bold">Configure Outlet Settings</h3>
+                  <p className="text-xs text-[var(--text-secondary)]">
+                    Managing settings &amp; bill receipt attributes for {settingsOutlet.name}
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setSettingsOutlet(null)}
+                className="rounded-full p-1.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={onSaveOutletSettings} className="space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Outlet Name</span>
+                  <input
+                    type="text"
+                    value={settingsForm.name}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, name: e.target.value }))}
+                    required
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">URL Slug</span>
+                  <input
+                    type="text"
+                    value={settingsForm.slug}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, slug: e.target.value }))}
+                    required
+                    pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Payment Mode</span>
+                  <select
+                    value={settingsForm.payment_mode}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, payment_mode: e.target.value as PaymentMode }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                  >
+                    <option value="PAY_AT_COUNTER">Pay At Counter (Verify/Collect at counter)</option>
+                    <option value="RAZORPAY_GATEWAY">Razorpay Gateway (Instant automated)</option>
+                    <option value="BOTH">Both (Pay At Counter &amp; Razorpay Gateway)</option>
+                  </select>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Contact Phone</span>
+                  <input
+                    type="text"
+                    value={settingsForm.phone}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, phone: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                    placeholder="+91 9876543210"
+                  />
+                </label>
+
+                <label className="block space-y-1 sm:col-span-2">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Store Address (Bill Header)</span>
+                  <input
+                    type="text"
+                    value={settingsForm.address}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, address: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                    placeholder="Full outlet address"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">GSTIN</span>
+                  <input
+                    type="text"
+                    value={settingsForm.gstin}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, gstin: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                    placeholder="01AAFCB7044K1ZV"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">FSSAI License No.</span>
+                  <input
+                    type="text"
+                    value={settingsForm.fssai_no}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, fssai_no: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                    placeholder="10718026..."
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Logo URL</span>
+                  <input
+                    type="text"
+                    value={settingsForm.logo_url}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, logo_url: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                    placeholder="https://... logo image URL"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Direct UPI ID</span>
+                  <input
+                    type="text"
+                    value={settingsForm.direct_upi_id}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, direct_upi_id: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                    placeholder="merchant@upi"
+                  />
+                </label>
+
+                {(settingsForm.payment_mode === "RAZORPAY_GATEWAY" || settingsForm.payment_mode === "BOTH") && (
+                  <label className="block space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Razorpay Account ID</span>
+                    <input
+                      type="text"
+                      value={settingsForm.razorpay_account_id}
+                      onChange={(e) => setSettingsForm((prev) => ({ ...prev, razorpay_account_id: e.target.value }))}
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                      placeholder="acc_XXXXXXXXX"
+                    />
+                  </label>
+                )}
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Session Duration (minutes)</span>
+                  <input
+                    type="number"
+                    min={5}
+                    max={120}
+                    value={settingsForm.session_duration_minutes}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, session_duration_minutes: Number(e.target.value) || 30 }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                  />
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Verification Cutoff Amount (₹)</span>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={settingsForm.verification_amount_cutoff}
+                    onChange={(e) => setSettingsForm((prev) => ({ ...prev, verification_amount_cutoff: e.target.value }))}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                    placeholder="Optional threshold for auto-verification"
+                  />
+                </label>
+              </div>
+
+              <div className="flex items-center justify-end gap-3 pt-4 border-t border-[var(--border-subtle)]">
+                <button
+                  type="button"
+                  onClick={() => setSettingsOutlet(null)}
+                  className="rounded-xl border border-[var(--border-strong)] px-4 py-2 text-xs font-semibold text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={isSavingSettings}
+                  className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-5 py-2 text-sm font-semibold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)] disabled:opacity-70"
+                >
+                  {isSavingSettings ? "Saving..." : "Save Settings"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

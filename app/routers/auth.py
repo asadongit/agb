@@ -34,10 +34,10 @@ async def register(
     - Restaurant Admin can only create STAFF accounts for their own restaurant.
     """
     if current_user.role == RoleEnum.RESTAURANT_ADMIN:
-        if data.role != RoleEnum.STAFF:
+        if data.role == RoleEnum.SUPERADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Restaurant admins can only create staff accounts",
+                detail="Restaurant admins cannot create superadmin accounts",
             )
         data.restaurant_id = current_user.restaurant_id
     elif current_user.role == RoleEnum.SUPERADMIN:
@@ -101,10 +101,10 @@ async def delete_user(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail="Cannot delete users from another restaurant",
             )
-        if target_user.role != RoleEnum.STAFF:
+        if target_user.role == RoleEnum.SUPERADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Restaurant admins can only delete staff members",
+                detail="Restaurant admins cannot delete superadmin accounts",
             )
 
     await db.delete(target_user)

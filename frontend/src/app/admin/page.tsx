@@ -6053,7 +6053,8 @@ export default function AdminDashboardPage() {
                       <option value="MANAGER">Manager</option>
                       <option value="FLOOR_STAFF">Floor Staff</option>
                       <option value="CASHIER">Cashier</option>
-                      <option value="WAITER">Store Associate</option>
+                      <option value="WAITER">Store Associate / Waiter</option>
+                      <option value="STAFF">General Staff</option>
                       <option value="RESTAURANT_ADMIN">Outlet Admin / Owner</option>
                     </select>
                   </label>

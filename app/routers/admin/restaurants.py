@@ -143,6 +143,52 @@ async def update_my_restaurant(
     return restaurant
 
 
+@router.patch("/{restaurant_id}", response_model=RestaurantResponse)
+async def update_restaurant_by_id(
+    restaurant_id: uuid.UUID,
+    data: RestaurantUpdate,
+    current_user: RequireSuperadmin,
+    db: DBSession,
+):
+    """Update any restaurant details by ID (superadmin only)."""
+    result = await db.execute(
+        select(Restaurant).where(Restaurant.id == restaurant_id)
+    )
+    restaurant = result.scalar_one_or_none()
+    if not restaurant:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Restaurant not found",
+        )
+
+    update_data = data.model_dump(exclude_unset=True)
+
+    # Check slug uniqueness if slug is being changed
+    if "slug" in update_data and update_data["slug"] != restaurant.slug:
+        existing = await db.execute(
+            select(Restaurant).where(Restaurant.slug == update_data["slug"])
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_409_CONFLICT,
+                detail=f"Restaurant with slug '{update_data['slug']}' already exists",
+            )
+
+    for key, value in update_data.items():
+        setattr(restaurant, key, value)
+
+    await db.flush()
+    await db.refresh(restaurant)
+
+    await log_action(
+        db, restaurant.id, current_user.user_id,
+        "UPDATE", "Restaurant", str(restaurant.id),
+        details=data.model_dump(exclude_unset=True, mode="json"),
+    )
+
+    return restaurant
+
+
 @router.delete("/{restaurant_id}", status_code=status.HTTP_204_NO_CONTENT)
 async def delete_restaurant(
     restaurant_id: uuid.UUID,
