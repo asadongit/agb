@@ -850,13 +850,13 @@ export default function AdminDashboardPage() {
     }
   }, [apiRequest, authHeaders]);
 
-  const handleCreateBill = async () => {
+  const handleCreateBill = async (proceedToPayment = false) => {
     if (!draftCartItems.length) {
       setError("Please add at least one menu item to the bill.");
       return;
     }
     try {
-      await apiRequest<ManualBill>("/api/billing/bills", {
+      const createdBill = await apiRequest<ManualBill>("/api/billing/bills", {
         method: "POST",
         body: JSON.stringify({
           table_number: selectedTable || "WALK-IN",
@@ -874,8 +874,16 @@ export default function AdminDashboardPage() {
       setDraftCartItems([]);
       setCustomerName("");
       setCustomerPhone("");
-      setNotice("Manual bill created successfully!");
       void loadBillingData();
+
+      if (proceedToPayment && createdBill) {
+        setPaymentTargetBill(createdBill);
+        setCashTendered("");
+        setSelectedPaymentMethod("CASH");
+        setPaymentModalOpen(true);
+      } else {
+        setNotice("Manual bill created successfully!");
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create manual bill.");
     }
@@ -6297,7 +6305,7 @@ export default function AdminDashboardPage() {
         {/* ── MODAL: CREATE MANUAL BILL (POS DRAWER) ─────────────────── */}
         {createBillModalOpen && (
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-            <div className="w-full max-w-4xl max-h-[90vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
+            <div className="w-full max-w-6xl max-h-[90vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
               {/* Header */}
               <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
                 <div className="flex items-center gap-2">
@@ -6558,22 +6566,34 @@ export default function AdminDashboardPage() {
                       </span>
                     </div>
 
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
                       <button
                         type="button"
-                        onClick={() => setCreateBillModalOpen(false)}
-                        className="flex-1 rounded-xl border border-[var(--border-strong)] px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)]"
-                      >
-                        Cancel
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void handleCreateBill()}
+                        onClick={() => void handleCreateBill(false)}
                         disabled={draftCartItems.length === 0}
-                        className="flex-1 rounded-xl bg-[var(--accent-brand)] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition disabled:opacity-50"
+                        className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] transition disabled:opacity-50"
                       >
                         Create Bill Draft
                       </button>
+
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setCreateBillModalOpen(false)}
+                          className="rounded-xl border border-[var(--border-strong)] px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--border-subtle)] transition"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => void handleCreateBill(true)}
+                          disabled={draftCartItems.length === 0}
+                          className="rounded-xl bg-emerald-600 px-5 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-emerald-700 transition disabled:opacity-50 flex items-center gap-1.5"
+                        >
+                          <CreditCard className="h-4 w-4" />
+                          <span>Take Payment &amp; Settle</span>
+                        </button>
+                      </div>
                     </div>
                   </div>
                 </div>
