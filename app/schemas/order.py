@@ -69,6 +69,7 @@ class OrderResponse(BaseResponse):
     total_amount: Decimal
     status: OrderStatusEnum
     payment_reference: str | None
+    payment_method: str | None = None
     source: str = "qr"
     is_auto_verified: bool = False
     created_at: datetime

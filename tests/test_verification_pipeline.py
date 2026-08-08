@@ -90,11 +90,11 @@ class TestVerificationPipeline:
         assert checkout_res.status_code == 201
         order_id = checkout_res.json()["order_id"]
 
-        # Fetch status — should be COMPLETED with is_auto_verified = True
+        # Fetch status — should be PREPARING (payment pending at counter) with is_auto_verified = True
         status_res = await client.get(f"/api/orders/{order_id}")
         assert status_res.status_code == 200
         order_data = status_res.json()
-        assert order_data["status"] == "COMPLETED"
+        assert order_data["status"] == "PREPARING"
         assert order_data["is_auto_verified"] is True
 
     async def test_checkout_flagged_item_forces_verification(self, client, db_session):

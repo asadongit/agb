@@ -89,7 +89,7 @@ async def checkout(
     else:
         # Mode B: Pay At Counter (Verify/collect at basket counter)
         if order.is_auto_verified:
-            order.status = OrderStatusEnum.COMPLETED
+            order.status = OrderStatusEnum.PREPARING
             from app.services.inventory_service import process_order_auto_deduction
             await process_order_auto_deduction(db, order)
         else:

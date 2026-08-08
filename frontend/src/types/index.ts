@@ -87,6 +87,7 @@ export interface OrderResponse {
   total_amount: string;
   status: OrderStatus;
   payment_reference?: string | null;
+  payment_method?: string | null;
   source?: string;
   is_auto_verified?: boolean;
   created_at: string;

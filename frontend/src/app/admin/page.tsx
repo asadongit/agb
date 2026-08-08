@@ -113,6 +113,7 @@ type AdminOrder = {
   total_amount: string;
   status: OrderStatus;
   payment_reference?: string | null;
+  payment_method?: string | null;
   source?: string;
   is_auto_verified?: boolean;
   created_at: string;
@@ -2776,13 +2777,23 @@ export default function AdminDashboardPage() {
                               {/* Actions */}
                               <div className="border-t border-[var(--border-subtle)] pt-2 flex flex-wrap gap-1.5">
                                 {order.status === "PENDING_VERIFICATION" && (
-                                  <button
-                                    type="button"
-                                    onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
-                                    className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
-                                  >
-                                    Verify &amp; Complete Basket
-                                  </button>
+                                  order.payment_method === "RAZORPAY_GATEWAY" || Boolean(order.payment_reference) ? (
+                                    <button
+                                      type="button"
+                                      onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
+                                      className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
+                                    >
+                                      Verify &amp; Complete (Paid Online)
+                                    </button>
+                                  ) : (
+                                    <button
+                                      type="button"
+                                      onClick={() => void onUpdateOrderStatus(order.id, "PREPARING")}
+                                      className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
+                                    >
+                                      Accept &amp; Verify (Payment Pending)
+                                    </button>
+                                  )
                                 )}
                                 {order.status === "PAID" && (
                                   <button
@@ -2799,7 +2810,7 @@ export default function AdminDashboardPage() {
                                     onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
                                     className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
                                   >
-                                    Verify &amp; Complete Basket
+                                    Mark Paid &amp; Complete Basket
                                   </button>
                                 )}
                                 {order.status !== "COMPLETED" && order.status !== "CANCELLED" && order.status !== "REFUNDED" && (

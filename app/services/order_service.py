@@ -103,6 +103,7 @@ async def create_order(
         total_amount=total,
         status=OrderStatusEnum.PENDING,
         is_auto_verified=not requires_verification,
+        payment_method=data.payment_mode.value,
         items=order_items,
     )
 
