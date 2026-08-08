@@ -30,10 +30,14 @@ from app.schemas.billing import (
 from app.services.inventory_service import process_order_auto_deduction
 
 
+def _get_user_id(user: Any) -> uuid.UUID:
+    return getattr(user, "user_id", None) or getattr(user, "id", None)
+
+
 async def create_manual_bill(
     db: AsyncSession,
     restaurant_id: uuid.UUID,
-    staff_user: User,
+    staff_user: Any,
     data: CreateManualBillRequest,
 ) -> Order:
     """Create a draft manual bill with line items and snapshot pricing."""
@@ -45,7 +49,7 @@ async def create_manual_bill(
         customer_phone=data.customer_phone,
         status=OrderStatusEnum.PENDING,
         source="manual",
-        created_by_staff_id=staff_user.id,
+        created_by_staff_id=_get_user_id(staff_user),
         subtotal_amount=Decimal("0.00"),
         total_amount=Decimal("0.00"),
         discount_status="NONE",
@@ -254,7 +258,7 @@ async def apply_discount(
         approval = BillDiscountApproval(
             id=uuid.uuid4(),
             order_id=order.id,
-            requested_by_id=staff_user.id,
+            requested_by_id=_get_user_id(staff_user),
             status="PENDING",
             discount_type=data.discount_type,
             discount_value=disc_val,
@@ -270,7 +274,7 @@ async def approve_discount(
     db: AsyncSession,
     approval_id: uuid.UUID,
     restaurant_id: uuid.UUID,
-    manager_user: User,
+    manager_user: Any,
     approve: bool,
 ) -> BillDiscountApproval:
     """Manager/Admin approves or rejects a pending discount request."""
@@ -293,7 +297,7 @@ async def approve_discount(
     order_res = await db.execute(select(Order).where(Order.id == approval.order_id))
     order = order_res.scalar_one()
 
-    approval.approved_by_id = manager_user.id
+    approval.approved_by_id = _get_user_id(manager_user)
     approval.resolved_at = datetime.utcnow()
 
     if approve:

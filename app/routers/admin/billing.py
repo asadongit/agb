@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 
 from app.dependencies import (
     AuthenticatedUser,
+    CurrentUser,
     DBSession,
     RequireAdmin,
     require_permission,
@@ -85,7 +86,7 @@ def _format_bill_response(order: Order) -> BillResponse:
 @router.post("/bills", response_model=BillResponse)
 async def create_bill_endpoint(
     data: CreateManualBillRequest,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Create a draft manual bill."""
@@ -99,7 +100,7 @@ async def create_bill_endpoint(
 async def update_bill_endpoint(
     bill_id: uuid.UUID,
     data: UpdateManualBillRequest,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Update line items or table info on draft bill."""
@@ -113,7 +114,7 @@ async def update_bill_endpoint(
 async def apply_discount_endpoint(
     bill_id: uuid.UUID,
     data: ApplyDiscountRequest,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Apply discount (% / flat / complimentary) with reason note."""
@@ -127,7 +128,7 @@ async def apply_discount_endpoint(
 async def resolve_discount_approval_endpoint(
     approval_id: uuid.UUID,
     data: ApproveDiscountRequest,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Manager/Admin approves or rejects a pending discount request."""
@@ -140,7 +141,7 @@ async def resolve_discount_approval_endpoint(
 @router.post("/bills/{bill_id}/finalize", response_model=BillResponse)
 async def finalize_bill_endpoint(
     bill_id: uuid.UUID,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Lock draft bill from further item edits."""
@@ -154,7 +155,7 @@ async def finalize_bill_endpoint(
 async def mark_paid_endpoint(
     bill_id: uuid.UUID,
     data: MarkPaidRequest,
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Record Cash or UPI payment and mark bill as paid."""
@@ -166,7 +167,7 @@ async def mark_paid_endpoint(
 
 @router.get("/pending-approvals-count")
 async def pending_approvals_count_endpoint(
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """Get count of pending discount approval requests for manager badge."""
@@ -178,7 +179,7 @@ async def pending_approvals_count_endpoint(
 
 @router.get("/pending-approvals", response_model=list[DiscountApprovalResponse])
 async def list_pending_approvals_endpoint(
-    current_user: User = Depends(require_permission("can_manage_billing")),
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     db: DBSession = None,
 ):
     """List pending discount approvals for manager action panel."""
