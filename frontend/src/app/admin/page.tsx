@@ -350,7 +350,7 @@ export default function AdminDashboardPage() {
     name: "",
     email: "",
     phone: "",
-    role: "WAITER" as StaffRole,
+    role: "STAFF" as StaffRole,
     password: "",
     pin: "",
   });
@@ -6050,12 +6050,12 @@ export default function AdminDashboardPage() {
                       onChange={(e) => setStaffFormState((prev) => ({ ...prev, role: e.target.value as StaffRole }))}
                       className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2 text-xs font-semibold"
                     >
-                      <option value="MANAGER">Manager</option>
-                      <option value="FLOOR_STAFF">Floor Staff</option>
-                      <option value="CASHIER">Cashier</option>
-                      <option value="WAITER">Store Associate / Waiter</option>
-                      <option value="STAFF">General Staff</option>
                       <option value="RESTAURANT_ADMIN">Outlet Admin / Owner</option>
+                      <option value="MANAGER">Store Manager</option>
+                      <option value="CASHIER">Cashier</option>
+                      <option value="WAITER">Store Assistant / Basket Verifier</option>
+                      <option value="DELIVERY_BOY">Delivery Executive / Delivery Boy</option>
+                      <option value="STAFF">General Staff</option>
                     </select>
                   </label>
                 </div>

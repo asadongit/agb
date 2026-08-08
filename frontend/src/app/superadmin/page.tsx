@@ -909,9 +909,9 @@ export default function SuperadminPage() {
                 >
                   <option value="RESTAURANT_ADMIN">Outlet Admin / Owner</option>
                   <option value="MANAGER">Store Manager</option>
-                  <option value="FLOOR_STAFF">Floor / Kitchen Supervisor</option>
                   <option value="CASHIER">Cashier</option>
-                  <option value="WAITER">Waiter / Steward</option>
+                  <option value="WAITER">Store Assistant / Basket Verifier</option>
+                  <option value="DELIVERY_BOY">Delivery Executive / Delivery Boy</option>
                   <option value="STAFF">General Staff</option>
                 </select>
               </label>

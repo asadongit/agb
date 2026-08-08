@@ -100,6 +100,17 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_view_analytics=False,
         allowed_sidebar_tabs=["orders"],
     ),
+    RoleEnum.DELIVERY_BOY: RolePermissions(
+        can_manage_staff=False,
+        can_manage_billing=False,
+        can_edit_menu=False,
+        can_manage_inventory=False,
+        can_cancel_orders=False,
+        can_process_payments=False,
+        can_manage_orders=True,
+        can_view_analytics=False,
+        allowed_sidebar_tabs=["orders"],
+    ),
     RoleEnum.STAFF: RolePermissions(
         can_manage_staff=False,
         can_manage_billing=False,

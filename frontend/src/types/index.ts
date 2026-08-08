@@ -250,6 +250,7 @@ export type StaffRole =
   | "FLOOR_STAFF"
   | "CASHIER"
   | "WAITER"
+  | "DELIVERY_BOY"
   | "STAFF";
 
 export interface StaffMember {
