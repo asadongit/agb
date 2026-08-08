@@ -78,6 +78,10 @@ def upgrade() -> None:
             sa.Column('terminated_reason', sa.String(length=500), nullable=True)
         )
 
+    # 5. Remove NOT NULL constraint on legacy is_active column if present
+    if 'is_active' in columns:
+        conn.execute(sa.text("ALTER TABLE table_sessions ALTER COLUMN is_active DROP NOT NULL"))
+
 
 def downgrade() -> None:
     pass
