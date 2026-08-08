@@ -23,10 +23,11 @@ def upgrade() -> None:
 
     # 1. Add PAYMENT_PENDING value to Postgres orderstatusenum if not already present
     if conn.dialect.name == "postgresql":
-        conn.execute(sa.text("ALTER TYPE orderstatusenum ADD VALUE IF NOT EXISTS 'PAYMENT_PENDING';"))
+        with op.get_context().autocommit_block():
+            op.execute("ALTER TYPE orderstatusenum ADD VALUE IF NOT EXISTS 'PAYMENT_PENDING'")
 
     # 2. Update existing rows with status 'PREPARING' to 'PAYMENT_PENDING'
-    conn.execute(sa.text("UPDATE orders SET status = 'PAYMENT_PENDING' WHERE status = 'PREPARING';"))
+    op.execute("UPDATE orders SET status = 'PAYMENT_PENDING' WHERE status = 'PREPARING'")
 
 
 def downgrade() -> None:
