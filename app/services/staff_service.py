@@ -278,6 +278,42 @@ async def deactivate_staff(
     )
 
 
+async def delete_staff_permanently(
+    db: AsyncSession,
+    restaurant_id: uuid.UUID,
+    staff_id: uuid.UUID,
+) -> None:
+    """Permanently delete a staff member from the database."""
+    res = await db.execute(
+        select(Staff).where(
+            Staff.id == staff_id,
+            Staff.restaurant_id == restaurant_id,
+        )
+    )
+    staff = res.scalar_one_or_none()
+    if not staff:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Staff member not found.",
+        )
+
+    staff_name = staff.name
+    staff_email = staff.email
+
+    await db.delete(staff)
+    await db.flush()
+
+    await create_staff_audit_log(
+        db,
+        restaurant_id=restaurant_id,
+        staff_id=None,
+        action_type="staff_permanently_deleted",
+        reference_type="Staff",
+        reference_id=str(staff_id),
+        details=f"Permanently deleted staff '{staff_name}' ({staff_email})",
+    )
+
+
 async def set_staff_pin(
     db: AsyncSession,
     restaurant_id: uuid.UUID,

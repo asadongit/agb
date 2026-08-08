@@ -300,8 +300,28 @@ export default function AdminDashboardPage() {
     }
   }, []);
 
-  // Navigation tab: "orders" | "menu" | "staff" | "inventory" | "settings" | "qrcodes"
-  const [activeTab, setActiveTab] = useState<"orders" | "menu" | "staff" | "inventory" | "settings" | "qrcodes">("orders");
+  // Navigation tab: "orders" | "menu" | "staff" | "inventory" | "settings" | "qrcodes" | "billing" | "analytics"
+  const [activeTabState, setActiveTabState] = useState<any>(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "");
+      const saved = localStorage.getItem("admin_active_tab");
+      const validTabs = ["orders", "billing", "menu", "staff", "analytics", "inventory", "qrcodes", "settings"];
+      if (hash && validTabs.includes(hash)) return hash;
+      if (saved && validTabs.includes(saved)) return saved;
+    }
+    return "orders";
+  });
+
+  const activeTab = activeTabState;
+
+  const setActiveTab = useCallback((tab: any) => {
+    setActiveTabState(tab);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("admin_active_tab", tab);
+      window.history.replaceState(null, "", `#${tab}`);
+    }
+  }, []);
+
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [adminTheme, setAdminTheme] = useState<"light" | "dark">("light");
 
@@ -357,6 +377,7 @@ export default function AdminDashboardPage() {
   const [staffModalOpen, setStaffModalOpen] = useState(false);
   const [editingStaffId, setEditingStaffId] = useState<string | null>(null);
   const [staffFormState, setStaffFormState] = useState({
+    restaurant_id: "",
     name: "",
     email: "",
     phone: "",
@@ -1473,6 +1494,8 @@ export default function AdminDashboardPage() {
     setIsSavingStaff(true);
     setError(null);
 
+    const targetRestaurantId = restaurant?.id || null;
+
     try {
       if (editingStaffId) {
         const payload = {
@@ -1488,6 +1511,7 @@ export default function AdminDashboardPage() {
         setNotice(`Staff member "${updated.name}" updated.`);
       } else {
         const payload = {
+          restaurant_id: targetRestaurantId,
           name: staffFormState.name.trim(),
           email: staffFormState.email.trim(),
           phone: staffFormState.phone.trim() || null,
@@ -1504,7 +1528,7 @@ export default function AdminDashboardPage() {
 
       setStaffModalOpen(false);
       setEditingStaffId(null);
-      setStaffFormState({ name: "", email: "", phone: "", role: "WAITER", password: "", pin: "" });
+      setStaffFormState({ restaurant_id: "", name: "", email: "", phone: "", role: "WAITER", password: "", pin: "" });
       void loadStaffMembers();
       void loadStaffAuditLogs();
     } catch (err) {
@@ -3395,7 +3419,7 @@ export default function AdminDashboardPage() {
                   type="button"
                   onClick={() => {
                     setEditingStaffId(null);
-                    setStaffFormState({ name: "", email: "", phone: "", role: "WAITER", password: "", pin: "" });
+                    setStaffFormState({ restaurant_id: restaurant?.id || "", name: "", email: "", phone: "", role: "WAITER", password: "", pin: "" });
                     setStaffModalOpen(true);
                   }}
                   className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-4 py-2 text-xs font-bold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)] shadow-xs transition"
@@ -3539,6 +3563,7 @@ export default function AdminDashboardPage() {
                               onClick={() => {
                                 setEditingStaffId(member.id);
                                 setStaffFormState({
+                                  restaurant_id: member.restaurant_id || "",
                                   name: member.name,
                                   email: member.email,
                                   phone: member.phone || "",

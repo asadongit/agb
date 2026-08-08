@@ -43,6 +43,7 @@ from app.services.staff_service import (
     create_staff,
     create_staff_audit_log,
     deactivate_staff,
+    delete_staff_permanently,
     get_permissions_for_role,
     set_staff_pin,
     to_staff_response,
@@ -126,8 +127,9 @@ async def deactivate_staff_endpoint(
     staff_id: uuid.UUID,
     current_user: RequireAdmin,
     db: DBSession,
+    permanent: bool = Query(False),
 ):
-    """Soft-delete/deactivate a staff member."""
+    """Deactivate or permanently delete a staff member."""
     target_restaurant_id = current_user.restaurant_id
     if current_user.role == RoleEnum.SUPERADMIN:
         res = await db.execute(select(Staff).where(Staff.id == staff_id))
@@ -139,7 +141,10 @@ async def deactivate_staff_endpoint(
     if not target_restaurant_id:
         raise HTTPException(status_code=400, detail="restaurant_id required")
 
-    await deactivate_staff(db, target_restaurant_id, staff_id)
+    if permanent or current_user.role == RoleEnum.SUPERADMIN:
+        await delete_staff_permanently(db, target_restaurant_id, staff_id)
+    else:
+        await deactivate_staff(db, target_restaurant_id, staff_id)
 
 
 @router.post("/{staff_id}/set-pin", status_code=status.HTTP_200_OK)
