@@ -2755,10 +2755,10 @@ export default function AdminDashboardPage() {
                                       });
                                       generateReceiptPDF(order, restaurant?.name || "ApnaGreen Basket", itemsMap);
                                     }}
-                                    className="flex items-center gap-1 rounded-md border border-emerald-500/40 bg-emerald-500/10 px-1.5 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
+                                    className="flex items-center gap-1 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition cursor-pointer"
                                     title="Download Official Bill PDF"
                                   >
-                                    <FileText className="h-3 w-3 text-emerald-500" />
+                                    <FileText className="h-3 w-3 text-[var(--accent-brand)]" />
                                     <span>PDF Bill</span>
                                   </button>
                                 </div>
@@ -3412,15 +3412,15 @@ export default function AdminDashboardPage() {
                 <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Total Staff</p>
                 <p className="text-2xl font-black text-[var(--text-primary)]">{staffList.length}</p>
               </div>
-              <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-1 shadow-xs">
-                <p className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">Active Staff</p>
-                <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-1 shadow-xs">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Active Staff</p>
+                <p className="text-2xl font-black text-[var(--text-primary)]">
                   {staffList.filter((s) => s.status === "active").length}
                 </p>
               </div>
-              <div className="rounded-2xl border border-[var(--accent-brand)]/30 bg-[var(--accent-brand)]/10 p-4 space-y-1 shadow-xs">
-                <p className="text-xs font-bold uppercase tracking-wider text-[var(--accent-brand)]">PIN Provisioned</p>
-                <p className="text-2xl font-black text-[var(--accent-brand)]">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-1 shadow-xs">
+                <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">PIN Provisioned</p>
+                <p className="text-2xl font-black text-[var(--text-primary)]">
                   {staffList.filter((s) => s.has_pin).length}
                 </p>
               </div>
@@ -3836,21 +3836,21 @@ export default function AdminDashboardPage() {
                 </div>
 
                 {/* Profit Margin % */}
-                <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-2 shadow-xs">
-                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-2 shadow-xs">
+                  <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                     <span>Profit Margin</span>
                     <Percent className="h-4 w-4" />
                   </div>
                   <div className="flex items-baseline justify-between">
-                    <p className="text-2xl font-black text-emerald-600 dark:text-emerald-400">
+                    <p className="text-2xl font-black text-[var(--text-primary)]">
                       {kpiData.profit_margin_pct.toFixed(1)}%
                     </p>
-                    <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${kpiData.margin_change_pct >= 0 ? "bg-emerald-500/25 text-emerald-700 dark:text-emerald-300" : "bg-rose-500/25 text-rose-700"
+                    <span className={`inline-flex items-center gap-0.5 rounded-full px-2 py-0.5 text-[10px] font-bold ${kpiData.margin_change_pct >= 0 ? "bg-[var(--accent-brand)]/15 text-[var(--accent-brand)]" : "bg-rose-500/15 text-rose-600"
                       }`}>
                       {kpiData.margin_change_pct >= 0 ? "+" : ""}{kpiData.margin_change_pct}%
                     </span>
                   </div>
-                  <p className="text-[10px] text-emerald-700 dark:text-emerald-300">
+                  <p className="text-[10px] text-[var(--text-secondary)]">
                     Net: ₹{kpiData.net_profit.toFixed(0)} | COGS: ₹{kpiData.cogs.toFixed(0)}
                   </p>
                 </div>
@@ -4085,7 +4085,7 @@ export default function AdminDashboardPage() {
               <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
                 <div>
                   <h2 className="font-display text-lg font-bold flex items-center gap-2">
-                    <Percent className="h-5 w-5 text-emerald-500" />
+                    <Percent className="h-5 w-5 text-[var(--accent-brand)]" />
                     Profit Margin &amp; Cost of Goods Sold (COGS)
                   </h2>
                   <p className="text-xs text-[var(--text-muted)]">
@@ -4093,7 +4093,7 @@ export default function AdminDashboardPage() {
                   </p>
                 </div>
                 {profitData && (
-                  <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-1.5 text-xs font-bold text-emerald-600">
+                  <div className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)]">
                     Overall Margin: {profitData.overall_margin_pct}%
                   </div>
                 )}
@@ -4527,19 +4527,19 @@ export default function AdminDashboardPage() {
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Total Ingredients</p>
                     <p className="text-2xl font-black text-[var(--text-primary)]">{inventoryItems.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4 space-y-1 shadow-xs">
-                    <p className="text-xs font-bold uppercase tracking-wider text-amber-600 dark:text-amber-400">Low Stock Alerts</p>
-                    <p className="text-2xl font-black text-amber-600 dark:text-amber-400">{lowStockAlerts.length}</p>
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-1 shadow-xs">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Low Stock Alerts</p>
+                    <p className="text-2xl font-black text-[var(--text-primary)]">{lowStockAlerts.length}</p>
                   </div>
-                  <div className="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 space-y-1 shadow-xs">
-                    <p className="text-xs font-bold uppercase tracking-wider text-rose-600 dark:text-rose-400">Near-Expiry / Expired</p>
-                    <p className="text-2xl font-black text-rose-600 dark:text-rose-400">
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-1 shadow-xs">
+                    <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Near-Expiry / Expired</p>
+                    <p className="text-2xl font-black text-[var(--text-primary)]">
                       {nearExpiryAlerts.length}
                     </p>
                   </div>
                   <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-1 shadow-xs">
                     <p className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">Est. Inventory Value</p>
-                    <p className="text-2xl font-black text-[var(--accent-brand)]">
+                    <p className="text-2xl font-black text-[var(--text-primary)]">
                       ₹{inventoryItems.reduce((sum, i) => sum + (parseFloat(i.current_stock) > 0 ? parseFloat(i.current_stock) * parseFloat(i.cost_per_unit) : 0), 0).toFixed(2)}
                     </p>
                   </div>
@@ -4547,9 +4547,9 @@ export default function AdminDashboardPage() {
 
                 {/* Near-Expiry Alerts Section */}
                 {nearExpiryAlerts.length > 0 && (
-                  <div className="rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4 space-y-3">
+                  <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-4 space-y-3 shadow-xs">
                     <div className="flex items-center gap-2">
-                      <AlertTriangle className="h-5 w-5 text-amber-500 shrink-0" />
+                      <AlertTriangle className="h-5 w-5 text-amber-600 shrink-0" />
                       <h3 className="font-bold text-sm text-[var(--text-primary)]">
                         Near-Expiry &amp; Expired Produce Batches ({nearExpiryAlerts.length})
                       </h3>
@@ -4561,11 +4561,7 @@ export default function AdminDashboardPage() {
                         return (
                           <div
                             key={alert.intake_id}
-                            className={`rounded-xl border p-3 space-y-1.5 ${
-                              isExpired
-                                ? "border-rose-500/40 bg-rose-500/10 text-rose-600 dark:text-rose-400"
-                                : "border-amber-500/40 bg-amber-500/10 text-amber-600 dark:text-amber-400"
-                            }`}
+                            className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 space-y-1.5 text-[var(--text-primary)]"
                           >
                             <div className="flex items-center justify-between">
                               <span className="font-bold text-xs">{alert.item_name}</span>
