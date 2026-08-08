@@ -64,6 +64,11 @@ def upgrade() -> None:
             batch_op.create_index(batch_op.f('ix_orders_session_id'), ['session_id'], unique=False)
             batch_op.create_foreign_key(batch_op.f('fk_orders_session_id_table_sessions'), 'table_sessions', ['session_id'], ['id'], ondelete='SET NULL')
 
+    rest_cols = [c['name'] for c in inspector.get_columns('restaurants')] if inspector.has_table('restaurants') else []
+    if 'session_duration_minutes' not in rest_cols:
+        with op.batch_alter_table('restaurants', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('session_duration_minutes', sa.Integer(), server_default='30', nullable=False))
+
 
 def downgrade() -> None:
     with op.batch_alter_table('orders', schema=None) as batch_op:

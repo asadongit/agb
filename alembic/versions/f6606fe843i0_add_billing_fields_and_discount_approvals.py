@@ -45,6 +45,12 @@ def upgrade() -> None:
     if 'paid_at' not in order_cols:
         op.add_column('orders', sa.Column('paid_at', sa.DateTime(), nullable=True))
 
+    rest_cols = [c['name'] for c in inspector.get_columns('restaurants')] if inspector.has_table('restaurants') else []
+    if 'verification_amount_cutoff' not in rest_cols:
+        op.add_column('restaurants', sa.Column('verification_amount_cutoff', sa.Numeric(precision=10, scale=2), nullable=True))
+    if 'flagged_item_ids' not in rest_cols:
+        op.add_column('restaurants', sa.Column('flagged_item_ids', sa.JSON(), server_default='[]', nullable=False))
+
     # 2. Update order_items table
     item_cols = [c['name'] for c in inspector.get_columns('order_items')]
     if 'item_name' not in item_cols:
