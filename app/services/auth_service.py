@@ -91,6 +91,7 @@ async def login_user(
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
+        role=user.role.value,
     )
 
 
@@ -155,6 +156,7 @@ async def refresh_tokens(
     return TokenResponse(
         access_token=new_access,
         refresh_token=new_refresh,
+        role=user.role.value,
     )
 
 

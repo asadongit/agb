@@ -168,6 +168,7 @@ type LoginResponse = {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  role: string;
 };
 
 type CategoryFormState = {
@@ -1228,6 +1229,12 @@ export default function AdminDashboardPage() {
       });
 
       const data = await parseApiResponse<LoginResponse>(response);
+
+      if (data.role === "SUPERADMIN") {
+        setError("Superadmin accounts cannot access the Outlet dashboard. Please use the Superadmin Console at /superadmin.");
+        return;
+      }
+
       setAccessToken(data.access_token);
       window.localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
       window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);

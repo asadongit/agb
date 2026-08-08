@@ -35,6 +35,7 @@ type LoginResponse = {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  role: string;
 };
 
 type RestaurantUser = {
@@ -267,10 +268,9 @@ export default function SuperadminPage() {
 
       const data = await parseApiResponse<LoginResponse>(response);
 
-      const userRole = decodeJwtRole(data.access_token);
-      if (userRole !== "SUPERADMIN") {
+      if (data.role !== "SUPERADMIN") {
         throw new Error(
-          `Access denied. Superadmin credentials required. Your account role is '${userRole || "UNKNOWN"}'.`
+          `Access denied. Superadmin credentials required. Your account role is '${data.role || "UNKNOWN"}'.`
         );
       }
 
