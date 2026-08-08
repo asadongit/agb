@@ -9,7 +9,6 @@ from typing import Sequence, Union
 
 from alembic import op
 import sqlalchemy as sa
-from sqlalchemy.dialects import postgresql
 
 # revision identifiers, used by Alembic.
 revision: str = '000000000000'
@@ -29,14 +28,6 @@ def upgrade() -> None:
         sa.Column('razorpay_account_id', sa.String(length=255), nullable=True),
         sa.Column('direct_upi_id', sa.String(length=255), nullable=True),
         sa.Column('raw_upi_payload', sa.String(length=1024), nullable=True),
-        sa.Column('logo_url', sa.String(length=1024), nullable=True),
-        sa.Column('address', sa.String(length=500), nullable=True),
-        sa.Column('phone', sa.String(length=50), nullable=True),
-        sa.Column('gstin', sa.String(length=50), nullable=True),
-        sa.Column('fssai_no', sa.String(length=50), nullable=True),
-        sa.Column('session_duration_minutes', sa.Integer(), server_default='30', nullable=False),
-        sa.Column('verification_amount_cutoff', sa.Numeric(precision=10, scale=2), nullable=True),
-        sa.Column('flagged_item_ids', sa.JSON(), server_default='[]', nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_restaurants')),
@@ -92,9 +83,6 @@ def upgrade() -> None:
         sa.Column('price', sa.Numeric(precision=10, scale=2), nullable=False),
         sa.Column('image_url', sa.String(length=1024), nullable=True),
         sa.Column('is_available', sa.Boolean(), server_default='true', nullable=False),
-        sa.Column('is_on_offer', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('offer_price', sa.Numeric(precision=10, scale=2), nullable=True),
-        sa.Column('offer_label', sa.String(length=255), nullable=True),
         sa.Column('pricing_mode', sa.Enum('WEIGHT_BASED', 'FIXED_UNIT', name='pricingmodeenum'), server_default='FIXED_UNIT', nullable=False),
         sa.Column('unit_label', sa.String(length=50), server_default='piece', nullable=False),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
@@ -123,12 +111,11 @@ def upgrade() -> None:
     with op.batch_alter_table('menu_item_variants', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_menu_item_variants_menu_item_id'), ['menu_item_id'], unique=False)
 
-    # 6. orders (without session_id FK yet; added in afa1e7518cb7)
+    # 6. orders
     op.create_table(
         'orders',
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('restaurant_id', sa.UUID(), nullable=False),
-        sa.Column('session_id', sa.UUID(), nullable=True),
         sa.Column('table_number', sa.String(length=50), nullable=False),
         sa.Column('customer_name', sa.String(length=255), nullable=True),
         sa.Column('customer_phone', sa.String(length=20), nullable=True),
@@ -137,24 +124,13 @@ def upgrade() -> None:
         sa.Column('payment_reference', sa.String(length=255), nullable=True),
         sa.Column('source', sa.String(length=20), server_default='qr', nullable=False),
         sa.Column('is_auto_verified', sa.Boolean(), server_default='false', nullable=False),
-        sa.Column('created_by_staff_id', sa.UUID(), nullable=True),
-        sa.Column('subtotal_amount', sa.Numeric(precision=10, scale=2), nullable=True),
-        sa.Column('discount_type', sa.String(length=30), nullable=True),
-        sa.Column('discount_value', sa.Numeric(precision=10, scale=2), nullable=True),
-        sa.Column('discount_reason', sa.String(length=500), nullable=True),
-        sa.Column('discount_status', sa.String(length=30), nullable=True),
-        sa.Column('payment_method', sa.String(length=30), nullable=True),
-        sa.Column('finalized_at', sa.DateTime(), nullable=True),
-        sa.Column('paid_at', sa.DateTime(), nullable=True),
         sa.Column('created_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.Column('updated_at', sa.DateTime(), server_default=sa.text('CURRENT_TIMESTAMP'), nullable=False),
         sa.ForeignKeyConstraint(['restaurant_id'], ['restaurants.id'], name=op.f('fk_orders_restaurant_id_restaurants'), ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['created_by_staff_id'], ['users.id'], name=op.f('fk_orders_created_by_staff_id_users'), ondelete='SET NULL'),
         sa.PrimaryKeyConstraint('id', name=op.f('pk_orders'))
     )
     with op.batch_alter_table('orders', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_orders_restaurant_id'), ['restaurant_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_orders_session_id'), ['session_id'], unique=False)
 
     # 7. order_items
     op.create_table(
@@ -165,7 +141,6 @@ def upgrade() -> None:
         sa.Column('variant_id', sa.UUID(), nullable=True),
         sa.Column('quantity', sa.Numeric(precision=10, scale=3), nullable=False),
         sa.Column('unit_price', sa.Numeric(precision=10, scale=2), nullable=False),
-        sa.Column('item_name_snapshot', sa.String(length=255), nullable=True),
         sa.ForeignKeyConstraint(['menu_item_id'], ['menu_items.id'], name=op.f('fk_order_items_menu_item_id_menu_items'), ondelete='SET NULL'),
         sa.ForeignKeyConstraint(['order_id'], ['orders.id'], name=op.f('fk_order_items_order_id_orders'), ondelete='CASCADE'),
         sa.ForeignKeyConstraint(['variant_id'], ['menu_item_variants.id'], name=op.f('fk_order_items_variant_id_menu_item_variants'), ondelete='SET NULL'),

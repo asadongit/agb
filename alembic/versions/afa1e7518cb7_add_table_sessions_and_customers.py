@@ -54,10 +54,15 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_table_sessions_restaurant_id'), ['restaurant_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_table_sessions_session_key'), ['session_key'], unique=True)
 
-    with op.batch_alter_table('orders', schema=None) as batch_op:
-        batch_op.add_column(sa.Column('session_id', sa.UUID(), nullable=True))
-        batch_op.create_index(batch_op.f('ix_orders_session_id'), ['session_id'], unique=False)
-        batch_op.create_foreign_key(batch_op.f('fk_orders_session_id_table_sessions'), 'table_sessions', ['session_id'], ['id'], ondelete='SET NULL')
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
+    order_cols = [c['name'] for c in inspector.get_columns('orders')] if inspector.has_table('orders') else []
+
+    if 'session_id' not in order_cols:
+        with op.batch_alter_table('orders', schema=None) as batch_op:
+            batch_op.add_column(sa.Column('session_id', sa.UUID(), nullable=True))
+            batch_op.create_index(batch_op.f('ix_orders_session_id'), ['session_id'], unique=False)
+            batch_op.create_foreign_key(batch_op.f('fk_orders_session_id_table_sessions'), 'table_sessions', ['session_id'], ['id'], ondelete='SET NULL')
 
 
 def downgrade() -> None:
