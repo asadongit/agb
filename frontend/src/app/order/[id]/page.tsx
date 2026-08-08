@@ -224,7 +224,7 @@ export default function OrderTrackingPage() {
           <Link
             href={
               typeof window !== "undefined" && localStorage.getItem("last_active_slug")
-                ? `/menu?slug=${localStorage.getItem("last_active_slug")}&table=${localStorage.getItem("last_active_table") || "1"}`
+                ? `/menu?slug=${localStorage.getItem("last_active_slug")}&basket=${localStorage.getItem("last_active_table") || "1"}`
                 : "/menu"
             }
             className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)] hover:text-[var(--accent-brand)]"

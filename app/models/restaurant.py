@@ -67,6 +67,9 @@ class Restaurant(Base, TimestampMixin):
     session_duration_minutes: Mapped[int] = mapped_column(
         default=30, nullable=False,
     )
+    public_basket_number: Mapped[str | None] = mapped_column(
+        String(50), nullable=True, default=None,
+    )
     verification_amount_cutoff: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
     )

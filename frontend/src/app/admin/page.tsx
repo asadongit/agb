@@ -167,6 +167,7 @@ type RestaurantProfile = {
   gstin?: string | null;
   fssai_no?: string | null;
   session_duration_minutes?: number | null;
+  public_basket_number?: string | null;
   verification_amount_cutoff?: string | number | null;
   created_at: string;
   updated_at: string;
@@ -214,6 +215,7 @@ type RestaurantFormState = {
   gstin: string;
   fssai_no: string;
   session_duration_minutes: number;
+  public_basket_number: string;
   verification_amount_cutoff: string;
   flagged_item_ids: string[];
 };
@@ -575,6 +577,7 @@ export default function AdminDashboardPage() {
     gstin: "",
     fssai_no: "",
     session_duration_minutes: 30,
+    public_basket_number: "",
     verification_amount_cutoff: "",
     flagged_item_ids: [],
   });
@@ -1003,6 +1006,7 @@ export default function AdminDashboardPage() {
         gstin: (restData as any).gstin || "",
         fssai_no: (restData as any).fssai_no || "",
         session_duration_minutes: (restData as any).session_duration_minutes ?? 30,
+        public_basket_number: (restData as any).public_basket_number || "",
         verification_amount_cutoff: (restData as any).verification_amount_cutoff != null ? String((restData as any).verification_amount_cutoff) : "",
         flagged_item_ids: (restData as any).flagged_item_ids || [],
       });
@@ -2026,6 +2030,7 @@ export default function AdminDashboardPage() {
         gstin: restaurantForm.gstin.trim() || null,
         fssai_no: restaurantForm.fssai_no.trim() || null,
         session_duration_minutes: restaurantForm.session_duration_minutes,
+        public_basket_number: restaurantForm.public_basket_number.trim() || null,
         verification_amount_cutoff: restaurantForm.verification_amount_cutoff.trim() ? parseFloat(restaurantForm.verification_amount_cutoff) : null,
         flagged_item_ids: restaurantForm.flagged_item_ids,
       };
@@ -5487,6 +5492,25 @@ export default function AdminDashboardPage() {
                       <span className="text-xs text-[var(--text-muted)]">min (5–120). How long a customer&apos;s basket session lasts before expiry.</span>
                     </div>
                   </label>
+
+                  <label className="block space-y-1">
+                    <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Public Basket Number</span>
+                    <div className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={restaurantForm.public_basket_number}
+                        onChange={(event) =>
+                          setRestaurantForm((current) => ({
+                            ...current,
+                            public_basket_number: event.target.value,
+                          }))
+                        }
+                        placeholder="e.g. 0"
+                        className="w-24 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm text-center"
+                      />
+                      <span className="text-xs text-[var(--text-muted)]">Basket number that bypasses session locking. Leave empty to disable.</span>
+                    </div>
+                  </label>
                 </div>
 
                 {/* Verification Rules Settings */}
@@ -5595,7 +5619,7 @@ export default function AdminDashboardPage() {
         {activeTab === "qrcodes" && (
           <div className="space-y-6">
             <div>
-              <h1 className="font-display text-2xl font-bold tracking-tight">Table QR Code Generator</h1>
+              <h1 className="font-display text-2xl font-bold tracking-tight">Basket QR Code Generator</h1>
               <p className="text-sm text-[var(--text-secondary)]">
                 Generate high-quality printable QR codes for customer self-ordering and payments
               </p>
@@ -5625,8 +5649,8 @@ export default function AdminDashboardPage() {
                     <span className="text-[10px] uppercase tracking-wide text-[var(--text-muted)] font-bold">Target QR Link</span>
                     <p className="text-[10px] font-mono text-[var(--accent-brand)] select-all break-all max-w-full">
                       {typeof window !== "undefined"
-                        ? `${window.location.origin}/menu?slug=${restaurant?.slug || "outlet"}&table=${qrTableNumber}`
-                        : `/menu?slug=${restaurant?.slug || "outlet"}&table=${qrTableNumber}`}
+                        ? `${window.location.origin}/menu?slug=${restaurant?.slug || "outlet"}&basket=${qrTableNumber}`
+                        : `/menu?slug=${restaurant?.slug || "outlet"}&basket=${qrTableNumber}`}
                     </p>
                   </div>
 
@@ -5665,10 +5689,10 @@ export default function AdminDashboardPage() {
                       <img
                         src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(
                           typeof window !== "undefined"
-                            ? `${window.location.origin}/menu?slug=${restaurant?.slug || ""}&table=${qrTableNumber}`
+                            ? `${window.location.origin}/menu?slug=${restaurant?.slug || ""}&basket=${qrTableNumber}`
                             : ""
                         )}`}
-                        alt={`QR Code for Table ${qrTableNumber}`}
+                        alt={`QR Code for Basket ${qrTableNumber}`}
                         className="h-44 w-44 object-contain"
                       />
                     </div>
@@ -5690,7 +5714,7 @@ export default function AdminDashboardPage() {
             <article className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-5 space-y-4 shadow-xs">
               <div className="flex items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
                 <Layers className="h-5 w-5 text-[var(--accent-brand)]" />
-                <h2 className="font-display text-base font-bold">Print Table QR Sheets (Batch Mode)</h2>
+                <h2 className="font-display text-base font-bold">Print Basket QR Sheets (Batch Mode)</h2>
               </div>
 
               <div className="grid gap-4 sm:grid-cols-3 items-end">
@@ -5723,7 +5747,7 @@ export default function AdminDashboardPage() {
                       if (printWindow) {
                         const qrCards = [];
                         for (let i = batchStart; i <= batchEnd; i++) {
-                          const url = `${window.location.origin}/menu?slug=${restaurant?.slug || ""}&table=${i}`;
+                          const url = `${window.location.origin}/menu?slug=${restaurant?.slug || ""}&basket=${i}`;
                           qrCards.push(`
                             <div style="width: 260px; border: 4px solid #14b8a6; border-radius: 24px; padding: 24px; text-align: center; font-family: system-ui, sans-serif; page-break-inside: avoid; margin: 15px; display: inline-block; background: white; color: black; box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);">
                               <h3 style="margin: 0; font-size: 20px; font-weight: 900; color: #14b8a6;">${restaurant?.name || "ApnaGreen Basket"}</h3>

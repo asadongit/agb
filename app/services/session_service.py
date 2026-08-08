@@ -133,14 +133,18 @@ async def start_or_resume_session(
                 "session_duration_minutes": duration_minutes,
             }
         else:
-            # Different name → basket is locked
-            raise HTTPException(
-                status_code=status.HTTP_409_CONFLICT,
-                detail=(
-                    f"This basket is currently in use by {existing.customer_name}. "
-                    "Please use a different basket or wait until it's available."
-                ),
-            )
+            # Different name → basket is locked (unless it's a public basket)
+            if restaurant.public_basket_number and table_number == restaurant.public_basket_number:
+                # Public basket — allow multiple concurrent sessions, skip conflict
+                pass
+            else:
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=(
+                        f"This basket is currently in use by {existing.customer_name}. "
+                        "Please use a different basket or wait until it's available."
+                    ),
+                )
 
     # No active session on this basket — archive any old session_key to free slot
     result = await db.execute(

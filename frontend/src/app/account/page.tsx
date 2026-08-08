@@ -95,7 +95,7 @@ function formatDateTime(value: string): string {
 function AccountContent() {
   const searchParams = useSearchParams();
   const slug = searchParams.get("slug") || "apnagreenbasket-jammu";
-  const table = searchParams.get("table") || "";
+  const table = searchParams.get("basket") || "";
 
   // Session data from localStorage
   const [sessionId, setSessionId] = useState<string | null>(null);
@@ -198,7 +198,7 @@ function AccountContent() {
       <header className="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/95 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3">
           <Link
-            href={`/menu?slug=${slug}&table=${table}`}
+            href={`/menu?slug=${slug}&basket=${table}`}
             className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)] hover:text-[var(--accent-brand)]"
           >
             <ArrowLeft className="h-4 w-4" />

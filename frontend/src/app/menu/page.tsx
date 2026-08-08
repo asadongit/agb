@@ -126,7 +126,7 @@ function DigitalMenuApp() {
 
     if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
-      const tableParam = urlParams.get("table");
+      const tableParam = urlParams.get("basket");
       const slugParam = urlParams.get("slug");
       const savedSlug = localStorage.getItem("last_active_slug");
       const savedTable = localStorage.getItem("last_active_table");
@@ -160,7 +160,7 @@ function DigitalMenuApp() {
         window.history.replaceState(
           {},
           "",
-          `/menu?slug=${currentSlug}&table=${currentTable || "1"}`
+          `/menu?slug=${currentSlug}&basket=${currentTable || "1"}`
         );
       }
     }
@@ -181,7 +181,7 @@ function DigitalMenuApp() {
     if (typeof window !== "undefined") {
       localStorage.setItem("last_active_slug", slug);
       localStorage.setItem("last_active_table", table);
-      window.history.replaceState({}, "", `/menu?slug=${slug}&table=${table}`);
+      window.history.replaceState({}, "", `/menu?slug=${slug}&basket=${table}`);
     }
     loadMenuForSlug(slug);
   };

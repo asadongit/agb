@@ -27,6 +27,7 @@ class RestaurantCreate(StrictSchema):
     gstin: str | None = None
     fssai_no: str | None = None
     session_duration_minutes: int = Field(default=30, ge=5, le=120)
+    public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = Field(None, ge=0)
     flagged_item_ids: list[str] = Field(default_factory=list)
 
@@ -44,6 +45,7 @@ class RestaurantUpdate(StrictSchema):
     gstin: str | None = None
     fssai_no: str | None = None
     session_duration_minutes: int | None = Field(None, ge=5, le=120)
+    public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = Field(None, ge=0)
     flagged_item_ids: list[str] | None = None
 
@@ -62,6 +64,7 @@ class RestaurantResponse(BaseResponse):
     gstin: str | None = None
     fssai_no: str | None = None
     session_duration_minutes: int = 30
+    public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = None
     flagged_item_ids: list[str] = Field(default_factory=list)
     created_at: datetime

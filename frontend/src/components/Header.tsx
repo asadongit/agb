@@ -64,7 +64,7 @@ export function Header({ restaurantName, tableNumber, logoUrl, onSearchClick }: 
             {/* Account / Login Button */}
             {isSessionActive ? (
               <Link
-                href={`/account?slug=${restaurantSlug}&table=${tableNumber}`}
+                href={`/account?slug=${restaurantSlug}&basket=${tableNumber}`}
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--accent-brand)]/30 bg-[var(--accent-brand)]/10 text-[var(--accent-brand)] transition-transform active:scale-95 hover:bg-[var(--accent-brand)]/20"
                 title={`Logged in as ${customerName}`}
               >
