@@ -1175,7 +1175,11 @@ export default function AdminDashboardPage() {
         if (event.data === "pong") return;
         try {
           const message = JSON.parse(event.data);
-          if (message.event === "NEW_ORDER_PAID" || message.event === "VERIFICATION_NEEDED") {
+          if (
+            message.event === "NEW_ORDER_PAID" ||
+            message.event === "VERIFICATION_NEEDED" ||
+            message.event === "SESSION_CHANGED"
+          ) {
             void loadDashboard();
           } else if (message.event === "ORDER_STATUS_CHANGED" && message.data) {
             setOrders((current) =>

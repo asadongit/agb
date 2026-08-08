@@ -121,6 +121,9 @@ async def terminate_session_endpoint(
         reason=data.reason,
     )
 
+    from app.services.websocket_service import broadcast_session_changed
+    await broadcast_session_changed(session.restaurant_id, session_id, "TERMINATED")
+
     await log_action(
         db,
         current_user.restaurant_id,

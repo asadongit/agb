@@ -167,3 +167,16 @@ async def broadcast_order_status_changed(
             "new_status": new_status,
         },
     )
+
+
+async def broadcast_session_changed(
+    restaurant_id: uuid.UUID,
+    session_id: uuid.UUID,
+    action: str = "CREATED",
+) -> None:
+    """Broadcast SESSION_CHANGED on session creation, extension, or termination."""
+    await ws_manager.broadcast_to_restaurant(
+        restaurant_id,
+        "SESSION_CHANGED",
+        {"session_id": str(session_id), "action": action},
+    )

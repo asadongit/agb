@@ -97,6 +97,10 @@ async def checkout(
         await db.flush()
 
         # Broadcast to staff dashboard
+        if order.session_id:
+            from app.services.websocket_service import broadcast_session_changed
+            await broadcast_session_changed(restaurant.id, order.session_id, "UPDATED")
+
         if not order.is_auto_verified:
             await broadcast_verification_needed(
                 restaurant_id=restaurant.id,

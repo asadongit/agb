@@ -56,6 +56,9 @@ async def start_session(
     session = result["session"]
     active_orders = result["active_orders"]
 
+    from app.services.websocket_service import broadcast_session_changed
+    await broadcast_session_changed(session.restaurant_id, session.id, "CREATED")
+
     return StartSessionResponse(
         session_id=session.id,
         customer_name=session.customer_name,
