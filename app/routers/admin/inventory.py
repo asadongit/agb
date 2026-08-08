@@ -1,0 +1,305 @@
+"""
+Inventory admin routes — outlet-scoped ingredient master CRUD, stock intake, recipe mapping, and movement ledger.
+"""
+
+from __future__ import annotations
+
+import math
+import uuid
+from datetime import datetime
+
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
+
+from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.models.enums import StockChangeTypeEnum
+from app.models.inventory_item import InventoryItem
+from app.models.menu_item_recipe import MenuItemRecipe
+from app.models.stock_intake import StockIntake
+from app.models.stock_ledger import StockLedger
+from app.schemas.inventory import (
+    BatchExpiryAlertResponse,
+    InventoryItemCreate,
+    InventoryItemResponse,
+    InventoryItemUpdate,
+    RecipeIngredientResponse,
+    RecipeSaveRequest,
+    StockIntakeCreate,
+    StockIntakeResponse,
+    StockLedgerPageResponse,
+    StockLedgerResponse,
+)
+from app.services.audit_service import log_action
+from app.services.inventory_service import (
+    create_inventory_item,
+    get_near_expiry_alerts,
+    log_stock_intake,
+    save_menu_item_recipe,
+    update_inventory_item,
+)
+
+router = APIRouter(prefix="/api/admin/inventory", tags=["admin-inventory"])
+
+
+@router.get("/items", response_model=list[InventoryItemResponse])
+async def list_inventory_items(
+    current_user: RequireAdmin,
+    db: DBSession,
+    low_stock_only: bool = False,
+    category: str | None = None,
+    search: str | None = None,
+):
+    """List ingredient master items for current outlet."""
+    stmt = select(InventoryItem).where(
+        InventoryItem.restaurant_id == current_user.restaurant_id,
+        InventoryItem.is_active == True,  # noqa: E712
+    )
+
+    if low_stock_only:
+        stmt = stmt.where(
+            InventoryItem.current_stock <= InventoryItem.reorder_threshold
+        )
+
+    if category and category != "ALL":
+        stmt = stmt.where(InventoryItem.category == category)
+
+    if search:
+        stmt = stmt.where(InventoryItem.name.ilike(f"%{search.strip()}%"))
+
+    stmt = stmt.order_by(InventoryItem.name)
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.post("/items", response_model=InventoryItemResponse, status_code=status.HTTP_201_CREATED)
+async def create_item(
+    data: InventoryItemCreate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Create a new ingredient in outlet inventory master."""
+    item = await create_inventory_item(db, current_user.restaurant_id, data)
+
+    await log_action(
+        db, current_user.restaurant_id, current_user.user_id,
+        "CREATE", "InventoryItem", str(item.id),
+        details={"name": item.name, "unit": item.unit.value},
+    )
+
+    return item
+
+
+@router.put("/items/{item_id}", response_model=InventoryItemResponse)
+async def update_item(
+    item_id: uuid.UUID,
+    data: InventoryItemUpdate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Update ingredient record (threshold, cost per unit, stock)."""
+    item = await update_inventory_item(db, current_user.restaurant_id, item_id, data)
+
+    await log_action(
+        db, current_user.restaurant_id, current_user.user_id,
+        "UPDATE", "InventoryItem", str(item.id),
+        details={"name": item.name},
+    )
+
+    return item
+
+
+@router.delete("/items/{item_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def deactivate_item(
+    item_id: uuid.UUID,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Soft-delete/deactivate an ingredient from inventory master."""
+    stmt = select(InventoryItem).where(
+        InventoryItem.id == item_id,
+        InventoryItem.restaurant_id == current_user.restaurant_id,
+    )
+    res = await db.execute(stmt)
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found",
+        )
+
+    item.is_active = False
+    await db.flush()
+
+    await log_action(
+        db, current_user.restaurant_id, current_user.user_id,
+        "DELETE", "InventoryItem", str(item.id),
+        details={"name": item.name},
+    )
+
+
+@router.post("/intake", response_model=StockIntakeResponse, status_code=status.HTTP_201_CREATED)
+async def record_stock_intake(
+    data: StockIntakeCreate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Log daily stock intake (updates current stock & appends ledger entry)."""
+    intake = await log_stock_intake(
+        db, current_user.restaurant_id, current_user.user_id, data
+    )
+
+    await log_action(
+        db, current_user.restaurant_id, current_user.user_id,
+        "CREATE", "StockIntake", str(intake.id),
+        details={"quantity": str(intake.quantity), "unit_cost": str(intake.unit_cost)},
+    )
+
+    return intake
+
+
+@router.get("/ledger", response_model=StockLedgerPageResponse)
+async def list_stock_ledger(
+    current_user: RequireAdmin,
+    db: DBSession,
+    item_id: uuid.UUID | None = None,
+    change_type: StockChangeTypeEnum | None = None,
+    page: int = Query(default=1, ge=1),
+    page_size: int = Query(default=20, ge=1, le=100),
+):
+    """Get paginated stock movement audit ledger for current outlet."""
+    stmt = (
+        select(StockLedger)
+        .options(selectinload(StockLedger.item))
+        .where(StockLedger.restaurant_id == current_user.restaurant_id)
+    )
+
+    if item_id:
+        stmt = stmt.where(StockLedger.item_id == item_id)
+
+    if change_type:
+        stmt = stmt.where(StockLedger.change_type == change_type)
+
+    # Count total
+    count_stmt = select(func.count()).select_from(stmt.subquery())
+    total_res = await db.execute(count_stmt)
+    total = total_res.scalar_one() or 0
+
+    # Paginate
+    offset = (page - 1) * page_size
+    stmt = stmt.order_by(StockLedger.created_at.desc()).offset(offset).limit(page_size)
+    result = await db.execute(stmt)
+    ledger_rows = result.scalars().all()
+
+    items_payload: list[StockLedgerResponse] = []
+    for row in ledger_rows:
+        items_payload.append(
+            StockLedgerResponse(
+                id=row.id,
+                restaurant_id=row.restaurant_id,
+                item_id=row.item_id,
+                item_name=row.item.name if row.item else "Unknown Item",
+                unit=row.item.unit if row.item else None,
+                change_type=row.change_type,
+                quantity_change=row.quantity_change,
+                resulting_stock=row.resulting_stock,
+                reference_order_id=row.reference_order_id,
+                created_by=row.created_by,
+                created_at=row.created_at,
+            )
+        )
+
+    total_pages = max(1, math.ceil(total / page_size))
+    return StockLedgerPageResponse(
+        items=items_payload,
+        total=total,
+        page=page,
+        page_size=page_size,
+        total_pages=total_pages,
+    )
+
+
+@router.post("/recipes", response_model=list[RecipeIngredientResponse])
+async def save_recipe(
+    data: RecipeSaveRequest,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Save ingredient recipe mapping for a dish."""
+    new_recipes = await save_menu_item_recipe(db, current_user.restaurant_id, data)
+
+    # Re-query with ingredient item names
+    res = await db.execute(
+        select(MenuItemRecipe)
+        .options(selectinload(MenuItemRecipe.inventory_item))
+        .where(MenuItemRecipe.menu_item_id == data.menu_item_id)
+    )
+    rows = res.scalars().all()
+
+    return [
+        RecipeIngredientResponse(
+            id=r.id,
+            menu_item_id=r.menu_item_id,
+            inventory_item_id=r.inventory_item_id,
+            inventory_item_name=r.inventory_item.name if r.inventory_item else None,
+            quantity_required=r.quantity_required,
+            unit=r.unit,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/recipes/{menu_item_id}", response_model=list[RecipeIngredientResponse])
+async def get_recipe(
+    menu_item_id: uuid.UUID,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Fetch ingredient recipe mapping for a dish."""
+    res = await db.execute(
+        select(MenuItemRecipe)
+        .options(selectinload(MenuItemRecipe.inventory_item))
+        .where(MenuItemRecipe.menu_item_id == menu_item_id)
+    )
+    rows = res.scalars().all()
+
+    return [
+        RecipeIngredientResponse(
+            id=r.id,
+            menu_item_id=r.menu_item_id,
+            inventory_item_id=r.inventory_item_id,
+            inventory_item_name=r.inventory_item.name if r.inventory_item else None,
+            quantity_required=r.quantity_required,
+            unit=r.unit,
+        )
+        for r in rows
+    ]
+
+
+@router.get("/alerts", response_model=list[InventoryItemResponse])
+async def get_low_stock_alerts(
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """List ingredients currently at or below reorder threshold."""
+    stmt = select(InventoryItem).where(
+        InventoryItem.restaurant_id == current_user.restaurant_id,
+        InventoryItem.is_active == True,  # noqa: E712
+        InventoryItem.current_stock <= InventoryItem.reorder_threshold,
+    ).order_by(InventoryItem.current_stock.asc())
+
+    result = await db.execute(stmt)
+    return result.scalars().all()
+
+
+@router.get("/near-expiry-alerts", response_model=list[BatchExpiryAlertResponse])
+async def get_near_expiry_alerts_route(
+    current_user: RequireAdmin,
+    db: DBSession,
+    threshold_days: int = Query(7, ge=1, le=90),
+):
+    """List active stock intake batches approaching or past expiry date."""
+    alerts = await get_near_expiry_alerts(
+        db, current_user.restaurant_id, threshold_days=threshold_days
+    )
+    return alerts
