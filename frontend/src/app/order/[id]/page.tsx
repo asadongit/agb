@@ -12,7 +12,7 @@ import {
   Flame,
   Package,
   RefreshCw,
-  UtensilsCrossed,
+  ShoppingBag,
   XCircle,
 } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
@@ -44,7 +44,7 @@ const STATUS_CONFIG: Record<
     bgColor: "bg-amber-50",
     textColor: "text-amber-700",
     borderColor: "border-amber-200",
-    description: "Your order is placed. Awaiting restaurant confirmation.",
+    description: "Your order is placed. Awaiting outlet confirmation.",
   },
   PAID: {
     label: "Order Confirmation Pending",
@@ -52,7 +52,7 @@ const STATUS_CONFIG: Record<
     bgColor: "bg-amber-50",
     textColor: "text-amber-700",
     borderColor: "border-amber-200",
-    description: "Payment received. Awaiting restaurant confirmation.",
+    description: "Payment received. Awaiting outlet confirmation.",
   },
   PREPARING: {
     label: "Payment Pending",
@@ -60,15 +60,15 @@ const STATUS_CONFIG: Record<
     bgColor: "bg-orange-50",
     textColor: "text-orange-700",
     borderColor: "border-orange-200",
-    description: "Your order is confirmed & prepared. Please make your payment at the counter.",
+    description: "Your order is confirmed & packed. Please make your payment at the counter.",
   },
   COMPLETED: {
-    label: "Order Served",
+    label: "Order Fulfilled",
     icon: Package,
     bgColor: "bg-emerald-50",
     textColor: "text-emerald-700",
     borderColor: "border-emerald-200",
-    description: "Enjoy your meal! Your order is completed.",
+    description: "Your order is completed. Thank you for shopping with us!",
   },
   CANCELLED: {
     label: "Cancelled",
@@ -328,7 +328,7 @@ export default function OrderTrackingPage() {
                   <div className="flex items-start justify-between">
                     <div>
                       <h4 className="font-bold text-sm">
-                        Hi, {order.customer_name || "Valued Diner"}
+                        Hi, {order.customer_name || "Valued Customer"}
                       </h4>
                       <p className="mt-1 text-xs opacity-90 leading-relaxed">
                         Thank you for ordering with us. Your order details are below:
@@ -574,7 +574,7 @@ export default function OrderTrackingPage() {
                   href="/menu"
                   className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-5 py-2.5 text-sm font-semibold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)]"
                 >
-                  <UtensilsCrossed className="h-4 w-4" />
+                  <ShoppingBag className="h-4 w-4" />
                   Order Again
                 </Link>
               </div>

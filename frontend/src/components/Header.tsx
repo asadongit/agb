@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Link from "next/link";
-import { Moon, Sun, Utensils, Search, UserCircle, LogIn } from "lucide-react";
+import { Moon, Sun, Store, Search, UserCircle, LogIn } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useSession } from "@/context/SessionContext";
 import { SessionGate } from "@/components/SessionGate";
@@ -37,7 +37,7 @@ export function Header({ restaurantName, tableNumber, logoUrl, onSearchClick }: 
               />
             ) : (
               <div className="flex h-9 w-9 items-center justify-center rounded-xl bg-[var(--accent-brand)] text-white shadow-sm">
-                <Utensils className="h-5 w-5" />
+                <Store className="h-5 w-5" />
               </div>
             )}
             <div>
@@ -55,7 +55,7 @@ export function Header({ restaurantName, tableNumber, logoUrl, onSearchClick }: 
           <div className="flex items-center gap-2">
             {/* Table Badge */}
             <div className="flex items-center gap-1 rounded-full border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-3 py-1 text-xs font-semibold text-[var(--text-primary)] shadow-2xs">
-              <span className="text-[var(--text-muted)] font-normal">Table</span>
+              <span className="text-[var(--text-muted)] font-normal">Basket</span>
               <span className="text-[var(--accent-brand)] font-bold">
                 #{tableNumber ? (tableNumber.startsWith("#") ? tableNumber.slice(1) : tableNumber) : "#"}
               </span>
@@ -97,7 +97,7 @@ export function Header({ restaurantName, tableNumber, logoUrl, onSearchClick }: 
             {onSearchClick && (
               <button
                 onClick={onSearchClick}
-                aria-label="Search menu"
+                aria-label="Search products"
                 className="flex h-9 w-9 items-center justify-center rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] transition-transform active:scale-95 hover:bg-[var(--bg-surface-hover)]"
               >
                 <Search className="h-4 w-4 text-[var(--text-secondary)]" />

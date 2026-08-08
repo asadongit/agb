@@ -83,10 +83,10 @@ export function WelcomeRestaurantSelector({
               <span>ApnaGreen Basket</span>
             </div>
             <h1 className="font-sans text-2xl font-black tracking-tight text-[var(--text-primary)]">
-              Welcome Diners!
+              Welcome!
             </h1>
             <p className="mt-1 text-xs text-[var(--text-secondary)] max-w-xs mx-auto leading-relaxed">
-              Select your restaurant below or scan a table QR code to explore the live digital menu.
+              Select your outlet below or scan a basket QR code to explore the live product catalog.
             </p>
           </div>
         </div>
@@ -110,10 +110,10 @@ export function WelcomeRestaurantSelector({
             </div>
           </div>
 
-          {/* Restaurant Selector Toggle / List */}
+          {/* Outlet Selector Toggle / List */}
           <div className="space-y-2">
             <label className="block text-xs font-bold text-[var(--text-primary)]">
-              Select Restaurant
+              Select Outlet
             </label>
 
             {isLoading ? (
@@ -128,7 +128,7 @@ export function WelcomeRestaurantSelector({
             ) : restaurants.length === 0 ? (
               <div className="py-6 text-center text-xs text-[var(--text-muted)]">
                 <AlertCircle className="mx-auto h-6 w-6 mb-1 text-[var(--text-muted)]" />
-                No active restaurants found.
+                No active outlets found.
               </div>
             ) : (
               <div className="space-y-2.5">
@@ -182,7 +182,7 @@ export function WelcomeRestaurantSelector({
 
         {/* Quick Footer hint */}
         <p className="text-center text-[11px] text-[var(--text-muted)]">
-          Scanning a table QR code will automatically select the restaurant and table.
+          Scanning a basket QR code will automatically select the outlet and basket.
         </p>
       </div>
     </div>

@@ -150,7 +150,7 @@ export default function HomePage() {
                   href="/menu"
                   className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-5 py-3 text-sm font-semibold hover:border-[var(--accent-brand)] hover:text-[var(--accent-brand)]"
                 >
-                  See diner menu mode
+                  Browse customer catalog
                   <QrCode className="h-4 w-4" />
                 </Link>
               </div>
@@ -223,7 +223,7 @@ export default function HomePage() {
                     <div key={item.name} className="flex items-center justify-between rounded-xl bg-[var(--bg-surface)] px-3 py-2">
                       <div>
                         <p className="text-sm font-semibold">{item.name}</p>
-                        <p className="text-xs text-[var(--text-muted)]">Prep {item.time}</p>
+                        <p className="text-xs text-[var(--text-muted)]">Unit: {item.time}</p>
                       </div>
                       <button
                         type="button"
@@ -261,11 +261,11 @@ export default function HomePage() {
               </div>
               <h3 className="text-xl font-semibold">Instant automatic payments</h3>
               <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-                Guest scans, places order, pays in one flow. Kitchen gets a clean paid ticket quickly. Ideal when your goal is faster table turnover with less cashier intervention.
+                Customer scans, selects items, pays in one flow. Counter staff gets a clean paid ticket instantly. Ideal when your goal is faster checkout throughput with less cashier intervention.
               </p>
               <ul className="mt-4 space-y-2 text-sm text-[var(--text-secondary)]">
                 <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />Lower queue pressure during rush hours</li>
-                <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />Auto confirmation to kitchen and service staff</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />Auto confirmation to packing and counter staff</li>
               </ul>
             </article>
 
@@ -275,11 +275,11 @@ export default function HomePage() {
               </div>
               <h3 className="text-xl font-semibold">Keep 100%, verify manually</h3>
               <p className="mt-2 text-sm leading-relaxed text-[var(--text-secondary)]">
-                Guest places order digitally and pays your staff directly. Your cashier verifies payment in one tap before the kitchen ticket moves forward. Ideal where you want no online fee impact.
+                Customer selects items digitally and pays your staff directly. Your cashier verifies payment in one tap before the order moves forward. Ideal where you want no online fee impact.
               </p>
               <ul className="mt-4 space-y-2 text-sm text-[var(--text-secondary)]">
                 <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />No online gateway charge on every order</li>
-                <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />Still keeps digital order clarity for kitchen</li>
+                <li className="flex items-start gap-2"><CheckCircle2 className="mt-0.5 h-4 w-4 text-[var(--accent-alt)]" />Still keeps digital order clarity for counter</li>
               </ul>
             </article>
           </div>
@@ -314,10 +314,10 @@ export default function HomePage() {
           </p>
           <div className="mt-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {[
-              "[Logo Placeholder] Urban Spoon Group",
-              "[Logo Placeholder] Nook Kitchens",
-              "[Logo Placeholder] Bayleaf Hospitality",
-              "[Logo Placeholder] City Grill Collective",
+              "[Logo Placeholder] Fresh Mart Co",
+              "[Logo Placeholder] Green Valley Stores",
+              "[Logo Placeholder] Nature's Best Markets",
+              "[Logo Placeholder] Farm Fresh Collective",
             ].map((logo) => (
               <div key={logo} className="rounded-xl border border-dashed border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-5 text-center text-sm text-[var(--text-secondary)]">
                 {logo}

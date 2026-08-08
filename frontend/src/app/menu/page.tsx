@@ -15,7 +15,7 @@ import { SessionProvider, useSession } from "@/context/SessionContext";
 import SessionExpiryWarning from "@/components/SessionExpiryWarning";
 import { Category, MenuItem, PublicMenuResponse } from "@/types";
 import { getApiBaseUrl } from "@/lib/api";
-import { Search, X, UtensilsCrossed, Store, RefreshCw } from "lucide-react";
+import { Search, X, ShoppingBag, Store, RefreshCw } from "lucide-react";
 
 class MenuErrorBoundary extends React.Component<
   { children: React.ReactNode },
@@ -39,7 +39,7 @@ class MenuErrorBoundary extends React.Component<
       return (
         <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg-base)] px-4 py-8 text-center text-[var(--text-primary)]">
           <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-rose-500/10 text-rose-500">
-            <UtensilsCrossed className="h-7 w-7" />
+            <ShoppingBag className="h-7 w-7" />
           </div>
           <h2 className="font-sans text-lg font-bold">Unable to render menu</h2>
           <p className="mt-1 max-w-xs text-xs text-[var(--text-secondary)]">
@@ -373,20 +373,20 @@ function DigitalMenuApp() {
         ) : (
           <div className="space-y-3 py-16 text-center">
             <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-50 text-amber-600 dark:bg-amber-950/50 dark:text-amber-400">
-              <UtensilsCrossed className="h-6 w-6" />
+              <ShoppingBag className="h-6 w-6" />
             </div>
             <h3 className="font-sans text-base font-bold text-[var(--text-primary)]">
               Menu Unavailable
             </h3>
             <p className="mx-auto max-w-xs text-xs leading-relaxed text-[var(--text-secondary)]">
-              We couldn&apos;t load the menu right now. Please select another restaurant or try again.
+              We couldn&apos;t load the catalog right now. Please select another outlet or try again.
             </p>
             <button
               onClick={() => setShowWelcomeSelector(true)}
               className="mt-2 inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-4 py-2 text-xs font-bold text-white shadow-sm"
             >
               <Store className="h-4 w-4" />
-              Switch Restaurant
+              Switch Outlet
             </button>
           </div>
         )}

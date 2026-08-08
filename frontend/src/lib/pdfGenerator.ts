@@ -64,7 +64,7 @@ export interface ReceiptPdfData {
 
 export function generateReceiptPDF(
   order: OrderResponse | ReceiptPdfData,
-  restaurantName: string = "Restaurant Receipt",
+  restaurantName: string = "Outlet Receipt",
   menuItemsMap?: Record<string, { name: string; price?: string }>,
   storeDetails?: {
     address?: string;
@@ -108,7 +108,7 @@ export function generateReceiptPDF(
     storeDetails?.logo_url ||
     (order as any).restaurant?.name ||
     restaurantName ||
-    "RESTAURANT"
+    "OUTLET"
   ).toUpperCase();
 
   doc.setFont("courier", "bold");

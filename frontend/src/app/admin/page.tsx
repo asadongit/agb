@@ -15,7 +15,7 @@ import {
   Calendar,
   ClipboardList,
   CheckCircle2,
-  ChefHat,
+  ShoppingBag as OrdersIcon,
   Clock,
   CreditCard,
   DollarSign,
@@ -1986,12 +1986,12 @@ export default function AdminDashboardPage() {
       );
 
       setRestaurant(updated);
-      setNotice("Restaurant configuration updated.");
+      setNotice("Outlet configuration updated.");
     } catch (settingsError) {
       setError(
         settingsError instanceof Error
           ? settingsError.message
-          : "Unable to update restaurant settings."
+          : "Unable to update outlet settings."
       );
     } finally {
       setIsSavingRestaurant(false);
@@ -2055,7 +2055,7 @@ export default function AdminDashboardPage() {
                   onChange={(event) => setEmail(event.target.value)}
                   required
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm"
-                  placeholder="admin@restaurant.com"
+                  placeholder="admin@outlet.com"
                 />
               </label>
               <label className="block space-y-1">
@@ -2131,7 +2131,7 @@ export default function AdminDashboardPage() {
             </div>
             <div className="overflow-hidden">
               <h2 className="font-display font-bold text-base truncate">
-                {restaurant?.name || "My Restaurant"}
+                {restaurant?.name || "My Outlet"}
               </h2>
               {restaurant?.slug && (
                 <p className="font-mono text-xs text-[var(--accent-brand)] truncate">
@@ -2219,7 +2219,7 @@ export default function AdminDashboardPage() {
               }`}
           >
             <div className="flex items-center gap-3">
-              <ChefHat className="h-4 w-4" />
+              <OrdersIcon className="h-4 w-4" />
               <span>Live Orders</span>
             </div>
             {kpis.pendingVerification > 0 && (
@@ -5951,7 +5951,7 @@ export default function AdminDashboardPage() {
                         type="text"
                         value={offerForm.offer_label}
                         onChange={(e) => setOfferForm((prev) => ({ ...prev, offer_label: e.target.value }))}
-                        placeholder="e.g. 20% OFF, Chef Special, Combo Deal"
+                        placeholder="e.g. 20% OFF, Today's Pick, Combo Deal"
                         className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2.5 text-xs font-semibold"
                       />
                     </label>
@@ -6046,7 +6046,7 @@ export default function AdminDashboardPage() {
                       <option value="MANAGER">Manager</option>
                       <option value="FLOOR_STAFF">Floor Staff</option>
                       <option value="CASHIER">Cashier</option>
-                      <option value="WAITER">Waiter / Floor Staff</option>
+                      <option value="WAITER">Store Associate</option>
                       <option value="RESTAURANT_ADMIN">Outlet Admin / Owner</option>
                     </select>
                   </label>

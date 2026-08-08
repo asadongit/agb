@@ -238,7 +238,7 @@ export default function SuperadminPage() {
       setExpandedIds(new Set(data.map((r) => r.id)));
       data.forEach((r) => void loadStaffForOutlet(r.id));
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to load restaurants.";
+      const message = err instanceof Error ? err.message : "Unable to load outlets.";
       setError(message);
     } finally {
       setIsLoadingRestaurants(false);
@@ -341,14 +341,14 @@ export default function SuperadminPage() {
         razorpay_account_id: "",
         direct_upi_id: "",
       });
-      setNotice(`Restaurant "${created.name}" created successfully! Now assign an admin user.`);
+      setNotice(`Outlet "${created.name}" created successfully! Now assign an admin user.`);
       setStep("create_admin");
       void loadRestaurants();
     } catch (createError) {
       const message =
         createError instanceof Error
           ? createError.message
-          : "Unable to create restaurant.";
+          : "Unable to create outlet.";
       setError(message);
     } finally {
       setIsCreatingRestaurant(false);
@@ -358,7 +358,7 @@ export default function SuperadminPage() {
   const onCreateAdminUser = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedRestaurantId) {
-      setError("Select a restaurant first.");
+      setError("Select an outlet first.");
       return;
     }
 
@@ -396,7 +396,7 @@ export default function SuperadminPage() {
   const deleteRestaurant = async (restaurantId: string, restaurantName: string) => {
     if (
       !window.confirm(
-        `Are you sure you want to delete "${restaurantName}"?\n\nThis will permanently delete the restaurant, all categories, menu items, variants, orders, and associated user accounts!`
+        `Are you sure you want to delete "${restaurantName}"?\n\nThis will permanently delete this outlet, all categories, products, variants, orders, and associated user accounts!`
       )
     ) {
       return;
@@ -407,10 +407,10 @@ export default function SuperadminPage() {
       await apiRequest<void>(`/api/admin/restaurants/${restaurantId}`, {
         method: "DELETE",
       });
-      setNotice(`Restaurant "${restaurantName}" deleted successfully.`);
+      setNotice(`Outlet "${restaurantName}" deleted successfully.`);
       void loadRestaurants();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to delete restaurant.";
+      const message = err instanceof Error ? err.message : "Unable to delete outlet.";
       setError(message);
     }
   };
@@ -518,7 +518,7 @@ export default function SuperadminPage() {
               <div>
                 <h1 className="font-display text-2xl font-bold">Superadmin Portal</h1>
                 <p className="text-sm text-[var(--text-secondary)]">
-                  Platform management &amp; restaurant directory
+                  Platform management &amp; outlet directory
                 </p>
               </div>
             </div>
@@ -577,21 +577,21 @@ export default function SuperadminPage() {
   return (
     <div className="min-h-screen bg-[var(--bg-base)] text-[var(--text-primary)]">
       <header className="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/95 backdrop-blur">
-        <div className="mx-auto flex max-w-5xl items-center justify-between px-4 py-4 sm:px-6">
+        <div className="mx-auto flex max-w-5xl flex-wrap items-center justify-between gap-3 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-[var(--accent-brand)] text-[var(--text-on-accent)]">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--accent-brand)] text-[var(--text-on-accent)]">
               <ShieldCheck className="h-4 w-4" />
             </div>
             <div>
-              <p className="font-display text-lg font-bold">Superadmin Console</p>
-              <p className="text-xs text-[var(--text-secondary)]">Platform Directory &amp; Outlet Provisioning</p>
+              <p className="font-display text-base font-bold sm:text-lg">Superadmin Console</p>
+              <p className="text-[11px] text-[var(--text-secondary)] sm:text-xs">Platform Directory &amp; Outlet Provisioning</p>
             </div>
           </div>
           <div className="flex items-center gap-2">
             <button
               type="button"
               onClick={toggleTheme}
-              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] p-2 sm:px-3 sm:py-2 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
               title={`Switch to ${theme === "light" ? "dark" : "light"} mode`}
             >
               {theme === "light" ? (
@@ -605,18 +605,19 @@ export default function SuperadminPage() {
               type="button"
               onClick={() => void loadRestaurants()}
               disabled={isLoadingRestaurants}
-              className="inline-flex items-center gap-2 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-2 text-sm font-semibold hover:border-[var(--accent-brand)]"
+              className="inline-flex items-center gap-1.5 rounded-full border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-xs font-semibold hover:border-[var(--accent-brand)] sm:text-sm sm:px-4"
             >
               <RefreshCw className={`h-4 w-4 ${isLoadingRestaurants ? "animate-spin" : ""}`} />
-              Sync Directory
+              <span className="hidden sm:inline">Sync Directory</span>
+              <span className="sm:hidden">Sync</span>
             </button>
             <button
               type="button"
               onClick={() => void onLogout()}
-              className="inline-flex items-center gap-2 rounded-full bg-[var(--accent-brand)] px-4 py-2 text-sm font-semibold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)]"
+              className="inline-flex items-center gap-1.5 rounded-full bg-[var(--accent-brand)] px-3 py-2 text-xs font-semibold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)] sm:text-sm sm:px-4"
             >
               <LogOut className="h-4 w-4" />
-              Sign out
+              <span className="hidden sm:inline">Sign out</span>
             </button>
           </div>
         </div>
@@ -635,18 +636,18 @@ export default function SuperadminPage() {
         )}
 
         {/* Action Stepper / Creator Widget */}
-        <section className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-sm">
-          <div className="mb-4 flex items-center justify-between">
-            <h2 className="font-display text-xl font-bold">Onboard New Restaurant</h2>
+        <section className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-4 shadow-sm sm:p-6">
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+            <h2 className="font-display text-lg font-bold sm:text-xl">Onboard New Outlet</h2>
             <div className="flex items-center gap-2">
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:px-3 sm:text-xs ${
                 step === "create_restaurant" ? "bg-[var(--accent-brand)] text-white" : "bg-emerald-100 text-emerald-700"
               }`}>
                 {step !== "create_restaurant" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <Building2 className="h-3.5 w-3.5" />}
-                1. Restaurant
+                1. Outlet
               </span>
               <ArrowRight className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-              <span className={`inline-flex items-center gap-1.5 rounded-full px-3 py-1 text-xs font-semibold ${
+              <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-semibold sm:px-3 sm:text-xs ${
                 step === "create_admin" ? "bg-[var(--accent-brand)] text-white" : step === "done" ? "bg-emerald-100 text-emerald-700" : "bg-[var(--bg-surface-elevated)] text-[var(--text-muted)]"
               }`}>
                 {step === "done" ? <CheckCircle2 className="h-3.5 w-3.5" /> : <UserPlus className="h-3.5 w-3.5" />}
@@ -659,7 +660,7 @@ export default function SuperadminPage() {
           {step === "create_restaurant" && (
             <form onSubmit={onCreateRestaurant} className="grid gap-4 sm:grid-cols-2">
               <label className="block space-y-1">
-                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Restaurant Name</span>
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Outlet Name</span>
                 <input
                   type="text"
                   value={restaurantForm.name}
@@ -731,7 +732,7 @@ export default function SuperadminPage() {
                   className="inline-flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-5 py-2.5 text-sm font-semibold text-[var(--text-on-accent)] hover:bg-[var(--accent-brand-hover)] disabled:opacity-70"
                 >
                   <Plus className="h-4 w-4" />
-                  {isCreatingRestaurant ? "Creating..." : "Create Restaurant"}
+                  {isCreatingRestaurant ? "Creating..." : "Create Outlet"}
                 </button>
               </div>
             </form>
@@ -741,14 +742,14 @@ export default function SuperadminPage() {
           {step === "create_admin" && (
             <form onSubmit={onCreateAdminUser} className="grid gap-4 sm:grid-cols-3">
               <label className="block space-y-1">
-                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Target Restaurant</span>
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Target Outlet</span>
                 <select
                   value={selectedRestaurantId}
                   onChange={(e) => setSelectedRestaurantId(e.target.value)}
                   required
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
                 >
-                  <option value="">Select Restaurant</option>
+                  <option value="">Select Outlet</option>
                   {restaurants.map((r) => (
                     <option key={r.id} value={r.id}>
                       {r.name} ({r.slug})
@@ -769,8 +770,8 @@ export default function SuperadminPage() {
                   }
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
                 >
-                  <option value="RESTAURANT_ADMIN">Restaurant Admin</option>
-                  <option value="STAFF">Kitchen / Floor Staff</option>
+                  <option value="RESTAURANT_ADMIN">Outlet Admin</option>
+                  <option value="STAFF">Store Staff</option>
                 </select>
               </label>
 
@@ -784,7 +785,7 @@ export default function SuperadminPage() {
                   }
                   required
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
-                  placeholder="user@restaurant.com"
+                  placeholder="user@outlet.com"
                 />
               </label>
 
@@ -847,22 +848,22 @@ export default function SuperadminPage() {
 
         {/* Directory Section */}
         <section className="space-y-5">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div>
-              <h2 className="font-display text-2xl font-bold tracking-tight">Onboarded Outlets Directory</h2>
-              <p className="text-sm text-[var(--text-secondary)]">
-                Viewing {filteredRestaurants.length} of {restaurants.length} total restaurants along with their assigned admins and staff.
+              <h2 className="font-display text-xl font-bold tracking-tight sm:text-2xl">Onboarded Outlets Directory</h2>
+              <p className="text-xs text-[var(--text-secondary)] sm:text-sm">
+                Viewing {filteredRestaurants.length} of {restaurants.length} total outlets along with their assigned admins and staff.
               </p>
             </div>
 
             {/* Search Filter */}
-            <div className="relative flex items-center min-w-[260px]">
+            <div className="relative flex items-center w-full sm:w-auto sm:min-w-[260px]">
               <Search className="absolute left-3 h-4 w-4 text-[var(--text-muted)]" />
               <input
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="Search restaurant or user email..."
+                placeholder="Search outlet or user email..."
                 className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-2 pl-9 pr-4 text-xs focus:border-[var(--accent-brand)] focus:outline-hidden"
               />
             </div>
@@ -881,9 +882,9 @@ export default function SuperadminPage() {
           {!isLoadingRestaurants && filteredRestaurants.length === 0 && (
             <div className="rounded-3xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-12 text-center">
               <Store className="mx-auto h-12 w-12 text-[var(--text-muted)] mb-3" />
-              <h3 className="font-display text-lg font-bold">No Restaurants Found</h3>
+              <h3 className="font-display text-lg font-bold">No Outlets Found</h3>
               <p className="text-sm text-[var(--text-secondary)] mt-1">
-                {searchQuery ? `No outlets match "${searchQuery}"` : "Get started by onboarding your first restaurant above."}
+                {searchQuery ? `No outlets match "${searchQuery}"` : "Get started by onboarding your first outlet above."}
               </p>
             </div>
           )}
@@ -900,23 +901,23 @@ export default function SuperadminPage() {
                   key={r.id}
                   className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-5 shadow-xs transition-all hover:border-[var(--accent-brand)]"
                 >
-                  {/* Restaurant Header */}
-                  <div className="flex flex-wrap items-start justify-between gap-3 border-b border-[var(--border-subtle)] pb-4">
-                    <div className="space-y-1">
+                  {/* Outlet Header */}
+                  <div className="flex flex-col gap-3 border-b border-[var(--border-subtle)] pb-4 sm:flex-row sm:flex-wrap sm:items-start sm:justify-between">
+                    <div className="space-y-1 min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="font-display text-xl font-bold text-[var(--text-primary)]">
+                        <h3 className="font-display text-lg font-bold text-[var(--text-primary)] sm:text-xl">
                           {r.name}
                         </h3>
-                        <span className="rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] px-2.5 py-0.5 font-mono text-xs font-semibold text-[var(--accent-brand)]">
+                        <span className="rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] px-2.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--accent-brand)] sm:text-xs">
                           /{r.slug}
                         </span>
-                        <span className={`inline-flex items-center gap-1 rounded-full px-2.5 py-0.5 text-xs font-semibold ${
+                        <span className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold sm:px-2.5 sm:text-xs ${
                           r.payment_mode === "RAZORPAY_GATEWAY"
                             ? "bg-emerald-100 text-emerald-800"
                             : "bg-amber-100 text-amber-800"
                         }`}>
                           <CreditCard className="h-3 w-3" />
-                          {r.payment_mode === "RAZORPAY_GATEWAY" ? "Razorpay Gateway" : "Pay At Counter"}
+                          {r.payment_mode === "RAZORPAY_GATEWAY" ? "Razorpay" : "Counter"}
                         </span>
                       </div>
                       <p className="text-xs text-[var(--text-muted)]">
@@ -924,34 +925,35 @@ export default function SuperadminPage() {
                       </p>
                     </div>
 
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap">
                       <button
                         type="button"
                         onClick={() => copyToClipboard(r.id, r.id)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs font-semibold hover:border-[var(--accent-brand)] transition"
-                        title="Copy Restaurant ID"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 text-[11px] font-semibold hover:border-[var(--accent-brand)] transition sm:text-xs sm:px-3"
+                        title="Copy Outlet ID"
                       >
                         <Copy className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-                        <span className="font-mono">{copiedId === r.id ? "Copied ID!" : `${r.id.substring(0, 8)}...`}</span>
+                        <span className="font-mono hidden sm:inline">{copiedId === r.id ? "Copied ID!" : `${r.id.substring(0, 8)}...`}</span>
+                        <span className="font-mono sm:hidden">{copiedId === r.id ? "Copied!" : "ID"}</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => startAddUserForRestaurant(r.id)}
-                        className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-3 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
+                        className="inline-flex items-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-2.5 py-1.5 text-[11px] font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition sm:text-xs sm:px-3"
                       >
                         <UserPlus className="h-3.5 w-3.5" />
-                        Add User
+                        <span className="hidden sm:inline">Add User</span>
                       </button>
 
                       <button
                         type="button"
                         onClick={() => deleteRestaurant(r.id, r.name)}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2.5 py-1.5 text-xs font-bold text-rose-700 hover:bg-rose-100 transition"
-                        title="Delete Restaurant"
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-rose-200 bg-rose-50 px-2 py-1.5 text-[11px] font-bold text-rose-700 hover:bg-rose-100 transition sm:text-xs sm:px-2.5"
+                        title="Delete Outlet"
                       >
                         <Trash2 className="h-3.5 w-3.5 text-rose-600" />
-                        <span>Delete</span>
+                        <span className="hidden sm:inline">Delete</span>
                       </button>
 
                       <button
@@ -995,13 +997,13 @@ export default function SuperadminPage() {
                         <div className="mb-2 flex items-center gap-1.5">
                           <Crown className="h-4 w-4 text-amber-600" />
                           <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                            Restaurant Admins ({admins.length})
+                            Outlet Admins ({admins.length})
                           </h4>
                         </div>
 
                         {admins.length === 0 ? (
                           <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
-                            ⚠️ No admin user assigned to this restaurant yet. Click &quot;Add User&quot; above to create one.
+                            ⚠️ No admin user assigned to this outlet yet. Click &quot;Add User&quot; above to create one.
                           </div>
                         ) : (
                           <div className="grid gap-2 sm:grid-cols-2">

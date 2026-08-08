@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { X, CheckCircle2, Clock, ChefHat, BellRing, Sparkles, RefreshCw, ShieldCheck, ExternalLink, Package, Download, FileText } from "lucide-react";
+import { X, CheckCircle2, Clock, BellRing, Sparkles, RefreshCw, ShieldCheck, ExternalLink, Package, Download, FileText } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useSession } from "@/context/SessionContext";
 import { OrderStatus, OrderResponse } from "@/types";
@@ -57,11 +57,11 @@ export function OrderTicketSlip() {
         };
       case "PREPARING":
         return {
-          label: "Chef is Preparing Your Food",
+          label: "Order Being Packed",
           bg: "bg-[var(--status-preparing-bg)]",
           text: "text-[var(--status-preparing-text)]",
           border: "border-[var(--status-preparing-border)]",
-          icon: <ChefHat className="h-4 w-4 text-[var(--status-preparing-text)]" />,
+          icon: <Package className="h-4 w-4 text-[var(--status-preparing-text)]" />,
         };
       default:
         return {
@@ -95,7 +95,7 @@ export function OrderTicketSlip() {
           <div className="flex items-center gap-2">
             <ShieldCheck className="h-5 w-5 text-[var(--status-paid-text)]" />
             <h2 className="font-sans text-base font-bold text-[var(--text-primary)]">
-              Digital Kitchen Ticket
+              Digital Order Ticket
             </h2>
           </div>
           <button
@@ -111,7 +111,7 @@ export function OrderTicketSlip() {
           {/* Download Receipt Button above bill — ONLY WHEN PAID */}
           {(activeOrder.status === "PAID" || activeOrder.status === "COMPLETED") && (
             <button
-              onClick={() => generateReceiptPDF(activeOrder, "Restaurant Bill")}
+              onClick={() => generateReceiptPDF(activeOrder, "Outlet Bill")}
               className="w-full flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-4 text-xs font-bold shadow-md transition-all active:scale-98 cursor-pointer"
             >
               <Download className="h-4 w-4" />
@@ -124,7 +124,7 @@ export function OrderTicketSlip() {
             <div className="flex items-center justify-between border-b border-dashed border-[var(--border-strong)] pb-3">
               <div>
                 <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">
-                  Table Ticket
+                  Basket Ticket
                 </span>
                 <span className="font-sans text-base font-black text-[var(--text-primary)]">
                   Basket #{activeOrder.table_number}
@@ -188,7 +188,7 @@ export function OrderTicketSlip() {
                 ))
               ) : (
                 <p className="text-xs text-[var(--text-secondary)] italic">
-                  Items sent to kitchen dashboard
+                  Items sent to order dashboard
                 </p>
               )}
 
