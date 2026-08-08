@@ -611,36 +611,48 @@ export default function AdminDashboardPage() {
     };
   }, [accessToken]);
 
+  const refreshTokenPromiseRef = useRef<Promise<string | null> | null>(null);
+
   const tryRefreshToken = useCallback(async (): Promise<string | null> => {
+    if (refreshTokenPromiseRef.current) {
+      return refreshTokenPromiseRef.current;
+    }
+
     const refreshToken = window.localStorage.getItem(REFRESH_TOKEN_KEY);
     if (!refreshToken) return null;
 
-    try {
-      const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}/api/auth/refresh`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-      });
+    refreshTokenPromiseRef.current = (async () => {
+      try {
+        const apiBase = getApiBaseUrl();
+        const response = await fetch(`${apiBase}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
 
-      if (!response.ok) {
+        if (!response.ok) {
+          window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+          window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+          setAccessToken(null);
+          return null;
+        }
+
+        const data = (await response.json()) as LoginResponse;
+        setAccessToken(data.access_token);
+        window.localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+        window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+        return data.access_token;
+      } catch {
         window.localStorage.removeItem(ACCESS_TOKEN_KEY);
         window.localStorage.removeItem(REFRESH_TOKEN_KEY);
         setAccessToken(null);
         return null;
+      } finally {
+        refreshTokenPromiseRef.current = null;
       }
+    })();
 
-      const data = (await response.json()) as LoginResponse;
-      setAccessToken(data.access_token);
-      window.localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
-      window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
-      return data.access_token;
-    } catch {
-      window.localStorage.removeItem(ACCESS_TOKEN_KEY);
-      window.localStorage.removeItem(REFRESH_TOKEN_KEY);
-      setAccessToken(null);
-      return null;
-    }
+    return refreshTokenPromiseRef.current;
   }, []);
 
   const apiRequest = useCallback(

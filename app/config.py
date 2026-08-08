@@ -30,8 +30,8 @@ class Settings(BaseSettings):
     # ---- Auth / JWT ----
     JWT_SECRET_KEY: str = "CHANGE-ME-in-production"
     JWT_ALGORITHM: str = "HS256"
-    ACCESS_TOKEN_EXPIRE_MINUTES: int = 15
-    REFRESH_TOKEN_EXPIRE_DAYS: int = 7
+    ACCESS_TOKEN_EXPIRE_MINUTES: int = 720
+    REFRESH_TOKEN_EXPIRE_DAYS: int = 30
 
     # ---- Razorpay ----
     RAZORPAY_KEY_ID: str = ""

@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from "react";
+import { FormEvent, useCallback, useEffect, useMemo, useState, useRef } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -248,17 +248,76 @@ export default function SuperadminPage() {
     };
   }, [accessToken]);
 
+  const refreshTokenPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  const tryRefreshToken = useCallback(async (): Promise<string | null> => {
+    if (refreshTokenPromiseRef.current) {
+      return refreshTokenPromiseRef.current;
+    }
+
+    const refreshToken = window.localStorage.getItem(SA_REFRESH_TOKEN_KEY);
+    if (!refreshToken) return null;
+
+    refreshTokenPromiseRef.current = (async () => {
+      try {
+        const apiBase = getApiBaseUrl();
+        const response = await fetch(`${apiBase}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (!response.ok) {
+          window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+          window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+          setAccessToken(null);
+          return null;
+        }
+
+        const data = (await response.json()) as LoginResponse;
+        setAccessToken(data.access_token);
+        window.localStorage.setItem(SA_ACCESS_TOKEN_KEY, data.access_token);
+        window.localStorage.setItem(SA_REFRESH_TOKEN_KEY, data.refresh_token);
+        return data.access_token;
+      } catch {
+        window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+        window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+        setAccessToken(null);
+        return null;
+      } finally {
+        refreshTokenPromiseRef.current = null;
+      }
+    })();
+
+    return refreshTokenPromiseRef.current;
+  }, []);
+
   const apiRequest = useCallback(
     async <T,>(path: string, options?: RequestInit): Promise<T> => {
       if (!authHeaders) throw new Error("Please sign in first.");
       const apiBase = getApiBaseUrl();
-      const response = await fetch(`${apiBase}${path}`, {
+      let response = await fetch(`${apiBase}${path}`, {
         ...options,
         headers: { ...authHeaders, ...(options?.headers || {}) },
       });
+
+      if (response.status === 401) {
+        const newAccessToken = await tryRefreshToken();
+        if (newAccessToken) {
+          response = await fetch(`${apiBase}${path}`, {
+            ...options,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${newAccessToken}`,
+              ...(options?.headers || {}),
+            },
+          });
+        }
+      }
+
       return parseApiResponse<T>(response);
     },
-    [authHeaders]
+    [authHeaders, tryRefreshToken]
   );
 
   const [staffByOutlet, setStaffByOutlet] = useState<Record<string, StaffMember[]>>({});
