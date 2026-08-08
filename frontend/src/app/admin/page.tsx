@@ -66,7 +66,7 @@ import {
   WifiOff,
   X,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, parseUTCDate } from "@/lib/api";
 import { generateAnalyticsPdfReport, generateReceiptPDF } from "@/lib/pdfGenerator";
 import type {
   AbandonedCart,
@@ -247,7 +247,8 @@ const LANE_NAMES: Record<OrderStatus, string> = {
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 function formatRupees(value: string | number): string {
@@ -256,8 +257,9 @@ function formatRupees(value: string | number): string {
 }
 
 function formatDateTime(value: string): string {
-  const parsed = new Date(value);
+  const parsed = parseUTCDate(value);
   return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     hour: "2-digit",
@@ -2458,7 +2460,7 @@ export default function AdminDashboardPage() {
                 ) : (
                   <div className="space-y-2">
                     {activeSessions.map((s) => {
-                      const expiresIn = Math.max(0, Math.floor((new Date(s.expires_at).getTime() - Date.now()) / 60000));
+                      const expiresIn = Math.max(0, Math.floor((parseUTCDate(s.expires_at).getTime() - Date.now()) / 60000));
                       return (
                         <div key={s.id} className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 space-y-2">
                           <div className="flex items-center justify-between">

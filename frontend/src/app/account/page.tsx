@@ -16,7 +16,7 @@ import {
   CalendarDays,
   Download,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, parseUTCDate } from "@/lib/api";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
 import type {
   OrderResponse,
@@ -81,8 +81,9 @@ const FILTER_OPTIONS = [
 ];
 
 function formatDateTime(value: string): string {
-  const parsed = new Date(value);
+  const parsed = parseUTCDate(value);
   return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     year: "numeric",

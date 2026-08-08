@@ -286,8 +286,8 @@ export function generateReceiptPDF(
 
   summaryY += 4.5;
   doc.setFont("courier", "bold");
-  doc.setFontSize(7);
-  doc.text(`Thank you for visiting ${storeName}!`, pageWidth / 2, summaryY, { align: "center", maxWidth: contentWidth - 4 });
+  doc.setFontSize(7.5);
+  doc.text("Thank you for visiting!", pageWidth / 2, summaryY, { align: "center" });
 
   summaryY += 3.5;
   doc.setFont("courier", "normal");

@@ -15,7 +15,7 @@ import {
   ShoppingBag,
   XCircle,
 } from "lucide-react";
-import { getApiBaseUrl } from "@/lib/api";
+import { getApiBaseUrl, parseUTCDate } from "@/lib/api";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
 import type { OrderResponse, OrderStatus } from "@/types";
 
@@ -91,7 +91,8 @@ const STATUS_CONFIG: Record<
 const money = new Intl.NumberFormat("en-IN", {
   style: "currency",
   currency: "INR",
-  maximumFractionDigits: 0,
+  minimumFractionDigits: 2,
+  maximumFractionDigits: 2,
 });
 
 function formatRupees(value: string): string {
@@ -100,8 +101,9 @@ function formatRupees(value: string): string {
 }
 
 function formatDateTime(value: string): string {
-  const parsed = new Date(value);
+  const parsed = parseUTCDate(value);
   return parsed.toLocaleString("en-IN", {
+    timeZone: "Asia/Kolkata",
     day: "2-digit",
     month: "short",
     year: "numeric",
