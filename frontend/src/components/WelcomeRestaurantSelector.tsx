@@ -44,17 +44,17 @@ export function WelcomeRestaurantSelector({
         } else {
           // Fallback mock list if API fails
           const fallback = [
-            { id: "1", name: "L'Oasis Bistro", slug: "oasis-bistro" },
+            { id: "1", name: "ApnaGreen Basket Jammu", slug: "apnagreenbasket-jammu" },
           ];
           setRestaurants(fallback);
-          setSelectedSlug("oasis-bistro");
+          setSelectedSlug("apnagreenbasket-jammu");
         }
       } catch {
         const fallback = [
-          { id: "1", name: "L'Oasis Bistro", slug: "oasis-bistro" },
+          { id: "1", name: "ApnaGreen Basket Jammu", slug: "apnagreenbasket-jammu" },
         ];
         setRestaurants(fallback);
-        setSelectedSlug("oasis-bistro");
+        setSelectedSlug("apnagreenbasket-jammu");
       } finally {
         setIsLoading(false);
       }

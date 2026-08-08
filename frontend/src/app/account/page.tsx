@@ -94,7 +94,7 @@ function formatDateTime(value: string): string {
 
 function AccountContent() {
   const searchParams = useSearchParams();
-  const slug = searchParams.get("slug") || "oasis-bistro";
+  const slug = searchParams.get("slug") || "apnagreenbasket-jammu";
   const table = searchParams.get("table") || "";
 
   // Session data from localStorage

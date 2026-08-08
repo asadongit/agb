@@ -82,7 +82,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [tableNumber, setTableNumber] = useState("");
-  const [restaurantSlug, setRestaurantSlug] = useState("oasis-bistro");
+  const [restaurantSlug, setRestaurantSlug] = useState("apnagreenbasket-jammu");
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [sessionOrders, setSessionOrders] = useState<OrderResponse[]>([]);
@@ -270,7 +270,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     async (name: string, phone?: string): Promise<StartSessionResponse> => {
       const apiBase = getApiBaseUrl();
       const activeTable = tableNumber.trim() || "1";
-      const activeSlug = restaurantSlug.trim() || "oasis-bistro";
+      const activeSlug = restaurantSlug.trim() || "apnagreenbasket-jammu";
       const res = await fetch(`${apiBase}/api/sessions/start`, {
         method: "POST",
         headers: {

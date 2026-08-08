@@ -78,7 +78,7 @@ async def upload_image(
 
             res = cloudinary.uploader.upload(
                 contents,
-                folder="rushtable_uploads",
+                folder="apnagreenbasket_uploads",
                 public_id=uuid.uuid4().hex,
                 resource_type="auto",
             )

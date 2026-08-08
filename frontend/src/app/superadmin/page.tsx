@@ -532,7 +532,7 @@ export default function SuperadminPage() {
                   onChange={(e) => setEmail(e.target.value)}
                   required
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm"
-                  placeholder="superadmin@ApnaGreen Basket.com"
+                  placeholder="superadmin@apnagreenbasket.com"
                 />
               </label>
               <label className="block space-y-1">
@@ -673,7 +673,7 @@ export default function SuperadminPage() {
                   }}
                   required
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
-                  placeholder="L'Oasis Modern Bistro"
+                  placeholder="ApnaGreen Basket"
                 />
               </label>
 
@@ -688,7 +688,7 @@ export default function SuperadminPage() {
                   required
                   pattern="^[a-z0-9]+(?:-[a-z0-9]+)*$"
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
-                  placeholder="loasis-modern-bistro"
+                  placeholder="apnagreenbasket-jammu"
                 />
               </label>
 

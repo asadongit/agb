@@ -15,7 +15,7 @@ from sqlalchemy import select
 from app.core.security import hash_password
 from app.database import Base, async_session_factory, engine
 from app.models.category import Category
-from app.models.enums import PaymentModeEnum, RoleEnum
+from app.models.enums import PaymentModeEnum, PricingModeEnum, RoleEnum
 from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.models.restaurant import Restaurant
@@ -31,19 +31,21 @@ async def seed_data():
     async with async_session_factory() as db:
         # Check if restaurant already exists
         existing = await db.execute(
-            select(Restaurant).where(Restaurant.slug == "oasis-bistro")
+            select(Restaurant).where(Restaurant.slug == "apnagreenbasket-jammu")
         )
         if existing.scalar_one_or_none():
-            print("[Seed] Restaurant 'oasis-bistro' already exists. Skipping seed.")
+            print("[Seed] Outlet 'apnagreenbasket-jammu' already exists. Skipping seed.")
             return
 
         # 1. Create Restaurant
         restaurant = Restaurant(
             id=uuid.uuid4(),
-            slug="oasis-bistro",
-            name="L'Oasis Modern Bistro",
+            slug="apnagreenbasket-jammu",
+            name="ApnaGreen Basket Jammu",
             payment_mode=PaymentModeEnum.PAY_AT_COUNTER,
             razorpay_account_id="acc_demo123",
+            address="Gandhi Nagar, Jammu, J&K 180004",
+            phone="+91 9876543210",
         )
         db.add(restaurant)
         await db.flush()
@@ -53,7 +55,7 @@ async def seed_data():
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             role=RoleEnum.RESTAURANT_ADMIN,
-            email="admin@oasisbistro.com",
+            email="admin@apnagreenbasket.com",
             password_hash=hash_password("admin123456"),
         )
         db.add(admin_user)
@@ -63,85 +65,95 @@ async def seed_data():
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             role=RoleEnum.SUPERADMIN,
-            email="superadmin@rushtable.com",
+            email="superadmin@apnagreenbasket.com",
             password_hash=hash_password("admin123456"),
         )
         db.add(superadmin_user)
 
-        # 3. Create Categories & Menu Items
+        # 3. Create Categories & Produce/Grocery Items
         cat1 = Category(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
-            name="Chef's Specials",
+            name="Fresh Farm Produce",
             display_order=1,
         )
         cat2 = Category(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
-            name="Gourmet Mains",
+            name="Dairy & Staples",
             display_order=2,
         )
         cat3 = Category(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
-            name="Artisanal Beverages",
+            name="Organic Beverages",
             display_order=3,
         )
         db.add_all([cat1, cat2, cat3])
         await db.flush()
 
-        # Dish 1
+        # Item 1: Organic Jammu Tomatoes
         item1 = MenuItem(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             category_id=cat1.id,
-            name="Truffle Parmesan Hand-Cut Fries",
-            description="Triple-cooked russet potatoes tossed in black truffle oil, aged Parmigiano-Reggiano, and rosemary garlic aioli.",
-            price=Decimal("2.00"),
-            image_url="https://images.unsplash.com/photo-1576107232684-1279f3908594?auto=format&fit=crop&w=600&q=80",
+            name="Organic Jammu Tomatoes",
+            description="Freshly harvested vine-ripened red organic tomatoes sourced directly from local Jammu farms.",
+            price=Decimal("40.00"),
+            pricing_mode=PricingModeEnum.WEIGHT_BASED,
+            unit_label="kg",
+            image_url="https://images.unsplash.com/photo-1592924357228-91a4daadcfea?auto=format&fit=crop&w=600&q=80",
             is_available=True,
         )
-        # Dish 2
+        # Item 2: Fresh Pumpkin
         item2 = MenuItem(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             category_id=cat1.id,
-            name="Wood-Fired Burrata & Heirloom Pizza",
-            description="San Marzano tomato base, fresh creamy burrata, heirloom tomatoes, fresh basil, and aged balsamic glaze reduction.",
-            price=Decimal("680.00"),
-            image_url="https://images.unsplash.com/photo-1513104890138-7c749659a591?auto=format&fit=crop&w=600&q=80",
+            name="Local Sweet Pumpkin",
+            description="Single whole farm-fresh sweet pumpkin sold on variable weight basis.",
+            price=Decimal("35.00"),
+            pricing_mode=PricingModeEnum.WEIGHT_BASED,
+            unit_label="kg",
+            image_url="https://images.unsplash.com/photo-1570586437263-ab629fccc818?auto=format&fit=crop&w=600&q=80",
             is_available=True,
         )
-        # Dish 3
+        # Item 3: Jammu Rajma
         item3 = MenuItem(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             category_id=cat2.id,
-            name="Smoked Bacon & Wagyu Smash Burger",
-            description="Double Wagyu beef patty, applewood smoked bacon, aged cheddar, caramelised onions, and house sauce on toasted brioche.",
-            price=Decimal("520.00"),
-            image_url="https://images.unsplash.com/photo-1568901346375-23c9450c58cd?auto=format&fit=crop&w=600&q=80",
+            name="Bhaderwah Rajma Special",
+            description="Premium grade authentic red kidney beans sourced from Bhaderwah Jammu hills.",
+            price=Decimal("160.00"),
+            pricing_mode=PricingModeEnum.WEIGHT_BASED,
+            unit_label="kg",
+            image_url="https://images.unsplash.com/photo-1551462147-ff29053bfc14?auto=format&fit=crop&w=600&q=80",
             is_available=True,
         )
-        # Dish 4 (Sold out example)
+        # Item 4: Farm Milk
         item4 = MenuItem(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             category_id=cat2.id,
-            name="Artisan Wild Mushroom Pappardelle",
-            description="Handmade pappardelle, porcini cream sauce, toasted pine nuts, fresh thyme, and shaved Parmigiano.",
-            price=Decimal("580.00"),
-            image_url="https://images.unsplash.com/photo-1621996346565-e3d5d6281320?auto=format&fit=crop&w=600&q=80",
-            is_available=False,
+            name="Farm Fresh Whole Milk",
+            description="Full cream pure cow milk, chilled 1 Litre pouch.",
+            price=Decimal("60.00"),
+            pricing_mode=PricingModeEnum.FIXED_UNIT,
+            unit_label="1L",
+            image_url="https://images.unsplash.com/photo-1550583724-b2692b85b150?auto=format&fit=crop&w=600&q=80",
+            is_available=True,
         )
-        # Dish 5
+        # Item 5: Organic Hibiscus Drink
         item5 = MenuItem(
             id=uuid.uuid4(),
             restaurant_id=restaurant.id,
             category_id=cat3.id,
-            name="Iced Hibiscus & Yuzu Sparkler",
-            description="Cold-brewed organic hibiscus tea, Japanese yuzu citrus, sparkling mineral water, and mint syrup.",
-            price=Decimal("240.00"),
+            name="Cold Pressed Hibiscus Sparkler",
+            description="Cold-brewed organic hibiscus extract, fresh citrus yuzu, and mint water.",
+            price=Decimal("120.00"),
+            pricing_mode=PricingModeEnum.FIXED_UNIT,
+            unit_label="bottle",
             image_url="https://images.unsplash.com/photo-1513558161293-cdaf765ed2fd?auto=format&fit=crop&w=600&q=80",
             is_available=True,
         )
@@ -152,33 +164,21 @@ async def seed_data():
         v1a = MenuItemVariant(
             id=uuid.uuid4(),
             menu_item_id=item1.id,
-            name="Regular Portion",
+            name="500g Pack",
             price_delta=Decimal("0.00"),
         )
         v1b = MenuItemVariant(
             id=uuid.uuid4(),
             menu_item_id=item1.id,
-            name="Sharing Platter",
-            price_delta=Decimal("160.00"),
+            name="1kg Pack",
+            price_delta=Decimal("20.00"),
         )
-        v2a = MenuItemVariant(
-            id=uuid.uuid4(),
-            menu_item_id=item2.id,
-            name="Personal (10\")",
-            price_delta=Decimal("0.00"),
-        )
-        v2b = MenuItemVariant(
-            id=uuid.uuid4(),
-            menu_item_id=item2.id,
-            name="Large (14\")",
-            price_delta=Decimal("240.00"),
-        )
-        db.add_all([v1a, v1b, v2a, v2b])
+        db.add_all([v1a, v1b])
 
         await db.commit()
         print("[Seed] Seeding complete!")
-        print("       Restaurant Slug: oasis-bistro")
-        print("       Admin Login:     admin@oasisbistro.com / admin123456")
+        print("       Outlet Slug: apnagreenbasket-jammu")
+        print("       Admin Login: admin@apnagreenbasket.com / admin123456")
 
 
 if __name__ == "__main__":

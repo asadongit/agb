@@ -6007,7 +6007,7 @@ export default function AdminDashboardPage() {
                     value={staffFormState.name}
                     onChange={(e) => setStaffFormState((prev) => ({ ...prev, name: e.target.value }))}
                     required
-                    placeholder="e.g. Rahul Sharma"
+                    placeholder="e.g. Vikram Singh"
                     className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2 text-xs font-semibold"
                   />
                 </label>
