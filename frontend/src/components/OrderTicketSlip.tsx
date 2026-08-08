@@ -178,7 +178,7 @@ export function OrderTicketSlip() {
                         {item.quantity}x
                       </span>
                       <span className="text-[var(--text-primary)] font-medium">
-                        Item {item.menu_item_id.slice(0, 6)}
+                        {item.item_name || (item.menu_item_id ? `Item ${item.menu_item_id.slice(0, 6)}` : "Item")}
                       </span>
                     </div>
                     <span className="font-mono font-bold text-[var(--text-primary)]">

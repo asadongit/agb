@@ -189,14 +189,16 @@ export function SessionOrdersDrawer({
                       <ExternalLink className="h-3 w-3" />
                       Track status
                     </Link>
-                    <button
-                      type="button"
-                      onClick={() => generateReceiptPDF(order, "ApnaGreen Basket")}
-                      className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
-                    >
-                      <Download className="h-3 w-3 text-emerald-500" />
-                      <span>Download Bill</span>
-                    </button>
+                    {(order.status === "PAID" || order.status === "COMPLETED") && (
+                      <button
+                        type="button"
+                        onClick={() => generateReceiptPDF(order, "ApnaGreen Basket")}
+                        className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
+                      >
+                        <Download className="h-3 w-3 text-emerald-500" />
+                        <span>Download Bill</span>
+                      </button>
+                    )}
                   </div>
                 </div>
               );

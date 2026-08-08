@@ -41,7 +41,7 @@ class StockLedger(Base):
         index=True,
     )
     change_type: Mapped[StockChangeTypeEnum] = mapped_column(
-        Enum(StockChangeTypeEnum, name="stockchangetypeenum"),
+        Enum(StockChangeTypeEnum, name="stockchangetypeenum", values_callable=lambda x: [e.value for e in x]),
         nullable=False,
     )
     quantity_change: Mapped[Decimal] = mapped_column(

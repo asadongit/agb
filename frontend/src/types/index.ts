@@ -55,17 +55,32 @@ export interface CartItem {
   unitPrice: number; // base price + variant delta
 }
 
+export interface RestaurantInfoResponse {
+  id: string;
+  name: string;
+  slug: string;
+  address?: string | null;
+  phone?: string | null;
+  gstin?: string | null;
+  fssai_no?: string | null;
+  logo_url?: string | null;
+}
+
 export interface OrderItemResponse {
   id: string;
-  menu_item_id: string;
+  menu_item_id?: string | null;
   variant_id?: string | null;
+  item_name?: string | null;
   quantity: number;
   unit_price: string;
+  line_total?: string | null;
+  is_complimentary?: boolean;
 }
 
 export interface OrderResponse {
   id: string;
   restaurant_id: string;
+  session_id?: string | null;
   table_number: string;
   customer_name?: string | null;
   customer_phone?: string | null;
@@ -77,6 +92,7 @@ export interface OrderResponse {
   created_at: string;
   updated_at: string;
   items: OrderItemResponse[];
+  restaurant?: RestaurantInfoResponse | null;
 }
 
 export interface RazorpayCheckoutResponse {
@@ -168,7 +184,15 @@ export interface CustomerHistoryResponse {
 // ── Inventory types ─────────────────────────────────────────────────────
 
 export type InventoryUnit = "kg" | "g" | "l" | "ml" | "pcs";
-export type StockChangeType = "intake" | "auto_deduction" | "manual_adjustment" | "restock";
+export type StockChangeType =
+  | "intake"
+  | "auto_deduction"
+  | "manual_adjustment"
+  | "restock"
+  | "INTAKE"
+  | "AUTO_DEDUCTION"
+  | "MANUAL_ADJUSTMENT"
+  | "RESTOCK";
 
 export interface InventoryItem {
   id: string;

@@ -41,10 +41,10 @@ class InventoryUnitEnum(str, enum.Enum):
 
 
 class StockChangeTypeEnum(str, enum.Enum):
-    INTAKE = "intake"
-    AUTO_DEDUCTION = "auto_deduction"
-    MANUAL_ADJUSTMENT = "manual_adjustment"
-    RESTOCK = "restock"
+    INTAKE = "INTAKE"
+    AUTO_DEDUCTION = "AUTO_DEDUCTION"
+    MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"
+    RESTOCK = "RESTOCK"
 
 
 class PricingModeEnum(str, enum.Enum):

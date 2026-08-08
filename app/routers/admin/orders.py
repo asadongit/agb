@@ -9,7 +9,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.dependencies import (
     DBSession,
@@ -57,7 +57,7 @@ async def list_orders(
     await purge_old_non_completed_orders(db, current_user.restaurant_id)
 
     # 2. Build base query
-    stmt = select(Order).options(selectinload(Order.items))
+    stmt = select(Order).options(selectinload(Order.items), joinedload(Order.restaurant))
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
 
     if status_filter:
@@ -90,7 +90,7 @@ async def get_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
     result = await db.execute(stmt)
@@ -117,7 +117,7 @@ async def update_order_status(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
     result = await db.execute(stmt)
@@ -159,7 +159,7 @@ async def confirm_payment(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
     result = await db.execute(stmt)
@@ -202,7 +202,7 @@ async def cancel_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
     result = await db.execute(stmt)
@@ -242,7 +242,7 @@ async def refund_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
     result = await db.execute(stmt)

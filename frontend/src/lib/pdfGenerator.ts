@@ -67,6 +67,7 @@ export function generateReceiptPDF(
   restaurantName: string = "Outlet Receipt",
   menuItemsMap?: Record<string, { name: string; price?: string }>,
   storeDetails?: {
+    name?: string;
     address?: string;
     phone?: string;
     gstin?: string;
@@ -104,17 +105,17 @@ export function generateReceiptPDF(
   };
 
   // 1. STORE HEADER BLOCK (Centered, Courier Bold)
-  const storeName = (
-    storeDetails?.logo_url ||
+  const rawStoreName =
     (order as any).restaurant?.name ||
-    restaurantName ||
-    "OUTLET"
-  ).toUpperCase();
+    storeDetails?.name ||
+    (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "ApnaGreen Basket" ? restaurantName : null) ||
+    "APNAGREEN BASKET";
+  const storeName = rawStoreName.toUpperCase();
 
   doc.setFont("courier", "bold");
   doc.setFontSize(11);
   doc.setTextColor(0, 0, 0);
-  doc.text(storeName, pageWidth / 2, y, { align: "center" });
+  doc.text(storeName, pageWidth / 2, y, { align: "center", maxWidth: contentWidth });
 
   y += 4;
   const addressStr = storeDetails?.address || (order as any).restaurant?.address;
@@ -190,14 +191,16 @@ export function generateReceiptPDF(
     const dishName =
       item.item_name ||
       menuItemsMap?.[item.menu_item_id]?.name ||
-      `Dish #${(item.menu_item_id || "").slice(0, 6)}`;
-    const qty = item.quantity;
-    const price = parseFloat(item.unit_price || "0");
-    const lineTotal = item.line_total ? parseFloat(item.line_total) : qty * price;
+      item.name ||
+      `Item #${idx + 1}`;
+    const qtyVal = parseFloat(String(item.quantity || "0"));
+    const qtyStr = qtyVal % 1 === 0 ? qtyVal.toFixed(0) : String(qtyVal);
+    const price = parseFloat(String(item.unit_price || "0"));
+    const lineTotal = item.line_total ? parseFloat(String(item.line_total)) : qtyVal * price;
 
     return [
       `${idx + 1}. ${dishName}`,
-      `${qty}`,
+      qtyStr,
       `${price.toFixed(2)}`,
       `${lineTotal.toFixed(2)}`,
     ];
@@ -224,9 +227,9 @@ export function generateReceiptPDF(
       fillColor: false,
     },
     columnStyles: {
-      0: { cellWidth: 35, halign: "left" },
-      1: { cellWidth: 8, halign: "center" },
-      2: { cellWidth: 14, halign: "right" },
+      0: { cellWidth: 32, halign: "left" },
+      1: { cellWidth: 12, halign: "center" },
+      2: { cellWidth: 13, halign: "right" },
       3: { cellWidth: 15, halign: "right" },
     },
   });
@@ -283,8 +286,8 @@ export function generateReceiptPDF(
 
   summaryY += 4.5;
   doc.setFont("courier", "bold");
-  doc.setFontSize(7.5);
-  doc.text(`Thank you for visiting ${storeName}!`, pageWidth / 2, summaryY, { align: "center" });
+  doc.setFontSize(7);
+  doc.text(`Thank you for visiting ${storeName}!`, pageWidth / 2, summaryY, { align: "center", maxWidth: contentWidth - 4 });
 
   summaryY += 3.5;
   doc.setFont("courier", "normal");

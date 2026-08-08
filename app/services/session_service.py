@@ -13,7 +13,7 @@ from typing import Any
 from fastapi import HTTPException, status
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.models.abandoned_cart import AbandonedCart
 from app.models.customer import Customer
@@ -107,7 +107,10 @@ async def start_or_resume_session(
             TableSession.table_number == table_number,
             TableSession.status == SessionStatusEnum.ACTIVE,
         )
-        .options(selectinload(TableSession.orders).selectinload(Order.items))
+        .options(
+            selectinload(TableSession.orders).selectinload(Order.items),
+            selectinload(TableSession.orders).joinedload(Order.restaurant),
+        )
     )
     active_sessions = result.scalars().all()
 
@@ -192,7 +195,10 @@ async def get_session_with_orders(
     result = await db.execute(
         select(TableSession)
         .where(TableSession.id == session_id)
-        .options(selectinload(TableSession.orders).selectinload(Order.items))
+        .options(
+            selectinload(TableSession.orders).selectinload(Order.items),
+            selectinload(TableSession.orders).joinedload(Order.restaurant),
+        )
     )
     session = result.scalar_one_or_none()
     if not session:
@@ -423,7 +429,7 @@ async def get_customer_history(
             TableSession.customer_id == customer.id,
             Order.created_at >= cutoff,
         )
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
         .order_by(Order.created_at.desc())
     )
     orders = result.scalars().all()

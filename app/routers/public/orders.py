@@ -8,7 +8,7 @@ import uuid
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy import select
-from sqlalchemy.orm import selectinload
+from sqlalchemy.orm import joinedload, selectinload
 
 from app.core.rate_limit import limiter
 from app.dependencies import DBSession
@@ -164,7 +164,7 @@ async def get_order_status(
     result = await db.execute(
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items), joinedload(Order.restaurant))
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -197,6 +197,14 @@ async def get_order_receipt(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Order not found",
+        )
+
+    # Restrict receipt download to paid/completed orders only
+    from app.models.enums import OrderStatusEnum
+    if order.status not in (OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Receipt is only available for paid or completed orders.",
         )
 
     # Fetch Restaurant

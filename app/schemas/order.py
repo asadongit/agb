@@ -37,12 +37,26 @@ class CheckoutRequest(StrictSchema):
 # ── Order responses ──────────────────────────────────────────────────────
 
 
+class RestaurantInfoResponse(BaseResponse):
+    id: uuid.UUID
+    name: str
+    slug: str
+    address: str | None = None
+    phone: str | None = None
+    gstin: str | None = None
+    fssai_no: str | None = None
+    logo_url: str | None = None
+
+
 class OrderItemResponse(BaseResponse):
     id: uuid.UUID
-    menu_item_id: uuid.UUID
-    variant_id: uuid.UUID | None
+    menu_item_id: uuid.UUID | None = None
+    variant_id: uuid.UUID | None = None
+    item_name: str | None = None
     quantity: Decimal
     unit_price: Decimal
+    line_total: Decimal | None = None
+    is_complimentary: bool = False
 
 
 class OrderResponse(BaseResponse):
@@ -60,6 +74,7 @@ class OrderResponse(BaseResponse):
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemResponse] = []
+    restaurant: RestaurantInfoResponse | None = None
 
 
 # ── Razorpay checkout response ──────────────────────────────────────────
