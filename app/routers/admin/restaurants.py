@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select, update
+from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import DBSession, RequireAdmin, RequireSuperadmin
@@ -235,6 +235,8 @@ async def delete_restaurant(
     )
     await db.flush()
 
-    # 4. Delete the restaurant entity (cascades to categories, menu items, variants, orders, sessions, etc.)
-    await db.delete(restaurant)
+    # 4. Delete the restaurant entity directly via SQL delete (DB-level ON DELETE CASCADE)
+    await db.execute(
+        delete(Restaurant).where(Restaurant.id == restaurant_id)
+    )
     await db.flush()
