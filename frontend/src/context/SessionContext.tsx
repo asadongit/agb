@@ -9,6 +9,19 @@ import React, {
   useRef,
 } from "react";
 import { getApiBaseUrl } from "@/lib/api";
+
+/**
+ * Parse a datetime string from the backend as UTC.
+ * The backend returns naive datetime strings (e.g. "2026-08-08T16:55:02.686219")
+ * without a trailing 'Z'. Without it, some browsers interpret the string as
+ * local time, causing sessions to appear expired immediately in IST (UTC+5:30).
+ */
+function parseUTCDate(dateStr: string): Date {
+  if (!dateStr.endsWith("Z") && !dateStr.includes("+") && !dateStr.includes("-", 10)) {
+    return new Date(dateStr + "Z");
+  }
+  return new Date(dateStr);
+}
 import type {
   OrderResponse,
   StartSessionResponse,
@@ -165,7 +178,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         setCustomerName(data.customer_name);
         setIsSessionActive(true);
         setSessionOrders(data.orders || []);
-        setExpiresAt(new Date(data.expires_at));
+        setExpiresAt(parseUTCDate(data.expires_at));
         setSessionDurationMinutes(data.session_duration_minutes);
         return true;
       } catch {
@@ -313,7 +326,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       setCustomerPhone(phone?.trim() || "");
       setIsSessionActive(true);
       setSessionOrders(data.active_orders || []);
-      setExpiresAt(new Date(data.expires_at));
+      setExpiresAt(parseUTCDate(data.expires_at));
       setSessionDurationMinutes(data.session_duration_minutes);
       setIsExpired(false);
       setIsExpiryWarning(false);
@@ -344,7 +357,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       if (!res.ok) return;
 
       const data: ExtendSessionResponse = await res.json();
-      setExpiresAt(new Date(data.expires_at));
+      setExpiresAt(parseUTCDate(data.expires_at));
       setSessionDurationMinutes(data.session_duration_minutes);
       setIsExpired(false);
       setIsExpiryWarning(false);
@@ -403,7 +416,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
       const data: SessionStatusResponse = await res.json();
       setIsSessionActive(data.is_active);
       setSessionOrders(data.orders || []);
-      setExpiresAt(new Date(data.expires_at));
+      setExpiresAt(parseUTCDate(data.expires_at));
       setSessionDurationMinutes(data.session_duration_minutes);
 
       if (!data.is_active) {
