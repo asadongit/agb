@@ -24,14 +24,14 @@ class TestStateMachine:
     def test_pending_verification_to_paid_valid(self):
         assert is_valid_transition(OrderStatusEnum.PENDING_VERIFICATION, OrderStatusEnum.PAID)
 
-    def test_paid_to_preparing_valid(self):
-        assert is_valid_transition(OrderStatusEnum.PAID, OrderStatusEnum.PREPARING)
+    def test_paid_to_payment_pending_valid(self):
+        assert is_valid_transition(OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING)
 
     def test_paid_to_refunded_valid(self):
         assert is_valid_transition(OrderStatusEnum.PAID, OrderStatusEnum.REFUNDED)
 
-    def test_preparing_to_completed_valid(self):
-        assert is_valid_transition(OrderStatusEnum.PREPARING, OrderStatusEnum.COMPLETED)
+    def test_payment_pending_to_completed_valid(self):
+        assert is_valid_transition(OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED)
 
     # Invalid transitions
     def test_completed_to_pending_invalid(self):
@@ -48,8 +48,8 @@ class TestStateMachine:
         for target in OrderStatusEnum:
             assert not is_valid_transition(OrderStatusEnum.REFUNDED, target)
 
-    def test_preparing_to_pending_invalid(self):
-        assert not is_valid_transition(OrderStatusEnum.PREPARING, OrderStatusEnum.PENDING)
+    def test_payment_pending_to_pending_invalid(self):
+        assert not is_valid_transition(OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.PENDING)
 
     def test_paid_to_pending_invalid(self):
         assert not is_valid_transition(OrderStatusEnum.PAID, OrderStatusEnum.PENDING)

@@ -239,7 +239,7 @@ const LANE_NAMES: Record<OrderStatus, string> = {
   PENDING: "Awaiting Payment",
   PENDING_VERIFICATION: "Confirmation Pending",
   PAID: "Payment Pending / Paid",
-  PREPARING: "Verification In Progress",
+  PAYMENT_PENDING: "Payment Pending",
   COMPLETED: "Completed",
   CANCELLED: "Cancelled",
   REFUNDED: "Refunded",
@@ -2030,7 +2030,7 @@ export default function AdminDashboardPage() {
       (order) => order.status === "PENDING_VERIFICATION"
     ).length;
     const paidOrPreparing = orders.filter(
-      (order) => order.status === "PAID" || order.status === "PREPARING"
+      (order) => order.status === "PAID" || order.status === "PAYMENT_PENDING"
     ).length;
     const completionRate = orders.length
       ? Math.round(
@@ -2696,7 +2696,12 @@ export default function AdminDashboardPage() {
 
               <div className="grid gap-3 xl:grid-cols-5">
                 {lanes.map((status) => {
-                  const laneOrders = orders.filter((order) => order.status === status);
+                  const laneOrders = orders.filter((order) => {
+                    if (status === "PAID") {
+                      return order.status === "PAID" || order.status === "PAYMENT_PENDING";
+                    }
+                    return order.status === status;
+                  });
                   return (
                     <section
                       key={status}
@@ -2792,7 +2797,7 @@ export default function AdminDashboardPage() {
                                   ) : (
                                     <button
                                       type="button"
-                                      onClick={() => void onUpdateOrderStatus(order.id, "PREPARING")}
+                                      onClick={() => void onUpdateOrderStatus(order.id, "PAYMENT_PENDING")}
                                       className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
                                     >
                                       Accept &amp; Verify (Payment Pending)
@@ -2808,7 +2813,7 @@ export default function AdminDashboardPage() {
                                     Verify &amp; Complete (Paid Online)
                                   </button>
                                 )}
-                                {order.status === "PREPARING" && (
+                                {order.status === "PAYMENT_PENDING" && (
                                   <button
                                     type="button"
                                     onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}

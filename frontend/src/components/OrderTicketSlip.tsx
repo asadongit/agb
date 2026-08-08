@@ -55,13 +55,13 @@ export function OrderTicketSlip() {
           border: "border-[var(--status-pending-border)]",
           icon: <Clock className="h-4 w-4 text-[var(--status-pending-text)] animate-spin-slow" />,
         };
-      case "PREPARING":
+      case "PAYMENT_PENDING":
         return {
-          label: "Order Being Packed",
-          bg: "bg-[var(--status-preparing-bg)]",
-          text: "text-[var(--status-preparing-text)]",
-          border: "border-[var(--status-preparing-border)]",
-          icon: <Package className="h-4 w-4 text-[var(--status-preparing-text)]" />,
+          label: "Payment Pending",
+          bg: "bg-[var(--status-pending-bg)]",
+          text: "text-[var(--status-pending-text)]",
+          border: "border-[var(--status-pending-border)]",
+          icon: <Clock className="h-4 w-4 text-[var(--status-pending-text)]" />,
         };
       default:
         return {

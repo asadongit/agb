@@ -3,7 +3,7 @@ export type OrderStatus =
   | "PENDING"
   | "PENDING_VERIFICATION"
   | "PAID"
-  | "PREPARING"
+  | "PAYMENT_PENDING"
   | "COMPLETED"
   | "CANCELLED"
   | "REFUNDED";

@@ -33,7 +33,7 @@ from app.schemas.analytics import (
 # Valid non-cancelled status filters for revenue calculation
 SETTLED_STATUSES = [
     OrderStatusEnum.PAID,
-    OrderStatusEnum.PREPARING,
+    OrderStatusEnum.PAYMENT_PENDING,
     OrderStatusEnum.COMPLETED,
 ]
 
@@ -345,7 +345,7 @@ async def get_order_funnel(
     total_orders = sum(status_counts.values())
 
     pending_cnt = status_counts.get(OrderStatusEnum.PENDING, 0) + status_counts.get(OrderStatusEnum.PENDING_VERIFICATION, 0)
-    paid_cnt = status_counts.get(OrderStatusEnum.PAID, 0) + status_counts.get(OrderStatusEnum.PREPARING, 0)
+    paid_cnt = status_counts.get(OrderStatusEnum.PAID, 0) + status_counts.get(OrderStatusEnum.PAYMENT_PENDING, 0)
     served_cnt = status_counts.get(OrderStatusEnum.COMPLETED, 0)
     cancelled_cnt = status_counts.get(OrderStatusEnum.CANCELLED, 0) + status_counts.get(OrderStatusEnum.REFUNDED, 0)
 

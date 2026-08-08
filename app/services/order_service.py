@@ -187,13 +187,13 @@ async def transition_order_status(
     order.status = new_status
     await db.flush()
 
-    # Trigger recipe-based inventory auto-deduction when order enters PAID, PREPARING, or COMPLETED
-    if new_status in {OrderStatusEnum.PAID, OrderStatusEnum.PREPARING, OrderStatusEnum.COMPLETED} and old_status not in {OrderStatusEnum.PAID, OrderStatusEnum.PREPARING, OrderStatusEnum.COMPLETED}:
+    # Trigger recipe-based inventory auto-deduction when order enters PAID, PAYMENT_PENDING, or COMPLETED
+    if new_status in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED} and old_status not in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED}:
         from app.services.inventory_service import process_order_auto_deduction
         await process_order_auto_deduction(db, order)
 
     # Trigger cancellation reversal if an already deducted order is cancelled or refunded
-    if new_status in {OrderStatusEnum.CANCELLED, OrderStatusEnum.REFUNDED} and old_status in {OrderStatusEnum.PAID, OrderStatusEnum.PREPARING, OrderStatusEnum.COMPLETED}:
+    if new_status in {OrderStatusEnum.CANCELLED, OrderStatusEnum.REFUNDED} and old_status in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED}:
         from app.services.inventory_service import process_order_cancellation_reversal
         await process_order_cancellation_reversal(db, order)
 

@@ -80,8 +80,8 @@ class TestOrderCreation:
 class TestOrderStateMachine:
     """State machine enforcement tests."""
 
-    async def test_valid_transition_paid_to_preparing(self, client, db_session):
-        """PAID → PREPARING should succeed."""
+    async def test_valid_transition_paid_to_payment_pending(self, client, db_session):
+        """PAID → PAYMENT_PENDING should succeed."""
         restaurant = await create_test_restaurant(db_session)
         user = await create_test_user(db_session, restaurant)
         cat = await create_test_category(db_session, restaurant)

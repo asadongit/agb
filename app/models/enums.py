@@ -26,7 +26,7 @@ class OrderStatusEnum(str, enum.Enum):
     PENDING = "PENDING"
     PENDING_VERIFICATION = "PENDING_VERIFICATION"
     PAID = "PAID"
-    PREPARING = "PREPARING"
+    PAYMENT_PENDING = "PAYMENT_PENDING"
     COMPLETED = "COMPLETED"
     CANCELLED = "CANCELLED"
     REFUNDED = "REFUNDED"
@@ -75,17 +75,17 @@ VALID_ORDER_TRANSITIONS: dict[OrderStatusEnum, set[OrderStatusEnum]] = {
     },
     OrderStatusEnum.PENDING_VERIFICATION: {
         OrderStatusEnum.PAID,
-        OrderStatusEnum.PREPARING,  # Pay At Counter: Accept/Confirm order
-        OrderStatusEnum.COMPLETED,  # Direct basket verification & completion
+        OrderStatusEnum.PAYMENT_PENDING,  # Pay At Counter: Accept/Confirm order
+        OrderStatusEnum.COMPLETED,        # Direct basket verification & completion
         OrderStatusEnum.CANCELLED,
     },
     OrderStatusEnum.PAID: {
-        OrderStatusEnum.PREPARING,
-        OrderStatusEnum.COMPLETED,  # Razorpay: Accept/Confirm & Serve order
+        OrderStatusEnum.PAYMENT_PENDING,
+        OrderStatusEnum.COMPLETED,        # Razorpay: Accept/Confirm & Serve order
         OrderStatusEnum.REFUNDED,
     },
-    OrderStatusEnum.PREPARING: {
-        OrderStatusEnum.COMPLETED,  # Pay At Counter: Mark Paid
+    OrderStatusEnum.PAYMENT_PENDING: {
+        OrderStatusEnum.COMPLETED,        # Pay At Counter: Mark Paid
         OrderStatusEnum.CANCELLED,
     },
     # Terminal states — no outgoing transitions

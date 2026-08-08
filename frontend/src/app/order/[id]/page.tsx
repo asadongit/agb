@@ -54,7 +54,7 @@ const STATUS_CONFIG: Record<
     borderColor: "border-amber-200",
     description: "Payment received. Awaiting outlet confirmation.",
   },
-  PREPARING: {
+  PAYMENT_PENDING: {
     label: "Payment Pending",
     icon: CreditCard,
     bgColor: "bg-orange-50",
@@ -84,7 +84,7 @@ const STATUS_CONFIG: Record<
     bgColor: "bg-violet-50",
     textColor: "text-violet-700",
     borderColor: "border-violet-200",
-    description: "This order has been refunded.",
+    description: "Payment for this order has been refunded.",
   },
 };
 
@@ -189,8 +189,8 @@ export default function OrderTrackingPage() {
   // Check if order is paid (download & detailed cash memo only appear when paid)
   const isPaid = order ? (order.status === "PAID" || order.status === "COMPLETED") : false;
 
-  const timeline = order && (order.status === "PENDING_VERIFICATION" || order.status === "PREPARING")
-    ? (["PENDING_VERIFICATION", "PREPARING", "COMPLETED"] as OrderStatus[])
+  const timeline = order && (order.status === "PENDING_VERIFICATION" || order.status === "PAYMENT_PENDING")
+    ? (["PENDING_VERIFICATION", "PAYMENT_PENDING", "COMPLETED"] as OrderStatus[])
     : (["PENDING", "PAID", "COMPLETED"] as OrderStatus[]);
 
   const currentStep = order ? timeline.indexOf(order.status) : -1;

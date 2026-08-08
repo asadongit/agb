@@ -47,11 +47,11 @@ const STATUS_BADGE: Record<
     text: "text-emerald-700 dark:text-emerald-300",
     icon: <CheckCircle2 className="h-3.5 w-3.5" />,
   },
-  PREPARING: {
-    label: "Packing",
-    bg: "bg-orange-50 dark:bg-orange-950/40",
-    text: "text-orange-700 dark:text-orange-300",
-    icon: <Package className="h-3.5 w-3.5" />,
+  PAYMENT_PENDING: {
+    label: "Payment Pending",
+    bg: "bg-amber-50 dark:bg-amber-950/40",
+    text: "text-amber-700 dark:text-amber-300",
+    icon: <Clock className="h-3.5 w-3.5" />,
   },
   COMPLETED: {
     label: "Fulfilled",
