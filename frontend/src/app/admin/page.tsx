@@ -160,6 +160,13 @@ type RestaurantProfile = {
   razorpay_account_id?: string | null;
   direct_upi_id?: string | null;
   raw_upi_payload?: string | null;
+  logo_url?: string | null;
+  address?: string | null;
+  phone?: string | null;
+  gstin?: string | null;
+  fssai_no?: string | null;
+  session_duration_minutes?: number | null;
+  verification_amount_cutoff?: string | number | null;
   created_at: string;
   updated_at: string;
 };
@@ -2132,16 +2139,30 @@ export default function AdminDashboardPage() {
       >
         {/* Sidebar Header */}
         <div className="p-5 border-b border-[var(--border-subtle)] space-y-3">
-          <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[var(--accent-brand)] text-[var(--text-on-accent)] font-bold">
-              <Store className="h-5 w-5" />
-            </div>
-            <div className="overflow-hidden">
-              <h2 className="font-display font-bold text-base truncate">
+          <div className="flex items-start gap-3">
+            {restaurant?.logo_url ? (
+              <img
+                src={restaurant.logo_url}
+                alt={restaurant.name}
+                className="h-10 w-10 shrink-0 rounded-xl object-cover border border-[var(--border-subtle)]"
+              />
+            ) : (
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-[var(--accent-brand)] text-[var(--text-on-accent)] font-bold">
+                <Store className="h-5 w-5" />
+              </div>
+            )}
+            <div className="min-w-0 flex-1">
+              <h2
+                className="font-display font-bold text-sm text-[var(--text-primary)] leading-snug break-words"
+                title={restaurant?.name || "My Outlet"}
+              >
                 {restaurant?.name || "My Outlet"}
               </h2>
               {restaurant?.slug && (
-                <p className="font-mono text-xs text-[var(--accent-brand)] truncate">
+                <p
+                  className="font-mono text-[11px] text-[var(--accent-brand)] truncate mt-0.5"
+                  title={`/${restaurant.slug}`}
+                >
                   /{restaurant.slug}
                 </p>
               )}

@@ -179,9 +179,10 @@ async def get_revenue_analytics(
         "monthly": "month",
     }.get(granularity.lower(), "day")
 
+    bucket_expr = func.date_trunc(trunc_unit, Order.created_at).label("bucket_time")
     stmt = (
         select(
-            func.date_trunc(trunc_unit, Order.created_at).label("bucket_time"),
+            bucket_expr,
             func.sum(Order.total_amount).label("revenue"),
             func.count(Order.id).label("orders_count"),
         )
@@ -191,8 +192,8 @@ async def get_revenue_analytics(
             Order.created_at <= to_dt,
             Order.status.in_(SETTLED_STATUSES),
         )
-        .group_by(text("bucket_time"))
-        .order_by(text("bucket_time"))
+        .group_by(bucket_expr)
+        .order_by(bucket_expr)
     )
 
     res = await db.execute(stmt)
@@ -224,9 +225,10 @@ async def get_peak_hours(
     to_dt: datetime,
 ) -> PeakHoursResponse:
     """Group order volume by hour of day (0 to 23)."""
+    hr_expr = cast(func.extract("hour", Order.created_at), Integer).label("hr")
     stmt = (
         select(
-            cast(func.extract("hour", Order.created_at), Integer).label("hr"),
+            hr_expr,
             func.count(Order.id).label("cnt"),
         )
         .where(
@@ -234,8 +236,8 @@ async def get_peak_hours(
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
         )
-        .group_by(text("hr"))
-        .order_by(text("hr"))
+        .group_by(hr_expr)
+        .order_by(hr_expr)
     )
 
     res = await db.execute(stmt)
@@ -263,12 +265,15 @@ async def get_top_selling_items(
     to_dt: datetime,
 ) -> TopItemsResponse:
     """Rank menu items by quantity sold or total revenue, including revenue share percentage."""
+    total_qty_col = func.sum(OrderItem.quantity).label("total_qty")
+    total_rev_col = func.sum(OrderItem.line_total).label("total_rev")
+
     stmt = (
         select(
             OrderItem.menu_item_id,
             OrderItem.item_name,
-            func.sum(OrderItem.quantity).label("total_qty"),
-            func.sum(OrderItem.line_total).label("total_rev"),
+            total_qty_col,
+            total_rev_col,
         )
         .join(Order, OrderItem.order_id == Order.id)
         .where(
@@ -281,9 +286,9 @@ async def get_top_selling_items(
     )
 
     if sort_by.lower() == "revenue":
-        stmt = stmt.order_by(text("total_rev DESC"))
+        stmt = stmt.order_by(total_rev_col.desc())
     else:
-        stmt = stmt.order_by(text("total_qty DESC"))
+        stmt = stmt.order_by(total_qty_col.desc())
 
     stmt = stmt.limit(limit)
     res = await db.execute(stmt)

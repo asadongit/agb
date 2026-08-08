@@ -18,8 +18,11 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    conn = op.get_bind()
+    inspector = sa.inspect(conn)
     # 1. restaurants
-    op.create_table(
+    if not inspector.has_table('restaurants'):
+        op.create_table(
         'restaurants',
         sa.Column('id', sa.UUID(), nullable=False),
         sa.Column('slug', sa.String(length=100), nullable=False),
