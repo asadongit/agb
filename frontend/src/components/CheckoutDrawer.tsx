@@ -59,7 +59,7 @@ export function CheckoutDrawer({ restaurantSlug, restaurantName, allowedPaymentM
 
     const payload = {
       restaurant_slug: restaurantSlug,
-      table_number: tableNumber,
+      basket_number: tableNumber,
       customer_name: customerName || undefined,
       customer_phone: customerPhone || undefined,
       payment_mode: paymentMode,
@@ -123,8 +123,8 @@ export function CheckoutDrawer({ restaurantSlug, restaurantName, allowedPaymentM
             // Payment succeeded — Razorpay webhook will update DB status
             setActiveOrder({
               id: razorpayData.order_id,
-              restaurant_id: "rest-1",
-              table_number: tableNumber,
+              outlet_id: "outlet-1",
+              basket_number: tableNumber,
               total_amount: totalAmount.toFixed(2),
               status: "PAID",
               created_at: new Date().toISOString(),
@@ -164,8 +164,8 @@ export function CheckoutDrawer({ restaurantSlug, restaurantName, allowedPaymentM
         // Mode B: Pay At Counter (No links/QR/screenshots)
         setActiveOrder({
           id: data.order_id,
-          restaurant_id: "rest-1",
-          table_number: tableNumber,
+          outlet_id: "outlet-1",
+          basket_number: tableNumber,
           total_amount: totalAmount.toFixed(2),
           status: "PENDING_VERIFICATION",
           created_at: new Date().toISOString(),

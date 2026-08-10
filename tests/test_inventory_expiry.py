@@ -10,7 +10,7 @@ from decimal import Decimal
 from tests.conftest import (
     create_test_category,
     create_test_menu_item,
-    create_test_restaurant,
+    create_test_outlet,
     create_test_user,
     get_auth_headers,
 )
@@ -26,14 +26,14 @@ class TestInventoryExpiry:
 
     async def test_stock_intake_with_expiry_and_remaining(self, client, db_session):
         """Stock intake stores expiry_date and initializes remaining_quantity."""
-        restaurant = await create_test_restaurant(db_session)
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
         await db_session.commit()
-        headers = get_auth_headers(admin, restaurant)
+        headers = get_auth_headers(admin, outlet)
 
         # Create inventory item
         inv_item = await create_inventory_item(
-            db_session, restaurant.id,
+            db_session, outlet.id,
             InventoryItemCreate(name="Fresh Milk", unit=InventoryUnitEnum.L, current_stock=Decimal("0.0"), cost_per_unit=Decimal("50.0"))
         )
         await db_session.commit()
@@ -54,10 +54,10 @@ class TestInventoryExpiry:
 
     async def test_near_expiry_alerts_endpoint(self, client, db_session):
         """Near-expiry alerts endpoint returns batches within threshold."""
-        restaurant = await create_test_restaurant(db_session)
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
         inv_item = await create_inventory_item(
-            db_session, restaurant.id,
+            db_session, outlet.id,
             InventoryItemCreate(name="Organic Berries", unit=InventoryUnitEnum.KG, current_stock=Decimal("0.0"), cost_per_unit=Decimal("200.0"))
         )
         await db_session.commit()
@@ -65,12 +65,12 @@ class TestInventoryExpiry:
         # Intake batch expiring in 3 days
         expiry = datetime.utcnow() + timedelta(days=3)
         await log_stock_intake(
-            db_session, restaurant.id, admin.id,
+            db_session, outlet.id, admin.id,
             StockIntakeCreate(item_id=inv_item.id, quantity=Decimal("5.0"), unit_cost=Decimal("200.0"), expiry_date=expiry)
         )
         await db_session.commit()
 
-        headers = get_auth_headers(admin, restaurant)
+        headers = get_auth_headers(admin, outlet)
         resp = await client.get("/api/admin/inventory/near-expiry-alerts?threshold_days=7", headers=headers)
         assert resp.status_code == 200
         alerts = resp.json()
@@ -82,39 +82,39 @@ class TestInventoryExpiry:
 
     async def test_fifo_auto_deduction_earliest_expiry_first(self, client, db_session):
         """Order stock deduction draws down from earliest-expiring batch first."""
-        restaurant = await create_test_restaurant(db_session)
-        restaurant.payment_mode = "BOTH"
-        restaurant.verification_amount_cutoff = Decimal("1000.00")
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
-        cat = await create_test_category(db_session, restaurant)
-        menu_item = await create_test_menu_item(db_session, restaurant, cat, name="Fresh Mango Smoothie", price=Decimal("120.0"))
+        outlet = await create_test_outlet(db_session)
+        outlet.payment_mode = "BOTH"
+        outlet.verification_amount_cutoff = Decimal("1000.00")
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
+        cat = await create_test_category(db_session, outlet)
+        menu_item = await create_test_menu_item(db_session, outlet, cat, name="Fresh Mango Smoothie", price=Decimal("120.0"))
 
         inv_item = await create_inventory_item(
-            db_session, restaurant.id,
+            db_session, outlet.id,
             InventoryItemCreate(name="Ripe Mangoes", unit=InventoryUnitEnum.KG, current_stock=Decimal("0.0"), cost_per_unit=Decimal("80.0"))
         )
         await save_menu_item_recipe(
-            db_session, restaurant.id,
+            db_session, outlet.id,
             RecipeSaveRequest(menu_item_id=menu_item.id, ingredients=[RecipeIngredientItem(inventory_item_id=inv_item.id, quantity_required=Decimal("0.5"), unit=InventoryUnitEnum.KG)])
         )
         await db_session.commit()
 
         # Intake Batch 1: Expiring in 2 days (quantity 10 kg)
         b1 = await log_stock_intake(
-            db_session, restaurant.id, admin.id,
+            db_session, outlet.id, admin.id,
             StockIntakeCreate(item_id=inv_item.id, quantity=Decimal("10.0"), unit_cost=Decimal("80.0"), expiry_date=datetime.utcnow() + timedelta(days=2))
         )
         # Intake Batch 2: Expiring in 10 days (quantity 10 kg)
         b2 = await log_stock_intake(
-            db_session, restaurant.id, admin.id,
+            db_session, outlet.id, admin.id,
             StockIntakeCreate(item_id=inv_item.id, quantity=Decimal("10.0"), unit_cost=Decimal("80.0"), expiry_date=datetime.utcnow() + timedelta(days=10))
         )
         await db_session.commit()
 
         # Order 4 smoothies (requires 4 * 0.5 = 2.0 kg mangoes)
         checkout_res = await client.post("/api/orders/checkout", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "5",
+            "outlet_slug": outlet.slug,
+            "basket_number": "5",
             "customer_name": "Carol",
             "payment_mode": "PAY_AT_COUNTER",
             "items": [{"menu_item_id": str(menu_item.id), "quantity": 4}],

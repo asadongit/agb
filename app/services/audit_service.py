@@ -14,11 +14,11 @@ from app.models.audit_log import AuditLog
 
 async def log_action(
     db: AsyncSession,
-    restaurant_id: uuid.UUID | None,
-    user_id: uuid.UUID | None,
-    action: str,
-    entity_type: str,
-    entity_id: str,
+    outlet_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
+    action: str = "",
+    entity_type: str = "",
+    entity_id: str = "",
     details: dict[str, Any] | None = None,
     description: str | None = None,
 ) -> None:
@@ -33,7 +33,7 @@ async def log_action(
 
     entry = AuditLog(
         id=uuid.uuid4(),
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         user_id=user_id,
         action=action,
         entity_type=entity_type,

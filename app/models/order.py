@@ -17,9 +17,9 @@ from app.database import Base, TimestampMixin
 from app.models.enums import OrderStatusEnum
 
 if TYPE_CHECKING:
+    from app.models.basket_session import BasketSession
     from app.models.order_item import OrderItem
-    from app.models.restaurant import Restaurant
-    from app.models.table_session import TableSession
+    from app.models.outlet import Outlet
 
 
 class Order(Base, TimestampMixin):
@@ -28,19 +28,19 @@ class Order(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("table_sessions.id", ondelete="SET NULL"),
+        ForeignKey("basket_sessions.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
-    table_number: Mapped[str] = mapped_column(String(50), nullable=False)
+    basket_number: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     customer_phone: Mapped[str | None] = mapped_column(String(20), nullable=True)
     # NEVER use Float for money — Numeric(10,2) mapped to Python Decimal
@@ -92,11 +92,11 @@ class Order(Base, TimestampMixin):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship(
-        "Restaurant", back_populates="orders"
+    outlet: Mapped[Outlet] = relationship(
+        "Outlet", back_populates="orders"
     )
-    session: Mapped[TableSession | None] = relationship(
-        "TableSession", back_populates="orders"
+    session: Mapped[BasketSession | None] = relationship(
+        "BasketSession", back_populates="orders"
     )
     items: Mapped[list[OrderItem]] = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"

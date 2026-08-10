@@ -7,7 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.schemas.common import BaseResponse, StrictSchema
 
@@ -24,7 +24,7 @@ class CategoryUpdate(StrictSchema):
 
 class CategoryResponse(BaseResponse):
     id: uuid.UUID
-    restaurant_id: uuid.UUID
+    outlet_id: uuid.UUID
     name: str
     display_order: int
     created_at: datetime

@@ -18,7 +18,7 @@ from app.models.category import Category
 from app.models.enums import PaymentModeEnum, PricingModeEnum, RoleEnum
 from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.models.user import User
 
 
@@ -29,16 +29,16 @@ async def seed_data():
         await conn.run_sync(Base.metadata.create_all)
 
     async with async_session_factory() as db:
-        # Check if restaurant already exists
+        # Check if outlet already exists
         existing = await db.execute(
-            select(Restaurant).where(Restaurant.slug == "apnagreenbasket-jammu")
+            select(Outlet).where(Outlet.slug == "apnagreenbasket-jammu")
         )
         if existing.scalar_one_or_none():
             print("[Seed] Outlet 'apnagreenbasket-jammu' already exists. Skipping seed.")
             return
 
-        # 1. Create Restaurant
-        restaurant = Restaurant(
+        # 1. Create Outlet
+        outlet = Outlet(
             id=uuid.uuid4(),
             slug="apnagreenbasket-jammu",
             name="ApnaGreen Basket Jammu",
@@ -47,14 +47,14 @@ async def seed_data():
             address="Gandhi Nagar, Jammu, J&K 180004",
             phone="+91 9876543210",
         )
-        db.add(restaurant)
+        db.add(outlet)
         await db.flush()
 
         # 2. Create Admin User
         admin_user = User(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
-            role=RoleEnum.RESTAURANT_ADMIN,
+            outlet_id=outlet.id,
+            role=RoleEnum.OUTLET_ADMIN,
             email="admin@apnagreenbasket.com",
             password_hash=hash_password("admin123456"),
         )
@@ -63,7 +63,7 @@ async def seed_data():
         # 2b. Create Superadmin User
         superadmin_user = User(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             role=RoleEnum.SUPERADMIN,
             email="superadmin@apnagreenbasket.com",
             password_hash=hash_password("admin123456"),
@@ -73,19 +73,19 @@ async def seed_data():
         # 3. Create Categories & Produce/Grocery Items
         cat1 = Category(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             name="Fresh Farm Produce",
             display_order=1,
         )
         cat2 = Category(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             name="Dairy & Staples",
             display_order=2,
         )
         cat3 = Category(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             name="Organic Beverages",
             display_order=3,
         )
@@ -95,7 +95,7 @@ async def seed_data():
         # Item 1: Organic Jammu Tomatoes
         item1 = MenuItem(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             category_id=cat1.id,
             name="Organic Jammu Tomatoes",
             description="Freshly harvested vine-ripened red organic tomatoes sourced directly from local Jammu farms.",
@@ -108,7 +108,7 @@ async def seed_data():
         # Item 2: Fresh Pumpkin
         item2 = MenuItem(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             category_id=cat1.id,
             name="Local Sweet Pumpkin",
             description="Single whole farm-fresh sweet pumpkin sold on variable weight basis.",
@@ -121,7 +121,7 @@ async def seed_data():
         # Item 3: Jammu Rajma
         item3 = MenuItem(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             category_id=cat2.id,
             name="Bhaderwah Rajma Special",
             description="Premium grade authentic red kidney beans sourced from Bhaderwah Jammu hills.",
@@ -134,7 +134,7 @@ async def seed_data():
         # Item 4: Farm Milk
         item4 = MenuItem(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             category_id=cat2.id,
             name="Farm Fresh Whole Milk",
             description="Full cream pure cow milk, chilled 1 Litre pouch.",
@@ -147,7 +147,7 @@ async def seed_data():
         # Item 5: Organic Hibiscus Drink
         item5 = MenuItem(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
+            outlet_id=outlet.id,
             category_id=cat3.id,
             name="Cold Pressed Hibiscus Sparkler",
             description="Cold-brewed organic hibiscus extract, fresh citrus yuzu, and mint water.",

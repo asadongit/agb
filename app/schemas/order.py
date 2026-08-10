@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.models.enums import OrderStatusEnum, PaymentModeEnum
 from app.schemas.common import BaseResponse, StrictSchema
@@ -25,8 +25,8 @@ class OrderItemRequest(StrictSchema):
 
 class CheckoutRequest(StrictSchema):
     """Customer-facing checkout — total is computed server-side, never trusted from client."""
-    restaurant_slug: str
-    table_number: str = Field(min_length=1, max_length=50)
+    outlet_slug: str = Field(min_length=1, max_length=100)
+    basket_number: str = Field(min_length=1, max_length=50)
     customer_name: str | None = Field(None, max_length=255)
     customer_phone: str | None = Field(None, max_length=20)
     payment_mode: PaymentModeEnum = PaymentModeEnum.PAY_AT_COUNTER
@@ -37,7 +37,7 @@ class CheckoutRequest(StrictSchema):
 # ── Order responses ──────────────────────────────────────────────────────
 
 
-class RestaurantInfoResponse(BaseResponse):
+class OutletInfoResponse(BaseResponse):
     id: uuid.UUID
     name: str
     slug: str
@@ -61,9 +61,9 @@ class OrderItemResponse(BaseResponse):
 
 class OrderResponse(BaseResponse):
     id: uuid.UUID
-    restaurant_id: uuid.UUID
+    outlet_id: uuid.UUID
     session_id: uuid.UUID | None = None
-    table_number: str
+    basket_number: str
     customer_name: str | None
     customer_phone: str | None
     total_amount: Decimal
@@ -75,7 +75,7 @@ class OrderResponse(BaseResponse):
     created_at: datetime
     updated_at: datetime
     items: list[OrderItemResponse] = []
-    restaurant: RestaurantInfoResponse | None = None
+    outlet: OutletInfoResponse | None = None
 
 
 # ── Razorpay checkout response ──────────────────────────────────────────

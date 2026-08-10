@@ -7,7 +7,7 @@ import enum
 
 class RoleEnum(str, enum.Enum):
     SUPERADMIN = "SUPERADMIN"
-    RESTAURANT_ADMIN = "RESTAURANT_ADMIN"
+    OUTLET_ADMIN = "OUTLET_ADMIN"
     MANAGER = "MANAGER"
     FLOOR_STAFF = "FLOOR_STAFF"
     CASHIER = "CASHIER"

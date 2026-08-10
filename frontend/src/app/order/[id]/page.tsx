@@ -380,7 +380,7 @@ export default function OrderTrackingPage() {
                       Bill Type: Sale
                     </span>
                     <span className="text-xs font-bold text-[var(--accent-brand)]">
-                      Basket #{order.table_number}
+                      Basket #{order.basket_number}
                     </span>
                   </div>
                   <div className="flex items-center justify-between text-xs">
@@ -469,8 +469,8 @@ export default function OrderTrackingPage() {
                   </p>
                 </div>
                 <div className="flex items-center justify-between">
-                  <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">Table</p>
-                  <p className="text-sm font-semibold">#{order.table_number}</p>
+                  <p className="text-xs uppercase tracking-wide text-[var(--text-muted)]">Basket</p>
+                  <p className="text-sm font-semibold">#{order.basket_number}</p>
                 </div>
                 {order.customer_name && (
                   <div className="flex items-center justify-between">

@@ -21,7 +21,7 @@ from app.models.webhook_event import WebhookEvent
 from tests.conftest import (
     create_test_category,
     create_test_menu_item,
-    create_test_restaurant,
+    create_test_outlet,
 )
 
 settings = get_settings()
@@ -74,16 +74,16 @@ class TestRazorpayWebhook:
 
     async def test_valid_webhook_processed(self, client, db_session):
         """Valid signature + new event_id should process successfully."""
-        restaurant = await create_test_restaurant(db_session)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat)
+        outlet = await create_test_outlet(db_session)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat)
 
         # Create an order with a Razorpay payment reference
         rz_order_id = "order_rz_test123"
         order = Order(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
-            table_number="T1",
+            outlet_id=outlet.id,
+            basket_number="T1",
             total_amount=Decimal("10.00"),
             status=OrderStatusEnum.PENDING,
             payment_reference=rz_order_id,

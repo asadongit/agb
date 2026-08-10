@@ -51,12 +51,12 @@ async def razorpay_webhook(request: Request, db: DBSession):
                     .get("entity", {})
                 )
                 notes = order_entity.get("notes", {})
-                restaurant_id = notes.get("restaurant_id")
+                outlet_id = notes.get("outlet_id")
                 order_id = notes.get("order_id")
-                if restaurant_id and order_id:
+                if outlet_id and order_id:
                     import uuid
                     await broadcast_new_order_paid(
-                        uuid.UUID(restaurant_id), uuid.UUID(order_id)
+                        uuid.UUID(outlet_id), uuid.UUID(order_id)
                     )
         except Exception:
             pass  # Don't fail the webhook response for broadcast errors

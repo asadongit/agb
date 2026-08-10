@@ -27,7 +27,7 @@ async def register_user(
     db: AsyncSession,
     data: RegisterRequest,
 ) -> User:
-    """Register a new user (default role: RESTAURANT_ADMIN if first, else STAFF)."""
+    """Register a new user (default role: OUTLET_ADMIN if first, else STAFF)."""
     # Check if email is taken
     existing = await db.execute(select(User).where(User.email == data.email))
     if existing.scalar_one_or_none():
@@ -40,7 +40,7 @@ async def register_user(
         id=uuid.uuid4(),
         email=data.email,
         password_hash=hash_password(data.password),
-        restaurant_id=data.restaurant_id,
+        outlet_id=data.outlet_id,
         role=data.role,
     )
     db.add(user)
@@ -70,12 +70,12 @@ async def login_user(
 
     access_token = create_access_token(
         user_id=user.id,
-        restaurant_id=user.restaurant_id,
+        outlet_id=user.outlet_id,
         role=user.role.value,
     )
     refresh_token = create_refresh_token(
         user_id=user.id,
-        restaurant_id=user.restaurant_id,
+        outlet_id=user.outlet_id,
         role=user.role.value,
     )
 
@@ -114,8 +114,8 @@ async def refresh_tokens(
 
     user_id = uuid.UUID(payload["sub"])
     role_val = payload.get("role")
-    raw_rest_id = payload.get("restaurant_id")
-    restaurant_id = uuid.UUID(raw_rest_id) if raw_rest_id else None
+    raw_outlet_id = payload.get("outlet_id")
+    outlet_id = uuid.UUID(raw_outlet_id) if raw_outlet_id else None
 
     # Check User table first, then Staff table
     result = await db.execute(select(User).where(User.id == user_id))
@@ -145,17 +145,17 @@ async def refresh_tokens(
         )
 
     target_role = user.role.value if user else (staff.role.value if staff else role_val)
-    target_rest_id = user.restaurant_id if user else (staff.restaurant_id if staff else restaurant_id)
+    target_outlet_id = user.outlet_id if user else (staff.outlet_id if staff else outlet_id)
 
     # Issue new tokens
     new_access = create_access_token(
         user_id=user_id,
-        restaurant_id=target_rest_id,
+        outlet_id=target_outlet_id,
         role=target_role,
     )
     new_refresh = create_refresh_token(
         user_id=user_id,
-        restaurant_id=target_rest_id,
+        outlet_id=target_outlet_id,
         role=target_role,
     )
 

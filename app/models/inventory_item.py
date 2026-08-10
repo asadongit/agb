@@ -1,5 +1,5 @@
 """
-InventoryItem model — ingredient master per outlet.
+InventoryItem model — raw materials / ingredient master list for an outlet.
 """
 
 from __future__ import annotations
@@ -8,7 +8,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,26 +16,34 @@ from app.database import Base, TimestampMixin
 from app.models.enums import InventoryUnitEnum
 
 if TYPE_CHECKING:
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
 
 
 class InventoryItem(Base, TimestampMixin):
     __tablename__ = "inventory_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "outlet_id", "name", name="uq_inventory_items_outlet_id_name"
+        ),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    barcode: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
     unit: Mapped[InventoryUnitEnum] = mapped_column(
         Enum(InventoryUnitEnum, name="inventoryunitenum"),
         nullable=False,
-        default=InventoryUnitEnum.PCS,
+        default=InventoryUnitEnum.KG,
     )
     category: Mapped[str] = mapped_column(
         String(100), nullable=False, default="General"
@@ -44,14 +52,14 @@ class InventoryItem(Base, TimestampMixin):
         Numeric(12, 3), nullable=False, default=Decimal("0.000")
     )
     reorder_threshold: Mapped[Decimal] = mapped_column(
-        Numeric(12, 3), nullable=False, default=Decimal("0.000")
+        Numeric(12, 3), nullable=False, default=Decimal("5.000")
     )
     cost_per_unit: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00")
     )
     is_active: Mapped[bool] = mapped_column(
-        Boolean, nullable=False, default=True
+        Boolean, default=True, nullable=False
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
+    outlet: Mapped[Outlet] = relationship("Outlet")

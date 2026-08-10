@@ -42,7 +42,7 @@ async def lifespan(app: FastAPI):
                         email="superadmin@apnagreenbasket.com",
                         password_hash=hash_password("supersecret123"),
                         role=RoleEnum.SUPERADMIN,
-                        restaurant_id=None,
+                        outlet_id=None,
                     )
                 )
                 await db.commit()
@@ -84,7 +84,7 @@ def create_app() -> FastAPI:
 
     # ── Routers ──────────────────────────────────────────────────────
     from app.routers.auth import router as auth_router
-    from app.routers.admin.restaurants import router as restaurants_router
+    from app.routers.admin.outlets import router as outlets_router
     from app.routers.admin.categories import router as categories_router
     from app.routers.admin.menu_items import router as menu_items_router
     from app.routers.admin.variants import router as variants_router
@@ -102,7 +102,7 @@ def create_app() -> FastAPI:
     from app.routers.upload import router as upload_router
 
     app.include_router(auth_router)
-    app.include_router(restaurants_router)
+    app.include_router(outlets_router)
     app.include_router(categories_router)
     app.include_router(menu_items_router)
     app.include_router(variants_router)

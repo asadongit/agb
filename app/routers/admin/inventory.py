@@ -19,22 +19,32 @@ from app.models.menu_item_recipe import MenuItemRecipe
 from app.models.stock_intake import StockIntake
 from app.models.stock_ledger import StockLedger
 from app.schemas.inventory import (
+    BatchDetailResponse,
     BatchExpiryAlertResponse,
     InventoryItemCreate,
     InventoryItemResponse,
     InventoryItemUpdate,
     RecipeIngredientResponse,
     RecipeSaveRequest,
+    ScanIncrementRequest,
+    ScanLookupResponse,
+    ScanOnboardRequest,
     StockIntakeCreate,
     StockIntakeResponse,
     StockLedgerPageResponse,
     StockLedgerResponse,
+    StockWastageRequest,
+    StockWastageResponse,
 )
 from app.services.audit_service import log_action
 from app.services.inventory_service import (
     create_inventory_item,
+    get_all_batches,
     get_near_expiry_alerts,
     log_stock_intake,
+    log_stock_wastage,
+    onboard_scanned_item,
+    quick_scan_increment,
     save_menu_item_recipe,
     update_inventory_item,
 )
@@ -52,7 +62,7 @@ async def list_inventory_items(
 ):
     """List ingredient master items for current outlet."""
     stmt = select(InventoryItem).where(
-        InventoryItem.restaurant_id == current_user.restaurant_id,
+        InventoryItem.outlet_id == current_user.outlet_id,
         InventoryItem.is_active == True,  # noqa: E712
     )
 
@@ -79,10 +89,10 @@ async def create_item(
     db: DBSession,
 ):
     """Create a new ingredient in outlet inventory master."""
-    item = await create_inventory_item(db, current_user.restaurant_id, data)
+    item = await create_inventory_item(db, current_user.outlet_id, data)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CREATE", "InventoryItem", str(item.id),
         details={"name": item.name, "unit": item.unit.value},
     )
@@ -98,10 +108,10 @@ async def update_item(
     db: DBSession,
 ):
     """Update ingredient record (threshold, cost per unit, stock)."""
-    item = await update_inventory_item(db, current_user.restaurant_id, item_id, data)
+    item = await update_inventory_item(db, current_user.outlet_id, item_id, data)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "UPDATE", "InventoryItem", str(item.id),
         details={"name": item.name},
     )
@@ -118,7 +128,7 @@ async def deactivate_item(
     """Soft-delete/deactivate an ingredient from inventory master."""
     stmt = select(InventoryItem).where(
         InventoryItem.id == item_id,
-        InventoryItem.restaurant_id == current_user.restaurant_id,
+        InventoryItem.outlet_id == current_user.outlet_id,
     )
     res = await db.execute(stmt)
     item = res.scalar_one_or_none()
@@ -132,7 +142,7 @@ async def deactivate_item(
     await db.flush()
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "DELETE", "InventoryItem", str(item.id),
         details={"name": item.name},
     )
@@ -146,11 +156,11 @@ async def record_stock_intake(
 ):
     """Log daily stock intake (updates current stock & appends ledger entry)."""
     intake = await log_stock_intake(
-        db, current_user.restaurant_id, current_user.user_id, data
+        db, current_user.outlet_id, current_user.user_id, data
     )
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CREATE", "StockIntake", str(intake.id),
         details={"quantity": str(intake.quantity), "unit_cost": str(intake.unit_cost)},
     )
@@ -171,7 +181,7 @@ async def list_stock_ledger(
     stmt = (
         select(StockLedger)
         .options(selectinload(StockLedger.item))
-        .where(StockLedger.restaurant_id == current_user.restaurant_id)
+        .where(StockLedger.outlet_id == current_user.outlet_id)
     )
 
     if item_id:
@@ -196,7 +206,7 @@ async def list_stock_ledger(
         items_payload.append(
             StockLedgerResponse(
                 id=row.id,
-                restaurant_id=row.restaurant_id,
+                outlet_id=row.outlet_id,
                 item_id=row.item_id,
                 item_name=row.item.name if row.item else "Unknown Item",
                 unit=row.item.unit if row.item else None,
@@ -226,7 +236,7 @@ async def save_recipe(
     db: DBSession,
 ):
     """Save ingredient recipe mapping for a dish."""
-    new_recipes = await save_menu_item_recipe(db, current_user.restaurant_id, data)
+    new_recipes = await save_menu_item_recipe(db, current_user.outlet_id, data)
 
     # Re-query with ingredient item names
     res = await db.execute(
@@ -283,7 +293,7 @@ async def get_low_stock_alerts(
 ):
     """List ingredients currently at or below reorder threshold."""
     stmt = select(InventoryItem).where(
-        InventoryItem.restaurant_id == current_user.restaurant_id,
+        InventoryItem.outlet_id == current_user.outlet_id,
         InventoryItem.is_active == True,  # noqa: E712
         InventoryItem.current_stock <= InventoryItem.reorder_threshold,
     ).order_by(InventoryItem.current_stock.asc())
@@ -300,6 +310,142 @@ async def get_near_expiry_alerts_route(
 ):
     """List active stock intake batches approaching or past expiry date."""
     alerts = await get_near_expiry_alerts(
-        db, current_user.restaurant_id, threshold_days=threshold_days
+        db, current_user.outlet_id, threshold_days=threshold_days
     )
     return alerts
+
+
+# ── Hardware Barcode Scanner Endpoints ──────────────────────────────────
+
+
+@router.get("/barcode/{barcode}", response_model=ScanLookupResponse)
+async def lookup_barcode(
+    barcode: str,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """
+    Look up an item by scanned barcode string.
+    Returns item data if found, or found=False if new (prompting onboarding).
+    """
+    clean_barcode = barcode.strip()
+    res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.outlet_id == current_user.outlet_id,
+            InventoryItem.barcode == clean_barcode,
+            InventoryItem.is_active == True,  # noqa: E712
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        return ScanLookupResponse(found=False, barcode=clean_barcode, item=None)
+
+    return ScanLookupResponse(
+        found=True,
+        barcode=clean_barcode,
+        item=InventoryItemResponse.model_validate(item),
+    )
+
+
+@router.post("/scan-increment", response_model=InventoryItemResponse)
+async def scan_increment_count(
+    data: ScanIncrementRequest,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """
+    Subsequent scan: Auto-increments item count for recognized barcode.
+    Creates a new batch record and logs movement in ledger.
+    """
+    item, intake = await quick_scan_increment(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        barcode=data.barcode,
+        quantity=data.quantity,
+        batch_number=data.batch_number,
+        expiry_date=data.expiry_date,
+        unit_cost=data.unit_cost,
+    )
+
+    await log_action(
+        db, current_user.outlet_id, current_user.user_id,
+        "INTAKE_SCAN", "InventoryItem", str(item.id),
+        details={"barcode": data.barcode, "quantity": str(data.quantity), "batch_number": intake.batch_number},
+    )
+
+    return item
+
+
+@router.post("/scan-onboard", response_model=InventoryItemResponse, status_code=status.HTTP_201_CREATED)
+async def scan_onboard_item(
+    data: ScanOnboardRequest,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """
+    First-time scan: Onboards a new item with barcode, saves initial batch & stock.
+    """
+    item, intake = await onboard_scanned_item(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        barcode=data.barcode,
+        name=data.name,
+        category=data.category,
+        unit=data.unit,
+        initial_stock=data.initial_stock,
+        cost_per_unit=data.cost_per_unit,
+        selling_price=data.selling_price,
+        reorder_threshold=data.reorder_threshold,
+        batch_number=data.batch_number,
+        expiry_date=data.expiry_date,
+        supplier_name=data.supplier_name,
+    )
+
+    await log_action(
+        db, current_user.outlet_id, current_user.user_id,
+        "ONBOARD_SCAN", "InventoryItem", str(item.id),
+        details=data.model_dump(mode="json"),
+    )
+
+    return item
+
+
+@router.get("/batches", response_model=list[BatchDetailResponse])
+async def list_all_batches_route(
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """List all stock arrival batches for this outlet with FEFO / remaining status."""
+    return await get_all_batches(db, current_user.outlet_id)
+
+
+@router.post("/wastage", response_model=StockWastageResponse)
+async def log_inventory_wastage(
+    data: StockWastageRequest,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """
+    Log stock loss, spoilage, transit damage, or physical audit discrepancy.
+    Deducts current stock, adjusts batch if applicable, and writes to StockLedger with MANUAL_ADJUSTMENT.
+    """
+    res = await log_stock_wastage(
+        db,
+        current_user.outlet_id,
+        data,
+        user_id=current_user.user_id,
+    )
+
+    await log_action(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "LOG_WASTAGE",
+        "InventoryItem",
+        str(data.item_id),
+        details=data.model_dump(mode="json"),
+    )
+
+    return res

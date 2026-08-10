@@ -13,6 +13,8 @@ from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from app.config import get_settings
+from app.core.shift_utils import get_current_shift_window_utc
 from app.dependencies import (
     DBSession,
     RequireAdmin,
@@ -22,12 +24,12 @@ from app.dependencies import (
 from app.models.abandoned_cart import AbandonedCart
 from app.models.enums import SessionStatusEnum
 from app.models.order import Order
-from app.models.table_session import TableSession
+from app.models.basket_session import BasketSession
 from app.models.user import User
 from app.schemas.common import StrictSchema
-from app.schemas.session import AbandonedCartResponse
+from app.schemas.session import AbandonedCartResponse, StaffAddItemsRequest, StaffAddItemsResponse
 from app.services.audit_service import log_action
-from app.services.session_service import terminate_session
+from app.services.session_service import staff_add_items_to_session, terminate_session
 
 router = APIRouter(prefix="/api/admin/sessions", tags=["admin-sessions"])
 
@@ -37,39 +39,40 @@ router = APIRouter(prefix="/api/admin/sessions", tags=["admin-sessions"])
 
 class ActiveSessionResponse(StrictSchema):
     id: str
-    table_number: str
+    basket_number: str
     customer_name: str
-    customer_phone: str | None = None
+    customer_phone: str | None
     status: str
-    expires_at: str
     created_at: str
-    order_count: int = 0
+    expires_at: str
+    order_count: int
 
 
 class TerminateSessionRequest(StrictSchema):
-    reason: str | None = Field(None, max_length=500)
+    reason: str = Field(default="Staff terminated session")
 
 
-# ── Routes ───────────────────────────────────────────────────────────────
+# ── Active sessions ──────────────────────────────────────────────────────
 
 
 @router.get("", response_model=list[ActiveSessionResponse])
+@router.get("/", response_model=list[ActiveSessionResponse])
 async def list_active_sessions(
     current_user: RequireStaffOrAdmin,
     db: DBSession,
 ):
-    """List all active basket sessions for this outlet."""
+    """
+    List all ACTIVE sessions for this outlet, ordered by creation time.
+    Includes active order count per session.
+    """
     stmt = (
-        select(TableSession)
+        select(BasketSession)
         .where(
-            TableSession.restaurant_id == current_user.restaurant_id,
-            TableSession.status == SessionStatusEnum.ACTIVE,
+            BasketSession.outlet_id == current_user.outlet_id,
+            BasketSession.status == SessionStatusEnum.ACTIVE,
         )
-        .options(
-            selectinload(TableSession.orders),
-            selectinload(TableSession.customer),
-        )
-        .order_by(TableSession.created_at.desc())
+        .options(selectinload(BasketSession.orders))
+        .order_by(BasketSession.created_at.desc())
     )
     result = await db.execute(stmt)
     sessions = result.scalars().all()
@@ -77,13 +80,13 @@ async def list_active_sessions(
     return [
         ActiveSessionResponse(
             id=str(s.id),
-            table_number=s.table_number,
+            basket_number=s.basket_number,
             customer_name=s.customer_name,
-            customer_phone=s.customer.phone if s.customer_id else None,
+            customer_phone=s.customer.phone if s.customer else None,
             status=s.status.value,
-            expires_at=s.expires_at.isoformat(),
             created_at=s.created_at.isoformat(),
-            order_count=len(s.orders),
+            expires_at=s.expires_at.isoformat(),
+            order_count=len([o for o in s.orders if o.status.value not in ("CANCELLED", "REFUNDED")]),
         )
         for s in sessions
     ]
@@ -92,57 +95,93 @@ async def list_active_sessions(
 @router.post("/{session_id}/terminate", status_code=status.HTTP_200_OK)
 async def terminate_session_endpoint(
     session_id: uuid.UUID,
-    data: TerminateSessionRequest,
-    current_user: RequireAdmin,  # Manager+ only
+    current_user: RequireStaffOrAdmin,
     db: DBSession,
+    data: TerminateSessionRequest | None = None,
 ):
     """
-    Manually terminate an active basket session.
-    Manager role and above only. Logs who terminated and when.
+    Staff manually terminates an active session.
+    Frees the basket, cancels draft state, and logs the audit event.
     """
+    reason = data.reason if data else "Staff terminated session"
+
     # Verify session belongs to this outlet
-    stmt = select(TableSession).where(
-        TableSession.id == session_id,
-        TableSession.restaurant_id == current_user.restaurant_id,
-        TableSession.status == SessionStatusEnum.ACTIVE,
+    stmt = select(BasketSession).where(
+        BasketSession.id == session_id,
+        BasketSession.outlet_id == current_user.outlet_id,
     )
     result = await db.execute(stmt)
     session = result.scalar_one_or_none()
     if not session:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Active session not found in this outlet",
+            detail="Session not found",
         )
 
-    terminated = await terminate_session(
+    if session.status != SessionStatusEnum.ACTIVE:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=f"Session is already {session.status.value}",
+        )
+
+    await terminate_session(
         db=db,
         session_id=session_id,
         terminated_by_id=current_user.user_id,
-        reason=data.reason,
+        reason=reason,
     )
-
-    from app.services.websocket_service import broadcast_session_changed
-    await broadcast_session_changed(session.restaurant_id, session_id, "TERMINATED")
 
     await log_action(
         db,
-        current_user.restaurant_id,
+        current_user.outlet_id,
         current_user.user_id,
         "TERMINATE",
-        "TableSession",
+        "BasketSession",
         str(session_id),
-        details={
-            "customer_name": terminated.customer_name,
-            "table_number": terminated.table_number,
-            "reason": data.reason,
-        },
+        details={"reason": reason, "basket_number": session.basket_number},
     )
 
     return {
         "status": "terminated",
         "session_id": str(session_id),
-        "customer_name": terminated.customer_name,
+        "reason": reason,
     }
+
+
+@router.post(
+    "/{session_id}/add-items",
+    response_model=StaffAddItemsResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def staff_add_items_endpoint(
+    session_id: uuid.UUID,
+    data: StaffAddItemsRequest,
+    current_user: RequireStaffOrAdmin,
+    db: DBSession,
+):
+    """
+    Staff assists customer by adding items directly to an active basket session.
+    Creates an order with source="staff_assisted", tags line items with added_by_staff_id,
+    evaluates anti-theft rules, logs audit event, and broadcasts WS event.
+    """
+    order = await staff_add_items_to_session(
+        db=db,
+        session_id=session_id,
+        outlet_id=current_user.outlet_id,
+        staff_user=current_user,
+        data=data,
+    )
+
+    return StaffAddItemsResponse(
+        order_id=order.id,
+        session_id=session_id,
+        basket_number=order.basket_number,
+        customer_name=order.customer_name or "Walk-In",
+        total_amount=order.total_amount,
+        status=order.status.value,
+        added_items_count=len(data.items),
+        added_by_staff_id=current_user.user_id,
+    )
 
 
 # ── Abandoned carts ─────────────────────────────────────────────────────
@@ -153,16 +192,30 @@ async def list_abandoned_carts(
     current_user: RequireStaffOrAdmin,
     db: DBSession,
     status_filter: str | None = None,
+    all_history: bool = False,
 ):
-    """List abandoned carts for this outlet, most recent first."""
+    """
+    List abandoned carts for this outlet, most recent first.
+    Filters by the DASHBOARD_RESET_TIME business shift window unless all_history=True.
+    """
     stmt = (
         select(AbandonedCart)
-        .where(AbandonedCart.restaurant_id == current_user.restaurant_id)
+        .where(AbandonedCart.outlet_id == current_user.outlet_id)
         .order_by(AbandonedCart.created_at.desc())
         .limit(100)
     )
     if status_filter:
         stmt = stmt.where(AbandonedCart.status == status_filter.upper())
+
+    if not all_history:
+        settings = get_settings()
+        shift_start_utc, shift_end_utc = get_current_shift_window_utc(
+            settings.DASHBOARD_RESET_TIME
+        )
+        stmt = stmt.where(
+            AbandonedCart.created_at >= shift_start_utc,
+            AbandonedCart.created_at <= shift_end_utc,
+        )
 
     result = await db.execute(stmt)
     carts = result.scalars().all()
@@ -170,9 +223,9 @@ async def list_abandoned_carts(
     return [
         AbandonedCartResponse(
             id=str(c.id),
-            restaurant_id=str(c.restaurant_id),
+            outlet_id=str(c.outlet_id),
             session_id=str(c.session_id),
-            table_number=c.table_number,
+            basket_number=c.basket_number,
             customer_name=c.customer_name,
             customer_phone=c.customer_phone,
             items=c.items or [],
@@ -190,13 +243,23 @@ async def abandoned_cart_count(
     current_user: RequireStaffOrAdmin,
     db: DBSession,
 ):
-    """Count of un-converted abandoned carts (for dashboard badge)."""
+    """
+    Count of un-converted abandoned carts for the current business shift (for dashboard badge).
+    Filters by the DASHBOARD_RESET_TIME business day window.
+    """
+    settings = get_settings()
+    shift_start_utc, shift_end_utc = get_current_shift_window_utc(
+        settings.DASHBOARD_RESET_TIME
+    )
+
     stmt = (
         select(func.count())
         .select_from(AbandonedCart)
         .where(
-            AbandonedCart.restaurant_id == current_user.restaurant_id,
+            AbandonedCart.outlet_id == current_user.outlet_id,
             AbandonedCart.status == "ABANDONED",
+            AbandonedCart.created_at >= shift_start_utc,
+            AbandonedCart.created_at <= shift_end_utc,
         )
     )
     result = await db.execute(stmt)
@@ -217,7 +280,7 @@ async def convert_abandoned_cart(
     # Load the abandoned cart
     stmt = select(AbandonedCart).where(
         AbandonedCart.id == cart_id,
-        AbandonedCart.restaurant_id == current_user.restaurant_id,
+        AbandonedCart.outlet_id == current_user.outlet_id,
     )
     result = await db.execute(stmt)
     cart = result.scalar_one_or_none()
@@ -245,7 +308,7 @@ async def convert_abandoned_cart(
         ))
 
     bill_request = CreateManualBillRequest(
-        table_number=cart.table_number,
+        basket_number=cart.basket_number,
         customer_name=cart.customer_name,
         customer_phone=cart.customer_phone,
         items=bill_items,
@@ -264,7 +327,7 @@ async def convert_abandoned_cart(
 
     order = await create_manual_bill(
         db=db,
-        restaurant_id=current_user.restaurant_id,
+        outlet_id=current_user.outlet_id,
         staff_user=staff_user,
         data=bill_request,
     )
@@ -276,7 +339,7 @@ async def convert_abandoned_cart(
 
     await log_action(
         db,
-        current_user.restaurant_id,
+        current_user.outlet_id,
         current_user.user_id,
         "CONVERT",
         "AbandonedCart",
@@ -291,4 +354,52 @@ async def convert_abandoned_cart(
         "status": "converted",
         "abandoned_cart_id": str(cart_id),
         "order_id": str(order.id),
+    }
+
+
+@router.post("/abandoned-carts/{cart_id}/dismiss", status_code=status.HTTP_200_OK)
+async def dismiss_abandoned_cart(
+    cart_id: uuid.UUID,
+    current_user: RequireStaffOrAdmin,
+    db: DBSession,
+):
+    """
+    Dismiss an abandoned cart so it is marked as DISMISSED and cleared from the active badge counter.
+    """
+    stmt = select(AbandonedCart).where(
+        AbandonedCart.id == cart_id,
+        AbandonedCart.outlet_id == current_user.outlet_id,
+    )
+    result = await db.execute(stmt)
+    cart = result.scalar_one_or_none()
+    if not cart:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Abandoned cart not found",
+        )
+    if cart.status == "CONVERTED":
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail="Converted cart cannot be dismissed",
+        )
+
+    cart.status = "DISMISSED"
+    await db.flush()
+
+    await log_action(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "DISMISS",
+        "AbandonedCart",
+        str(cart_id),
+        details={
+            "customer_name": cart.customer_name,
+            "basket_number": cart.basket_number,
+        },
+    )
+
+    return {
+        "status": "dismissed",
+        "abandoned_cart_id": str(cart_id),
     }

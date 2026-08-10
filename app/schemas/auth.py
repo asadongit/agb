@@ -24,7 +24,7 @@ class RegisterRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=8, max_length=128)
     role: RoleEnum = RoleEnum.STAFF
-    restaurant_id: uuid.UUID | None = None
+    outlet_id: uuid.UUID | None = None
 
 
 class TokenResponse(BaseModel):

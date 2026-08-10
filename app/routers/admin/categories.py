@@ -1,6 +1,6 @@
 """
 Category admin routes — tenant-scoped CRUD.
-restaurant_id ALWAYS comes from JWT, never from client input.
+outlet_id ALWAYS comes from JWT, never from client input.
 """
 
 from __future__ import annotations
@@ -15,7 +15,7 @@ from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
 from app.models.category import Category
 from app.schemas.category import CategoryCreate, CategoryResponse, CategoryUpdate
 from app.services.audit_service import log_action
-from app.services.menu_service import invalidate_restaurant_menu
+from app.services.menu_service import invalidate_outlet_menu
 
 router = APIRouter(prefix="/api/admin/categories", tags=["admin-categories"])
 
@@ -25,9 +25,9 @@ async def list_categories(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """List all categories for the current user's restaurant."""
+    """List all categories for the current user's outlet."""
     stmt = select(Category).order_by(Category.display_order)
-    stmt = tenant_scoped_query(stmt, Category, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -42,21 +42,21 @@ async def create_category(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Create a category — restaurant_id from JWT, not from request body."""
+    """Create a category — outlet_id from JWT, not from request body."""
     category = Category(
         id=uuid.uuid4(),
-        restaurant_id=current_user.restaurant_id,  # FROM JWT
+        outlet_id=current_user.outlet_id,  # FROM JWT
         **data.model_dump(),
     )
     db.add(category)
     await db.flush()
     await db.refresh(category)
 
-    # Invalidate menu cache for this restaurant
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    # Invalidate menu cache for this outlet
+    await invalidate_outlet_menu(db, current_user.outlet_id)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CREATE", "Category", str(category.id),
         details=data.model_dump(),
     )
@@ -72,7 +72,7 @@ async def get_category(
 ):
     """Get a single category (tenant-scoped)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:
@@ -92,7 +92,7 @@ async def update_category(
 ):
     """Update a category (tenant-scoped)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:
@@ -109,10 +109,10 @@ async def update_category(
     await db.refresh(category)
 
     # Invalidate menu cache
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await invalidate_outlet_menu(db, current_user.outlet_id)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "UPDATE", "Category", str(category.id),
         details=update_data,
     )
@@ -128,7 +128,7 @@ async def delete_category(
 ):
     """Delete a category (tenant-scoped, cascades to menu items)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:
@@ -138,7 +138,7 @@ async def delete_category(
         )
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "DELETE", "Category", str(category.id),
         details={"name": category.name},
     )
@@ -147,4 +147,4 @@ async def delete_category(
     await db.flush()
 
     # Invalidate menu cache
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await invalidate_outlet_menu(db, current_user.outlet_id)

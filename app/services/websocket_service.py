@@ -16,7 +16,7 @@ from app.core.redis import get_redis
 
 class ConnectionManager:
     """
-    Manages WebSocket connections per restaurant.
+    Manages WebSocket connections per outlet.
     Uses Redis pub/sub for multi-instance fan-out — in-memory dicts only
     track connections on the current instance.
     """
@@ -26,36 +26,36 @@ class ConnectionManager:
         self._subscriber_tasks: dict[uuid.UUID, asyncio.Task] = {}
 
     async def connect(
-        self, websocket: WebSocket, restaurant_id: uuid.UUID
+        self, websocket: WebSocket, outlet_id: uuid.UUID
     ) -> None:
         """Accept connection and subscribe to Redis channel."""
         await websocket.accept()
-        self._connections[restaurant_id].append(websocket)
+        self._connections[outlet_id].append(websocket)
 
-        # Start Redis subscriber for this restaurant if not already running
-        if restaurant_id not in self._subscriber_tasks:
+        # Start Redis subscriber for this outlet if not already running
+        if outlet_id not in self._subscriber_tasks:
             task = asyncio.create_task(
-                self._redis_subscriber(restaurant_id)
+                self._redis_subscriber(outlet_id)
             )
-            self._subscriber_tasks[restaurant_id] = task
+            self._subscriber_tasks[outlet_id] = task
 
     async def disconnect(
-        self, websocket: WebSocket, restaurant_id: uuid.UUID
+        self, websocket: WebSocket, outlet_id: uuid.UUID
     ) -> None:
         """Remove connection. Stop subscriber if no connections remain."""
-        if websocket in self._connections[restaurant_id]:
-            self._connections[restaurant_id].remove(websocket)
+        if websocket in self._connections[outlet_id]:
+            self._connections[outlet_id].remove(websocket)
 
-        # Clean up if no more connections for this restaurant
-        if not self._connections[restaurant_id]:
-            del self._connections[restaurant_id]
-            task = self._subscriber_tasks.pop(restaurant_id, None)
+        # Clean up if no more connections for this outlet
+        if not self._connections[outlet_id]:
+            del self._connections[outlet_id]
+            task = self._subscriber_tasks.pop(outlet_id, None)
             if task:
                 task.cancel()
 
-    async def broadcast_to_restaurant(
+    async def broadcast_to_outlet(
         self,
-        restaurant_id: uuid.UUID,
+        outlet_id: uuid.UUID,
         event_type: str,
         data: dict,
     ) -> None:
@@ -68,16 +68,16 @@ class ConnectionManager:
             "event": event_type,
             "data": data,
         }, default=str)
-        await r.publish(f"kitchen:{restaurant_id}", message)
+        await r.publish(f"outlet:{outlet_id}", message)
 
-    async def _redis_subscriber(self, restaurant_id: uuid.UUID) -> None:
+    async def _redis_subscriber(self, outlet_id: uuid.UUID) -> None:
         """
         Subscribe to Redis channel and forward messages to local WebSocket
-        connections. Runs as a background task per restaurant.
+        connections. Runs as a background task per outlet.
         """
         r = await get_redis()
         pubsub = r.pubsub()
-        channel = f"kitchen:{restaurant_id}"
+        channel = f"outlet:{outlet_id}"
 
         try:
             await pubsub.subscribe(channel)
@@ -86,13 +86,13 @@ class ConnectionManager:
                 if message["type"] != "message":
                     continue
 
-                # Forward to all local connections for this restaurant
+                # Forward to all local connections for this outlet
                 data = message["data"]
                 if isinstance(data, bytes):
                     data = data.decode("utf-8")
 
                 dead_connections: list[WebSocket] = []
-                for ws in self._connections.get(restaurant_id, []):
+                for ws in self._connections.get(outlet_id, []):
                     try:
                         await ws.send_text(data)
                     except Exception:
@@ -100,7 +100,7 @@ class ConnectionManager:
 
                 # Clean up dead connections
                 for ws in dead_connections:
-                    await self.disconnect(ws, restaurant_id)
+                    await self.disconnect(ws, outlet_id)
 
         except asyncio.CancelledError:
             pass
@@ -109,57 +109,58 @@ class ConnectionManager:
             await pubsub.close()
 
     async def _send_local(
-        self, restaurant_id: uuid.UUID, message: str
+        self, outlet_id: uuid.UUID, message: str
     ) -> None:
-        """Send to all locally-connected WebSockets for a restaurant."""
+        """Send to all locally-connected WebSockets for an outlet."""
         dead: list[WebSocket] = []
-        for ws in self._connections.get(restaurant_id, []):
+        for ws in self._connections.get(outlet_id, []):
             try:
                 await ws.send_text(message)
             except Exception:
                 dead.append(ws)
         for ws in dead:
-            await self.disconnect(ws, restaurant_id)
+            await self.disconnect(ws, outlet_id)
 
 
 # Singleton — shared across the app
 ws_manager = ConnectionManager()
+manager = ws_manager
 
 
 # ── Convenience broadcast functions ──────────────────────────────────────
 
 
 async def broadcast_new_order_paid(
-    restaurant_id: uuid.UUID, order_id: uuid.UUID
+    outlet_id: uuid.UUID, order_id: uuid.UUID
 ) -> None:
-    """Broadcast NEW_ORDER_PAID event to kitchen dashboard."""
-    await ws_manager.broadcast_to_restaurant(
-        restaurant_id,
+    """Broadcast NEW_ORDER_PAID event to kitchen/admin dashboard."""
+    await ws_manager.broadcast_to_outlet(
+        outlet_id,
         "NEW_ORDER_PAID",
         {"order_id": str(order_id)},
     )
 
 
 async def broadcast_verification_needed(
-    restaurant_id: uuid.UUID, order_id: uuid.UUID, table_number: str
+    outlet_id: uuid.UUID, order_id: uuid.UUID, basket_number: str
 ) -> None:
     """Broadcast VERIFICATION_NEEDED for Mode B 'I have paid' click."""
-    await ws_manager.broadcast_to_restaurant(
-        restaurant_id,
+    await ws_manager.broadcast_to_outlet(
+        outlet_id,
         "VERIFICATION_NEEDED",
-        {"order_id": str(order_id), "table_number": table_number},
+        {"order_id": str(order_id), "basket_number": basket_number},
     )
 
 
 async def broadcast_order_status_changed(
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     order_id: uuid.UUID,
     old_status: str,
     new_status: str,
 ) -> None:
     """Broadcast ORDER_STATUS_CHANGED on any state transition."""
-    await ws_manager.broadcast_to_restaurant(
-        restaurant_id,
+    await ws_manager.broadcast_to_outlet(
+        outlet_id,
         "ORDER_STATUS_CHANGED",
         {
             "order_id": str(order_id),
@@ -170,13 +171,13 @@ async def broadcast_order_status_changed(
 
 
 async def broadcast_session_changed(
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     session_id: uuid.UUID,
     action: str = "CREATED",
 ) -> None:
     """Broadcast SESSION_CHANGED on session creation, extension, or termination."""
-    await ws_manager.broadcast_to_restaurant(
-        restaurant_id,
+    await ws_manager.broadcast_to_outlet(
+        outlet_id,
         "SESSION_CHANGED",
         {"session_id": str(session_id), "action": action},
     )

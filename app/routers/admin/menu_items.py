@@ -1,67 +1,160 @@
 """
-MenuItem admin routes — tenant-scoped CRUD.
+MenuItem admin routes — tenant-scoped product CRUD with variants, categories, barcodes, and image uploads.
 """
 
 from __future__ import annotations
 
 import uuid
+from decimal import Decimal
 
-from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from fastapi import APIRouter, HTTPException, Query, status
+from sqlalchemy import func, select
+from sqlalchemy.orm import selectinload
 
 from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.models.category import Category
+from app.models.enums import PricingModeEnum
 from app.models.menu_item import MenuItem
-from app.schemas.menu import MenuItemCreate, MenuItemResponse, MenuItemUpdate
+from app.models.menu_item_variant import MenuItemVariant
+from app.schemas.menu import (
+    MenuItemCreate,
+    MenuItemResponse,
+    MenuItemUpdate,
+)
 from app.services.audit_service import log_action
-from app.services.menu_service import invalidate_restaurant_menu
 
 router = APIRouter(prefix="/api/admin/menu-items", tags=["admin-menu-items"])
 
 
 @router.get("", response_model=list[MenuItemResponse])
+@router.get("/", response_model=list[MenuItemResponse])
 async def list_menu_items(
     current_user: RequireAdmin,
     db: DBSession,
     category_id: uuid.UUID | None = None,
+    available_only: bool = False,
+    pricing_mode: PricingModeEnum | None = None,
+    search: str | None = None,
 ):
-    """List menu items — optionally filter by category."""
-    stmt = select(MenuItem)
-    stmt = tenant_scoped_query(stmt, MenuItem, current_user.restaurant_id)
+    """List all menu items for the current outlet with variants."""
+    stmt = (
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(MenuItem.outlet_id == current_user.outlet_id)
+    )
+
     if category_id:
         stmt = stmt.where(MenuItem.category_id == category_id)
-    result = await db.execute(stmt)
-    return result.scalars().all()
+    if available_only:
+        stmt = stmt.where(MenuItem.is_available == True)  # noqa: E712
+    if pricing_mode:
+        stmt = stmt.where(MenuItem.pricing_mode == pricing_mode)
+    if search:
+        s = f"%{search.strip()}%"
+        stmt = stmt.where(MenuItem.name.ilike(s) | MenuItem.barcode.ilike(s))
+
+    stmt = stmt.order_by(MenuItem.name.asc())
+    res = await db.execute(stmt)
+    return res.scalars().all()
 
 
-@router.post(
-    "",
-    response_model=MenuItemResponse,
-    status_code=status.HTTP_201_CREATED,
-)
+@router.get("/barcode/{barcode}", response_model=MenuItemResponse)
+async def get_menu_item_by_barcode(
+    barcode: str,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Look up a menu item / product by its barcode for POS billing."""
+    res = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(
+            MenuItem.outlet_id == current_user.outlet_id,
+            MenuItem.barcode == barcode.strip(),
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Product with barcode '{barcode}' not found",
+        )
+    return item
+
+
+@router.post("", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)
+@router.post("/", response_model=MenuItemResponse, status_code=status.HTTP_201_CREATED)
 async def create_menu_item(
     data: MenuItemCreate,
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Create a menu item — restaurant_id from JWT."""
-    menu_item = MenuItem(
-        id=uuid.uuid4(),
-        restaurant_id=current_user.restaurant_id,  # FROM JWT
-        **data.model_dump(),
+    """Create a new menu item / product."""
+    # Verify category belongs to tenant
+    cat_res = await db.execute(
+        select(Category).where(
+            Category.id == data.category_id,
+            Category.outlet_id == current_user.outlet_id,
+        )
     )
-    db.add(menu_item)
-    await db.flush()
-    await db.refresh(menu_item)
+    if not cat_res.scalar_one_or_none():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Category not found",
+        )
 
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    item = MenuItem(
+        id=uuid.uuid4(),
+        outlet_id=current_user.outlet_id,
+        category_id=data.category_id,
+        name=data.name.strip(),
+        barcode=data.barcode.strip() if data.barcode else None,
+        description=data.description,
+        price=data.price,
+        image_url=data.image_url,
+        is_available=data.is_available,
+        is_on_offer=data.is_on_offer,
+        is_verification_required=data.is_verification_required,
+        offer_price=data.offer_price,
+        offer_label=data.offer_label,
+        pricing_mode=data.pricing_mode,
+        unit_label=data.unit_label,
+    )
+    db.add(item)
+    await db.flush()
+
+    # Add initial variants if provided
+    if hasattr(data, "variants") and getattr(data, "variants", None):
+        for v in data.variants:
+            variant = MenuItemVariant(
+                id=uuid.uuid4(),
+                menu_item_id=item.id,
+                name=v.name.strip(),
+                price_delta=v.price_delta,
+                is_available=v.is_available,
+            )
+            db.add(variant)
+        await db.flush()
+
+    await db.refresh(item)
+    # Load variants
+    res = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(MenuItem.id == item.id)
+    )
+    item_loaded = res.scalar_one()
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
-        "CREATE", "MenuItem", str(menu_item.id),
-        details=data.model_dump(mode="json"),
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "CREATE_MENU_ITEM",
+        "MenuItem",
+        str(item.id),
+        details={"name": item.name, "price": str(item.price)},
     )
-
-    return menu_item
+    return item_loaded
 
 
 @router.get("/{item_id}", response_model=MenuItemResponse)
@@ -70,11 +163,16 @@ async def get_menu_item(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Get a single menu item (tenant-scoped)."""
-    stmt = select(MenuItem).where(MenuItem.id == item_id)
-    stmt = tenant_scoped_query(stmt, MenuItem, current_user.restaurant_id)
-    result = await db.execute(stmt)
-    item = result.scalar_one_or_none()
+    """Get single menu item by ID."""
+    res = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(
+            MenuItem.id == item_id,
+            MenuItem.outlet_id == current_user.outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
@@ -90,33 +188,73 @@ async def update_menu_item(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Update a menu item (tenant-scoped)."""
-    stmt = select(MenuItem).where(MenuItem.id == item_id)
-    stmt = tenant_scoped_query(stmt, MenuItem, current_user.restaurant_id)
-    result = await db.execute(stmt)
-    item = result.scalar_one_or_none()
+    """Update a menu item."""
+    res = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(
+            MenuItem.id == item_id,
+            MenuItem.outlet_id == current_user.outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Menu item not found",
         )
 
-    update_data = data.model_dump(exclude_unset=True)
-    for key, value in update_data.items():
-        setattr(item, key, value)
+    if data.category_id is not None:
+        cat_res = await db.execute(
+            select(Category).where(
+                Category.id == data.category_id,
+                Category.outlet_id == current_user.outlet_id,
+            )
+        )
+        if not cat_res.scalar_one_or_none():
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail="Category not found",
+            )
+        item.category_id = data.category_id
+
+    if data.name is not None:
+        item.name = data.name.strip()
+    if data.barcode is not None:
+        item.barcode = data.barcode.strip() if data.barcode else None
+    if data.description is not None:
+        item.description = data.description
+    if data.price is not None:
+        item.price = data.price
+    if data.image_url is not None:
+        item.image_url = data.image_url
+    if data.is_available is not None:
+        item.is_available = data.is_available
+    if data.is_on_offer is not None:
+        item.is_on_offer = data.is_on_offer
+    if data.is_verification_required is not None:
+        item.is_verification_required = data.is_verification_required
+    if data.offer_price is not None:
+        item.offer_price = data.offer_price
+    if data.offer_label is not None:
+        item.offer_label = data.offer_label
+    if data.pricing_mode is not None:
+        item.pricing_mode = data.pricing_mode
+    if data.unit_label is not None:
+        item.unit_label = data.unit_label
 
     await db.flush()
     await db.refresh(item)
 
-    # Invalidate cache — includes is_available toggle
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
-
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
-        "UPDATE", "MenuItem", str(item.id),
-        details=update_data,
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "UPDATE_MENU_ITEM",
+        "MenuItem",
+        str(item.id),
+        details={"name": item.name},
     )
-
     return item
 
 
@@ -126,33 +264,28 @@ async def delete_menu_item(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Delete a menu item (tenant-scoped, cascades to variants)."""
-    stmt = select(MenuItem).where(MenuItem.id == item_id)
-    stmt = tenant_scoped_query(stmt, MenuItem, current_user.restaurant_id)
-    result = await db.execute(stmt)
-    item = result.scalar_one_or_none()
+    """Delete a menu item."""
+    res = await db.execute(
+        select(MenuItem).where(
+            MenuItem.id == item_id,
+            MenuItem.outlet_id == current_user.outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
     if not item:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Menu item not found",
         )
 
-    await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
-        "DELETE", "MenuItem", str(item.id),
-        details={"name": item.name},
-    )
-
-    # Nullify reference in historical order_items so Foreign Key constraints never block item deletion
-    from app.models.order_item import OrderItem
-    from sqlalchemy import update
-    await db.execute(
-        update(OrderItem)
-        .where(OrderItem.menu_item_id == item_id)
-        .values(menu_item_id=None)
-    )
-
     await db.delete(item)
     await db.flush()
 
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await log_action(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "DELETE_MENU_ITEM",
+        "MenuItem",
+        str(item_id),
+    )

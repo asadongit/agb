@@ -45,17 +45,6 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_view_analytics=True,
         allowed_sidebar_tabs=["orders", "menu", "staff", "inventory", "settings", "qrcodes"],
     ),
-    RoleEnum.RESTAURANT_ADMIN: RolePermissions(
-        can_manage_staff=True,
-        can_manage_billing=True,
-        can_edit_menu=True,
-        can_manage_inventory=True,
-        can_cancel_orders=True,
-        can_process_payments=True,
-        can_manage_orders=True,
-        can_view_analytics=True,
-        allowed_sidebar_tabs=["orders", "menu", "staff", "inventory", "settings", "qrcodes"],
-    ),
     RoleEnum.MANAGER: RolePermissions(
         can_manage_staff=False,
         can_manage_billing=False,
@@ -134,7 +123,7 @@ def to_staff_response(staff: Staff) -> StaffResponse:
     """Helper to convert Staff model to StaffResponse Pydantic schema."""
     return StaffResponse(
         id=staff.id,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         name=staff.name,
         email=staff.email,
         phone=staff.phone,
@@ -148,7 +137,7 @@ def to_staff_response(staff: Staff) -> StaffResponse:
 
 async def create_staff(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     data: StaffCreate,
     created_by_user_id: uuid.UUID | None = None,
 ) -> Staff:
@@ -156,7 +145,7 @@ async def create_staff(
     # Check email uniqueness in outlet
     existing = await db.execute(
         select(Staff).where(
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
             Staff.email == data.email.lower().strip(),
         )
     )
@@ -171,7 +160,7 @@ async def create_staff(
 
     staff = Staff(
         id=uuid.uuid4(),
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         name=data.name.strip(),
         email=data.email.lower().strip(),
         phone=data.phone.strip() if data.phone else None,
@@ -187,7 +176,7 @@ async def create_staff(
 
     await create_staff_audit_log(
         db,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         staff_id=staff.id,
         action_type="staff_created",
         reference_type="Staff",
@@ -200,7 +189,7 @@ async def create_staff(
 
 async def update_staff(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
     data: StaffUpdate,
 ) -> Staff:
@@ -208,7 +197,7 @@ async def update_staff(
     res = await db.execute(
         select(Staff).where(
             Staff.id == staff_id,
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
         )
     )
     staff = res.scalar_one_or_none()
@@ -234,7 +223,7 @@ async def update_staff(
 
     await create_staff_audit_log(
         db,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         staff_id=staff.id,
         action_type="staff_updated",
         reference_type="Staff",
@@ -247,14 +236,14 @@ async def update_staff(
 
 async def deactivate_staff(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
 ) -> None:
     """Soft-delete/deactivate a staff member to preserve audit trail integrity."""
     res = await db.execute(
         select(Staff).where(
             Staff.id == staff_id,
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
         )
     )
     staff = res.scalar_one_or_none()
@@ -269,7 +258,7 @@ async def deactivate_staff(
 
     await create_staff_audit_log(
         db,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         staff_id=staff.id,
         action_type="staff_deactivated",
         reference_type="Staff",
@@ -280,14 +269,14 @@ async def deactivate_staff(
 
 async def delete_staff_permanently(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
 ) -> None:
     """Permanently delete a staff member from the database."""
     res = await db.execute(
         select(Staff).where(
             Staff.id == staff_id,
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
         )
     )
     staff = res.scalar_one_or_none()
@@ -305,7 +294,7 @@ async def delete_staff_permanently(
 
     await create_staff_audit_log(
         db,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         staff_id=None,
         action_type="staff_permanently_deleted",
         reference_type="Staff",
@@ -316,7 +305,7 @@ async def delete_staff_permanently(
 
 async def set_staff_pin(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
     pin: str,
 ) -> None:
@@ -324,7 +313,7 @@ async def set_staff_pin(
     res = await db.execute(
         select(Staff).where(
             Staff.id == staff_id,
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
         )
     )
     staff = res.scalar_one_or_none()
@@ -339,7 +328,7 @@ async def set_staff_pin(
 
     await create_staff_audit_log(
         db,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         staff_id=staff.id,
         action_type="staff_pin_updated",
         reference_type="Staff",
@@ -372,7 +361,7 @@ async def authenticate_staff_email(
 
 async def authenticate_staff_pin(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
     pin: str,
 ) -> Staff:
@@ -380,7 +369,7 @@ async def authenticate_staff_pin(
     res = await db.execute(
         select(Staff).where(
             Staff.id == staff_id,
-            Staff.restaurant_id == restaurant_id,
+            Staff.outlet_id == outlet_id,
             Staff.status == "active",
         )
     )
@@ -396,7 +385,7 @@ async def authenticate_staff_pin(
 
 async def create_staff_audit_log(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_id: uuid.UUID | None,
     action_type: str,
     reference_type: str | None = None,
@@ -407,7 +396,7 @@ async def create_staff_audit_log(
     log_entry = StaffAuditLog(
         id=uuid.uuid4(),
         staff_id=staff_id,
-        restaurant_id=restaurant_id,
+        outlet_id=outlet_id,
         action_type=action_type,
         reference_type=reference_type,
         reference_id=reference_id,

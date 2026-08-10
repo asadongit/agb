@@ -19,29 +19,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.config import get_settings
 from app.models.enums import OrderStatusEnum
 from app.models.order import Order
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.models.webhook_event import WebhookEvent
-
-settings = get_settings()
-
-
-def _get_razorpay_client() -> razorpay.Client:
-    """Lazily create Razorpay client."""
-    if not settings.RAZORPAY_KEY_ID or not settings.RAZORPAY_KEY_SECRET:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Razorpay is not configured",
-        )
-    return razorpay.Client(auth=(settings.RAZORPAY_KEY_ID, settings.RAZORPAY_KEY_SECRET))
-
-
-# ── Mode A: Razorpay Gateway ────────────────────────────────────────────
-
 
 async def create_razorpay_order(
     db: AsyncSession,
     order: Order,
-    restaurant: Restaurant,
+    outlet: Outlet,
 ) -> dict:
     """
     Create a Razorpay order with Route transfers.
@@ -57,16 +41,16 @@ async def create_razorpay_order(
         "currency": "INR",
         "receipt": str(order.id),
         "notes": {
-            "restaurant_id": str(restaurant.id),
+            "outlet_id": str(outlet.id),
             "order_id": str(order.id),
         },
     }
 
-    # Add Route transfer if restaurant has a Razorpay account
-    if restaurant.razorpay_account_id:
+    # Add Route transfer if outlet has a Razorpay account
+    if outlet.razorpay_account_id:
         order_data["transfers"] = [
             {
-                "account": restaurant.razorpay_account_id,
+                "account": outlet.razorpay_account_id,
                 "amount": amount_paise,
                 "currency": "INR",
                 "on_hold": 0,
@@ -115,6 +99,7 @@ def verify_razorpay_signature(raw_body: bytes, signature: str) -> bool:
     Verify Razorpay webhook signature against raw body bytes.
     CRITICAL: Must be called BEFORE any JSON parsing.
     """
+    settings = get_settings()
     if not settings.RAZORPAY_WEBHOOK_SECRET:
         return False
 
@@ -248,7 +233,7 @@ def _encode_upi_param(key: str, value: str) -> str:
 
 
 def generate_upi_deep_link(
-    restaurant_name: str,
+    outlet_name: str,
     total_amount: Decimal,
     order_id: uuid.UUID,
     raw_upi_payload: str,
@@ -290,7 +275,7 @@ def generate_upi_deep_link(
         raise ValueError(f"Invalid payee VPA format: '{vpa}' — expected format: handle@psp")
 
     # Set merchant fallback name & MCC if not present in payload
-    clean_name = "".join(c for c in restaurant_name if c.isalnum() or c == " ").strip() or "Restaurant Order"
+    clean_name = "".join(c for c in outlet_name if c.isalnum() or c == " ").strip() or "Outlet Order"
     if "pn" not in params:
         params["pn"] = clean_name
     

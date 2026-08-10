@@ -40,7 +40,7 @@ def verify_password(password: str, password_hash: str) -> bool:
 
 def create_access_token(
     user_id: uuid.UUID,
-    restaurant_id: uuid.UUID | None = None,
+    outlet_id: uuid.UUID | None = None,
     role: str = "STAFF",
     expires_delta: timedelta | None = None,
 ) -> str:
@@ -51,7 +51,7 @@ def create_access_token(
     )
     payload = {
         "sub": str(user_id),
-        "restaurant_id": str(restaurant_id) if restaurant_id else None,
+        "outlet_id": str(outlet_id) if outlet_id else None,
         "role": role,
         "exp": expire,
         "type": "access",
@@ -62,7 +62,7 @@ def create_access_token(
 
 def create_refresh_token(
     user_id: uuid.UUID,
-    restaurant_id: uuid.UUID | None = None,
+    outlet_id: uuid.UUID | None = None,
     role: str = "STAFF",
     expires_delta: timedelta | None = None,
 ) -> str:
@@ -73,7 +73,7 @@ def create_refresh_token(
     )
     payload = {
         "sub": str(user_id),
-        "restaurant_id": str(restaurant_id) if restaurant_id else None,
+        "outlet_id": str(outlet_id) if outlet_id else None,
         "role": role,
         "exp": expire,
         "type": "refresh",
@@ -104,7 +104,7 @@ def hash_token(token: str) -> str:
 
 def create_ws_ticket(
     user_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID | None = None,
     ttl_seconds: int = 60,
 ) -> str:
     """
@@ -114,7 +114,7 @@ def create_ws_ticket(
     expire = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
     payload = {
         "sub": str(user_id),
-        "restaurant_id": str(restaurant_id),
+        "outlet_id": str(outlet_id) if outlet_id else None,
         "exp": expire,
         "type": "ws_ticket",
         "jti": secrets.token_urlsafe(16),

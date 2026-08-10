@@ -60,22 +60,22 @@ async def create_staff_endpoint(
     db: DBSession,
 ):
     """Create a new staff member (Admin: own outlet; Superadmin: specified outlet)."""
-    target_restaurant_id = data.restaurant_id or current_user.restaurant_id
-    if not target_restaurant_id:
+    target_outlet_id = data.outlet_id or current_user.outlet_id
+    if not target_outlet_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="restaurant_id is required",
+            detail="outlet_id is required",
         )
 
     # Superadmin or Admin only
-    if current_user.role != RoleEnum.SUPERADMIN and target_restaurant_id != current_user.restaurant_id:
+    if current_user.role != RoleEnum.SUPERADMIN and target_outlet_id != current_user.outlet_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Cannot create staff for another outlet",
         )
 
     staff = await create_staff(
-        db, target_restaurant_id, data, created_by_user_id=current_user.user_id
+        db, target_outlet_id, data, created_by_user_id=current_user.user_id
     )
     return to_staff_response(staff)
 
@@ -84,13 +84,13 @@ async def create_staff_endpoint(
 async def list_staff_endpoint(
     current_user: AuthenticatedUser,
     db: DBSession,
-    restaurant_id: uuid.UUID | None = None,
+    outlet_id: uuid.UUID | None = None,
 ):
     """List staff for an outlet (Admin: own outlet; Superadmin: filterable)."""
-    target_restaurant_id = restaurant_id or current_user.restaurant_id
+    target_outlet_id = outlet_id or current_user.outlet_id
 
     stmt = select(Staff)
-    stmt = tenant_scoped_query(stmt, Staff, target_restaurant_id, current_user)
+    stmt = tenant_scoped_query(stmt, Staff, target_outlet_id, current_user)
     stmt = stmt.order_by(Staff.name)
 
     result = await db.execute(stmt)
@@ -106,19 +106,19 @@ async def update_staff_endpoint(
     db: DBSession,
 ):
     """Update staff details, role, or status."""
-    target_restaurant_id = current_user.restaurant_id
+    target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
-        # Fetch staff first to get restaurant_id
+        # Fetch staff first to get outlet_id
         res = await db.execute(select(Staff).where(Staff.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
-        target_restaurant_id = s.restaurant_id
+        target_outlet_id = s.outlet_id
 
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
-    staff = await update_staff(db, target_restaurant_id, staff_id, data)
+    staff = await update_staff(db, target_outlet_id, staff_id, data)
     return to_staff_response(staff)
 
 
@@ -130,21 +130,21 @@ async def deactivate_staff_endpoint(
     permanent: bool = Query(False),
 ):
     """Deactivate or permanently delete a staff member."""
-    target_restaurant_id = current_user.restaurant_id
+    target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
         res = await db.execute(select(Staff).where(Staff.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
-        target_restaurant_id = s.restaurant_id
+        target_outlet_id = s.outlet_id
 
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     if permanent or current_user.role == RoleEnum.SUPERADMIN:
-        await delete_staff_permanently(db, target_restaurant_id, staff_id)
+        await delete_staff_permanently(db, target_outlet_id, staff_id)
     else:
-        await deactivate_staff(db, target_restaurant_id, staff_id)
+        await deactivate_staff(db, target_outlet_id, staff_id)
 
 
 @router.post("/{staff_id}/set-pin", status_code=status.HTTP_200_OK)
@@ -155,18 +155,18 @@ async def set_staff_pin_endpoint(
     db: DBSession,
 ):
     """Admin/Superadmin sets a staff member's 4-digit PIN."""
-    target_restaurant_id = current_user.restaurant_id
+    target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
         res = await db.execute(select(Staff).where(Staff.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
-        target_restaurant_id = s.restaurant_id
+        target_outlet_id = s.outlet_id
 
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
-    await set_staff_pin(db, target_restaurant_id, staff_id, data.pin)
+    await set_staff_pin(db, target_outlet_id, staff_id, data.pin)
     return {"message": "Staff PIN set successfully"}
 
 
@@ -177,10 +177,10 @@ async def set_my_pin_endpoint(
     db: DBSession,
 ):
     """Staff member sets their own PIN."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
-    await set_staff_pin(db, current_user.restaurant_id, current_user.user_id, data.pin)
+    await set_staff_pin(db, current_user.outlet_id, current_user.user_id, data.pin)
     return {"message": "Your PIN has been updated successfully"}
 
 
@@ -194,18 +194,18 @@ async def staff_login_endpoint(
 
     access_token = create_access_token(
         user_id=staff.id,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         role=staff.role.value,
     )
     refresh_token = create_refresh_token(
         user_id=staff.id,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         role=staff.role.value,
     )
 
     await create_staff_audit_log(
         db,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         staff_id=staff.id,
         action_type="staff_logged_in",
         reference_type="Staff",
@@ -230,26 +230,26 @@ async def pin_switch_endpoint(
     PIN Quick-Switch on a shared counter/kitchen device.
     Verifies staff PIN and returns a short-lived Staff Context Token layered on the device session.
     """
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Active outlet session required for PIN quick-switch",
         )
 
     staff = await authenticate_staff_pin(
-        db, target_restaurant_id, data.staff_id, data.pin
+        db, target_outlet_id, data.staff_id, data.pin
     )
 
     staff_context_token = create_access_token(
         user_id=staff.id,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         role=staff.role.value,
     )
 
     await create_staff_audit_log(
         db,
-        restaurant_id=staff.restaurant_id,
+        outlet_id=staff.outlet_id,
         staff_id=staff.id,
         action_type="pin_quick_switch",
         reference_type="Staff",
@@ -283,7 +283,7 @@ async def list_staff_audit_log_endpoint(
     stmt = (
         select(StaffAuditLog)
         .options(selectinload(StaffAuditLog.staff))
-        .where(StaffAuditLog.restaurant_id == current_user.restaurant_id)
+        .where(StaffAuditLog.outlet_id == current_user.outlet_id)
     )
 
     if staff_id:
@@ -303,7 +303,7 @@ async def list_staff_audit_log_endpoint(
             id=r.id,
             staff_id=r.staff_id,
             staff_name=r.staff.name if r.staff else None,
-            restaurant_id=r.restaurant_id,
+            outlet_id=r.outlet_id,
             action_type=r.action_type,
             reference_type=r.reference_type,
             reference_id=r.reference_id,

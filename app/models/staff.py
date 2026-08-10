@@ -5,7 +5,6 @@ Staff model — outlet staff profile, credentials, role, and PIN hash.
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import Enum, ForeignKey, String, func
@@ -16,7 +15,7 @@ from app.database import Base, TimestampMixin
 from app.models.enums import RoleEnum
 
 if TYPE_CHECKING:
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
 
 
 class Staff(Base, TimestampMixin):
@@ -25,9 +24,9 @@ class Staff(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -51,4 +50,5 @@ class Staff(Base, TimestampMixin):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
+    outlet: Mapped[Outlet] = relationship("Outlet", back_populates="staff")
+    user: Mapped[User | None] = relationship("User")

@@ -1,6 +1,6 @@
 """
 Order admin routes — list orders, update status, cancel, refund, confirm payment.
-All tenant-scoped via JWT restaurant_id.
+All tenant-scoped via JWT outlet_id.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.dependencies import (
 )
 from app.models.enums import OrderStatusEnum, PaymentModeEnum, is_valid_transition
 from app.models.order import Order
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.schemas.common import MessageResponse
 from app.schemas.order import (
     ConfirmPaymentRequest,
@@ -54,11 +54,11 @@ async def list_orders(
     - Filters by the DASHBOARD_RESET_TIME business day window.
     """
     # 1. Purge non-completed orders older than 24 hours
-    await purge_old_non_completed_orders(db, current_user.restaurant_id)
+    await purge_old_non_completed_orders(db, current_user.outlet_id)
 
     # 2. Build base query
-    stmt = select(Order).options(selectinload(Order.items), joinedload(Order.restaurant))
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = select(Order).options(selectinload(Order.items), joinedload(Order.outlet))
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
 
     if status_filter:
         stmt = stmt.where(Order.status == status_filter)
@@ -90,9 +90,9 @@ async def get_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -117,9 +117,9 @@ async def update_order_status(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -132,14 +132,14 @@ async def update_order_status(
     order = await transition_order_status(db, order, data.status)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "UPDATE_STATUS", "Order", str(order.id),
         details={"old_status": old_status, "new_status": order.status.value},
     )
 
-    # Broadcast status change to kitchen dashboard
+    # Broadcast status change to dashboard
     await broadcast_order_status_changed(
-        current_user.restaurant_id, order.id, old_status, order.status.value
+        current_user.outlet_id, order.id, old_status, order.status.value
     )
 
     return order
@@ -159,9 +159,9 @@ async def confirm_payment(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -178,13 +178,13 @@ async def confirm_payment(
         await db.flush()
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CONFIRM_PAYMENT", "Order", str(order.id),
         details={"payment_reference": data.payment_reference},
     )
 
     await broadcast_order_status_changed(
-        current_user.restaurant_id, order.id, old_status, OrderStatusEnum.PAID.value
+        current_user.outlet_id, order.id, old_status, OrderStatusEnum.PAID.value
     )
 
     return order
@@ -202,9 +202,9 @@ async def cancel_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -217,12 +217,12 @@ async def cancel_order(
     order = await transition_order_status(db, order, OrderStatusEnum.CANCELLED)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CANCEL", "Order", str(order.id),
     )
 
     await broadcast_order_status_changed(
-        current_user.restaurant_id, order.id, old_status, OrderStatusEnum.CANCELLED.value
+        current_user.outlet_id, order.id, old_status, OrderStatusEnum.CANCELLED.value
     )
 
     return order
@@ -242,9 +242,9 @@ async def refund_order(
     stmt = (
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.restaurant_id)
+    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -253,32 +253,32 @@ async def refund_order(
             detail="Order not found",
         )
 
-    # Get restaurant to check payment mode
-    rest_result = await db.execute(
-        select(Restaurant).where(Restaurant.id == current_user.restaurant_id)
+    # Get outlet to check payment mode
+    outlet_result = await db.execute(
+        select(Outlet).where(Outlet.id == current_user.outlet_id)
     )
-    restaurant = rest_result.scalar_one()
+    outlet = outlet_result.scalar_one()
 
     old_status = order.status.value
 
     # For Mode A, try Razorpay refund before transitioning status
     refund_details = None
-    if restaurant.payment_mode == PaymentModeEnum.RAZORPAY_GATEWAY:
+    if outlet.payment_mode == PaymentModeEnum.RAZORPAY_GATEWAY:
         refund_details = await create_razorpay_refund(db, order)
 
     order = await transition_order_status(db, order, OrderStatusEnum.REFUNDED)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "REFUND", "Order", str(order.id),
         details={
-            "payment_mode": restaurant.payment_mode.value,
+            "payment_mode": outlet.payment_mode.value,
             "refund_details": refund_details,
         },
     )
 
     await broadcast_order_status_changed(
-        current_user.restaurant_id, order.id, old_status, OrderStatusEnum.REFUNDED.value
+        current_user.outlet_id, order.id, old_status, OrderStatusEnum.REFUNDED.value
     )
 
     return order

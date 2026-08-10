@@ -25,7 +25,7 @@ from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.models.order import Order
 from app.models.order_item import OrderItem
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.models.user import User
 
 # ── Test database (SQLite async) ─────────────────────────────────────────
@@ -87,15 +87,15 @@ async def client(db_session: AsyncSession) -> AsyncGenerator[AsyncClient, None]:
 # ── Factory helpers ──────────────────────────────────────────────────────
 
 
-async def create_test_restaurant(
+async def create_test_outlet(
     db: AsyncSession,
-    slug: str = "test-restaurant",
-    name: str = "Test Restaurant",
+    slug: str = "test-outlet",
+    name: str = "Test Outlet",
     payment_mode: PaymentModeEnum = PaymentModeEnum.RAZORPAY_GATEWAY,
     razorpay_account_id: str | None = "acc_test123",
     direct_upi_id: str | None = "test@upi",
-) -> Restaurant:
-    restaurant = Restaurant(
+) -> Outlet:
+    outlet = Outlet(
         id=uuid.uuid4(),
         slug=slug,
         name=name,
@@ -103,21 +103,24 @@ async def create_test_restaurant(
         razorpay_account_id=razorpay_account_id,
         direct_upi_id=direct_upi_id,
     )
-    db.add(restaurant)
+    db.add(outlet)
     await db.flush()
-    return restaurant
+    return outlet
+
+
+create_test_restaurant = create_test_outlet
 
 
 async def create_test_user(
     db: AsyncSession,
-    restaurant: Restaurant,
+    outlet: Outlet,
     email: str = "admin@test.com",
     password: str = "testpassword123",
-    role: RoleEnum = RoleEnum.RESTAURANT_ADMIN,
+    role: RoleEnum = RoleEnum.OUTLET_ADMIN,
 ) -> User:
     user = User(
         id=uuid.uuid4(),
-        restaurant_id=restaurant.id,
+        outlet_id=outlet.id,
         role=role,
         email=email,
         password_hash=hash_password(password),
@@ -129,13 +132,13 @@ async def create_test_user(
 
 async def create_test_category(
     db: AsyncSession,
-    restaurant: Restaurant,
-    name: str = "Burgers",
+    outlet: Outlet,
+    name: str = "Fruits",
     display_order: int = 0,
 ) -> Category:
     category = Category(
         id=uuid.uuid4(),
-        restaurant_id=restaurant.id,
+        outlet_id=outlet.id,
         name=name,
         display_order=display_order,
     )
@@ -146,15 +149,15 @@ async def create_test_category(
 
 async def create_test_menu_item(
     db: AsyncSession,
-    restaurant: Restaurant,
+    outlet: Outlet,
     category: Category,
-    name: str = "Classic Burger",
+    name: str = "Fresh Apples",
     price: Decimal = Decimal("9.99"),
     is_available: bool = True,
 ) -> MenuItem:
     item = MenuItem(
         id=uuid.uuid4(),
-        restaurant_id=restaurant.id,
+        outlet_id=outlet.id,
         category_id=category.id,
         name=name,
         price=price,
@@ -182,11 +185,11 @@ async def create_test_variant(
     return variant
 
 
-def get_auth_headers(user: User, restaurant: Restaurant) -> dict[str, str]:
+def get_auth_headers(user: User, outlet: Outlet) -> dict[str, str]:
     """Generate Authorization header with a valid access token."""
     token = create_access_token(
         user_id=user.id,
-        restaurant_id=restaurant.id,
+        outlet_id=outlet.id,
         role=user.role.value,
     )
     return {"Authorization": f"Bearer {token}"}

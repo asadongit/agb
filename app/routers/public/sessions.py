@@ -10,6 +10,7 @@ import uuid
 from fastapi import APIRouter, Query, status
 
 from app.dependencies import DBSession
+from app.models.outlet import Outlet
 from app.schemas.session import (
     AbandonCartRequest,
     AbandonedCartResponse,
@@ -29,6 +30,8 @@ from app.services.session_service import (
     save_abandoned_cart,
     start_or_resume_session,
 )
+from app.services.websocket_service import broadcast_session_changed
+from sqlalchemy import select as sa_select
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
 
@@ -47,8 +50,8 @@ async def start_session(
     """
     result = await start_or_resume_session(
         db=db,
-        restaurant_slug=data.restaurant_slug,
-        table_number=data.table_number,
+        outlet_slug=data.outlet_slug,
+        basket_number=data.basket_number,
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
     )
@@ -56,13 +59,12 @@ async def start_session(
     session = result["session"]
     active_orders = result["active_orders"]
 
-    from app.services.websocket_service import broadcast_session_changed
-    await broadcast_session_changed(session.restaurant_id, session.id, "CREATED")
+    await broadcast_session_changed(session.outlet_id, session.id, "CREATED")
 
     return StartSessionResponse(
         session_id=session.id,
         customer_name=session.customer_name,
-        table_number=session.table_number,
+        basket_number=session.basket_number,
         is_returning=result["is_returning"],
         active_orders=[OrderResponse.model_validate(o) for o in active_orders],
         expires_at=session.expires_at,
@@ -81,8 +83,8 @@ async def lookup_session(
     """
     result = await start_or_resume_session(
         db=db,
-        restaurant_slug=data.restaurant_slug,
-        table_number=data.table_number,
+        outlet_slug=data.outlet_slug,
+        basket_number=data.basket_number,
         customer_name=data.customer_name,
     )
 
@@ -92,7 +94,7 @@ async def lookup_session(
     return StartSessionResponse(
         session_id=session.id,
         customer_name=session.customer_name,
-        table_number=session.table_number,
+        basket_number=session.basket_number,
         is_returning=result["is_returning"],
         active_orders=[OrderResponse.model_validate(o) for o in active_orders],
         expires_at=session.expires_at,
@@ -111,7 +113,7 @@ async def get_session_status(
     return SessionStatusResponse(
         session_id=session.id,
         customer_name=session.customer_name,
-        table_number=session.table_number,
+        basket_number=session.basket_number,
         is_active=session.is_active,
         status=session.status.value,
         expires_at=session.expires_at,
@@ -143,11 +145,9 @@ async def extend_session_endpoint(
     session = await extend_session(db, session_id)
 
     # Look up duration for response
-    from app.models.restaurant import Restaurant
-    from sqlalchemy import select as sa_select
     rest_result = await db.execute(
-        sa_select(Restaurant.session_duration_minutes)
-        .where(Restaurant.id == session.restaurant_id)
+        sa_select(Outlet.session_duration_minutes)
+        .where(Outlet.id == session.outlet_id)
     )
     duration = rest_result.scalar_one_or_none() or 30
 
@@ -190,14 +190,14 @@ async def abandon_cart_endpoint(
 @router.get("/customer/history", response_model=CustomerHistoryResponse)
 async def customer_history(
     phone: str = Query(min_length=1, max_length=20),
-    restaurant_slug: str = Query(min_length=1),
+    outlet_slug: str = Query(min_length=1),
     days: int = Query(default=30, ge=1, le=365),
     db: DBSession = None,
 ):
     """Get past order history for a customer identified by phone number."""
     result = await get_customer_history(
         db=db,
-        restaurant_slug=restaurant_slug,
+        outlet_slug=outlet_slug,
         phone=phone,
         days=days,
     )

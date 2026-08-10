@@ -19,6 +19,15 @@ const nextConfig: NextConfig = {
     "127.0.0.1",
     "0.0.0.0",
   ],
+  async redirects() {
+    return [
+      {
+        source: "/admin/superadmin",
+        destination: "/superadmin",
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     const backendUrl = (process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000").replace(/\/$/, "");
     return [

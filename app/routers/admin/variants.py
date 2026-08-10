@@ -14,7 +14,7 @@ from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.schemas.menu import VariantCreate, VariantResponse, VariantUpdate
 from app.services.audit_service import log_action
-from app.services.menu_service import invalidate_restaurant_menu
+from app.services.menu_service import invalidate_outlet_menu
 
 router = APIRouter(
     prefix="/api/admin/menu-items/{item_id}/variants",
@@ -23,11 +23,11 @@ router = APIRouter(
 
 
 async def _get_tenant_menu_item(
-    db, item_id: uuid.UUID, restaurant_id: uuid.UUID
+    db, item_id: uuid.UUID, outlet_id: uuid.UUID
 ) -> MenuItem:
     """Verify the menu item exists and belongs to the current tenant."""
     stmt = select(MenuItem).where(MenuItem.id == item_id)
-    stmt = tenant_scoped_query(stmt, MenuItem, restaurant_id)
+    stmt = tenant_scoped_query(stmt, MenuItem, outlet_id)
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
     if not item:
@@ -45,7 +45,7 @@ async def list_variants(
     db: DBSession,
 ):
     """List all variants for a menu item (tenant-scoped)."""
-    await _get_tenant_menu_item(db, item_id, current_user.restaurant_id)
+    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
     result = await db.execute(
         select(MenuItemVariant).where(MenuItemVariant.menu_item_id == item_id)
     )
@@ -64,7 +64,7 @@ async def create_variant(
     db: DBSession,
 ):
     """Create a variant for a menu item."""
-    await _get_tenant_menu_item(db, item_id, current_user.restaurant_id)
+    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
 
     variant = MenuItemVariant(
         id=uuid.uuid4(),
@@ -75,10 +75,10 @@ async def create_variant(
     await db.flush()
     await db.refresh(variant)
 
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await invalidate_outlet_menu(db, current_user.outlet_id)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "CREATE", "MenuItemVariant", str(variant.id),
         details=data.model_dump(mode="json"),
     )
@@ -95,7 +95,7 @@ async def update_variant(
     db: DBSession,
 ):
     """Update a variant (tenant-scoped via parent menu item)."""
-    await _get_tenant_menu_item(db, item_id, current_user.restaurant_id)
+    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
 
     result = await db.execute(
         select(MenuItemVariant).where(
@@ -117,10 +117,10 @@ async def update_variant(
     await db.flush()
     await db.refresh(variant)
 
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await invalidate_outlet_menu(db, current_user.outlet_id)
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "UPDATE", "MenuItemVariant", str(variant.id),
         details=update_data,
     )
@@ -136,7 +136,7 @@ async def delete_variant(
     db: DBSession,
 ):
     """Delete a variant (tenant-scoped via parent menu item)."""
-    await _get_tenant_menu_item(db, item_id, current_user.restaurant_id)
+    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
 
     result = await db.execute(
         select(MenuItemVariant).where(
@@ -152,7 +152,7 @@ async def delete_variant(
         )
 
     await log_action(
-        db, current_user.restaurant_id, current_user.user_id,
+        db, current_user.outlet_id, current_user.user_id,
         "DELETE", "MenuItemVariant", str(variant.id),
         details={"name": variant.name},
     )
@@ -160,4 +160,4 @@ async def delete_variant(
     await db.delete(variant)
     await db.flush()
 
-    await invalidate_restaurant_menu(db, current_user.restaurant_id)
+    await invalidate_outlet_menu(db, current_user.outlet_id)

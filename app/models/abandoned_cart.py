@@ -17,9 +17,9 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base, TimestampMixin
 
 if TYPE_CHECKING:
+    from app.models.basket_session import BasketSession
     from app.models.order import Order
-    from app.models.restaurant import Restaurant
-    from app.models.table_session import TableSession
+    from app.models.outlet import Outlet
 
 
 class AbandonedCart(Base, TimestampMixin):
@@ -28,19 +28,19 @@ class AbandonedCart(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
     session_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("table_sessions.id", ondelete="CASCADE"),
+        ForeignKey("basket_sessions.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    table_number: Mapped[str] = mapped_column(String(50), nullable=False)
+    basket_number: Mapped[str] = mapped_column(String(50), nullable=False)
     customer_name: Mapped[str] = mapped_column(String(255), nullable=False)
     customer_phone: Mapped[str | None] = mapped_column(
         String(20), nullable=True
@@ -64,6 +64,6 @@ class AbandonedCart(Base, TimestampMixin):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
-    session: Mapped[TableSession] = relationship("TableSession")
+    outlet: Mapped[Outlet] = relationship("Outlet")
+    session: Mapped[BasketSession] = relationship("BasketSession")
     converted_order: Mapped[Order | None] = relationship("Order")

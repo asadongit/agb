@@ -10,7 +10,7 @@ from decimal import Decimal
 from tests.conftest import (
     create_test_category,
     create_test_menu_item,
-    create_test_restaurant,
+    create_test_outlet,
     create_test_user,
     get_auth_headers,
 )
@@ -23,13 +23,13 @@ class TestPart2Sessions:
 
     async def test_basket_locking_same_name_resumes(self, client, db_session):
         """Scanning same basket with exact same name resumes active session."""
-        restaurant = await create_test_restaurant(db_session)
+        outlet = await create_test_outlet(db_session)
         await db_session.commit()
 
         # First scan
         resp1 = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "5",
+            "outlet_slug": outlet.slug,
+            "basket_number": "5",
             "customer_name": "Alice Green",
             "customer_phone": "9876543210",
         })
@@ -39,8 +39,8 @@ class TestPart2Sessions:
 
         # Rescan same basket with same name (case-insensitive normalized)
         resp2 = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "5",
+            "outlet_slug": outlet.slug,
+            "basket_number": "5",
             "customer_name": "alice green",
         })
         assert resp2.status_code == 200
@@ -49,35 +49,35 @@ class TestPart2Sessions:
 
     async def test_basket_locking_different_name_blocked(self, client, db_session):
         """Scanning a basket already in use by another customer returns 409 Conflict."""
-        restaurant = await create_test_restaurant(db_session)
+        outlet = await create_test_outlet(db_session)
         await db_session.commit()
 
         # Alice starts session at basket 5
         resp1 = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "5",
+            "outlet_slug": outlet.slug,
+            "basket_number": "5",
             "customer_name": "Alice Green",
         })
         assert resp1.status_code == 200
 
         # Bob tries to start session at same basket 5
         resp2 = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "5",
+            "outlet_slug": outlet.slug,
+            "basket_number": "5",
             "customer_name": "Bob Smith",
         })
         assert resp2.status_code == 409
         assert "currently in use by Alice Green" in resp2.json()["detail"]
 
     async def test_outlet_session_duration_setting(self, client, db_session):
-        """Admin can configure session_duration_minutes in restaurant settings."""
-        restaurant = await create_test_restaurant(db_session)
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
+        """Admin can configure session_duration_minutes in outlet settings."""
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
         await db_session.commit()
-        headers = get_auth_headers(admin, restaurant)
+        headers = get_auth_headers(admin, outlet)
 
         # Update duration to 45 mins
-        resp = await client.patch("/api/admin/restaurants/me", json={
+        resp = await client.patch("/api/admin/outlets/me", json={
             "session_duration_minutes": 45,
         }, headers=headers)
         assert resp.status_code == 200
@@ -85,8 +85,8 @@ class TestPart2Sessions:
 
         # New session gets 45 min duration
         resp_sess = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "10",
+            "outlet_slug": outlet.slug,
+            "basket_number": "10",
             "customer_name": "Charlie",
         })
         assert resp_sess.status_code == 200
@@ -94,12 +94,12 @@ class TestPart2Sessions:
 
     async def test_extend_session(self, client, db_session):
         """Customer can extend an active session."""
-        restaurant = await create_test_restaurant(db_session)
+        outlet = await create_test_outlet(db_session)
         await db_session.commit()
 
         start_res = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "12",
+            "outlet_slug": outlet.slug,
+            "basket_number": "12",
             "customer_name": "David",
         })
         session_id = start_res.json()["session_id"]
@@ -113,16 +113,16 @@ class TestPart2Sessions:
 
     async def test_abandon_cart_push_and_conversion(self, client, db_session):
         """Customer pushes local cart on expiry -> Admin sees abandoned cart and converts to bill."""
-        restaurant = await create_test_restaurant(db_session)
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat, name="Fresh Apples", price=Decimal("120.00"))
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat, name="Fresh Apples", price=Decimal("120.00"))
         await db_session.commit()
-        headers = get_auth_headers(admin, restaurant)
+        headers = get_auth_headers(admin, outlet)
 
         start_res = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "3",
+            "outlet_slug": outlet.slug,
+            "basket_number": "3",
             "customer_name": "Eve",
             "customer_phone": "9998887776",
         })
@@ -151,7 +151,7 @@ class TestPart2Sessions:
         assert len(carts) >= 1
         found_cart = next(c for c in carts if c["id"] == cart_id)
         assert found_cart["customer_name"] == "Eve"
-        assert found_cart["table_number"] == "3"
+        assert found_cart["basket_number"] == "3"
         assert found_cart["total_estimate"] == 300.00
 
         # Admin count
@@ -159,22 +159,45 @@ class TestPart2Sessions:
         assert count_res.status_code == 200
         assert count_res.json()["count"] >= 1
 
-        # Admin converts abandoned cart to manual bill
+        # Test Dismiss action on a second cart
+        start_res2 = await client.post("/api/sessions/start", json={
+            "outlet_slug": outlet.slug,
+            "basket_number": "4",
+            "customer_name": "Bob",
+        })
+        session_id_2 = start_res2.json()["session_id"]
+        push_res2 = await client.post(f"/api/sessions/{session_id_2}/abandon-cart", json={
+            "items": [{"menu_item_id": str(item.id), "name": "Fresh Apples", "quantity": 1, "unit_price": 120.00}],
+            "total_estimate": 120.00,
+        })
+        cart_id_2 = push_res2.json()["abandoned_cart_id"]
+
+        # Dismiss second cart
+        dismiss_res = await client.post(f"/api/admin/sessions/abandoned-carts/{cart_id_2}/dismiss", headers=headers)
+        assert dismiss_res.status_code == 200
+        assert dismiss_res.json()["status"] == "dismissed"
+
+        # Admin converts first abandoned cart to manual bill
         convert_res = await client.post(f"/api/admin/sessions/abandoned-carts/{cart_id}/convert", headers=headers)
         assert convert_res.status_code == 200
         assert convert_res.json()["status"] == "converted"
         assert convert_res.json()["order_id"] is not None
 
+        # After convert and dismiss, count for active abandoned carts drops
+        count_res2 = await client.get("/api/admin/sessions/abandoned-carts/count", headers=headers)
+        assert count_res2.status_code == 200
+        assert count_res2.json()["count"] == 0
+
     async def test_manual_session_termination(self, client, db_session):
         """Staff/Manager can manually terminate an active session."""
-        restaurant = await create_test_restaurant(db_session)
-        admin = await create_test_user(db_session, restaurant, role=RoleEnum.RESTAURANT_ADMIN)
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
         await db_session.commit()
-        headers = get_auth_headers(admin, restaurant)
+        headers = get_auth_headers(admin, outlet)
 
         start_res = await client.post("/api/sessions/start", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "7",
+            "outlet_slug": outlet.slug,
+            "basket_number": "7",
             "customer_name": "Frank",
         })
         session_id = start_res.json()["session_id"]
@@ -196,3 +219,49 @@ class TestPart2Sessions:
         assert status_res.status_code == 200
         assert status_res.json()["is_active"] is False
         assert status_res.json()["status"] == "TERMINATED"
+
+    async def test_staff_add_items_to_active_session(self, client, db_session):
+        """Staff can assist a customer by adding items directly to an active basket session."""
+        outlet = await create_test_outlet(db_session)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.OUTLET_ADMIN)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat, name="Organic Milk", price=Decimal("60.00"))
+        await db_session.commit()
+        headers = get_auth_headers(admin, outlet)
+
+        # Customer starts session at Basket 9
+        start_res = await client.post("/api/sessions/start", json={
+            "outlet_slug": outlet.slug,
+            "basket_number": "9",
+            "customer_name": "Grace",
+        })
+        assert start_res.status_code == 200
+        session_id = start_res.json()["session_id"]
+
+        # Staff assists Grace by adding 2 packs of Organic Milk from staff console
+        assist_res = await client.post(
+            f"/api/admin/sessions/{session_id}/add-items",
+            json={
+                "items": [{
+                    "menu_item_id": str(item.id),
+                    "quantity": 2,
+                }],
+            },
+            headers=headers,
+        )
+        assert assist_res.status_code == 201
+        data = assist_res.json()
+        assert data["session_id"] == session_id
+        assert data["basket_number"] == "9"
+        assert data["customer_name"] == "Grace"
+        assert data["added_items_count"] == 1
+        assert float(data["total_amount"]) == 120.00
+        assert data["added_by_staff_id"] == str(admin.id)
+
+        # Check customer session status returns the new staff-assisted order
+        status_res = await client.get(f"/api/sessions/{session_id}")
+        assert status_res.status_code == 200
+        orders = status_res.json()["orders"]
+        assert len(orders) == 1
+        assert orders[0]["source"] == "staff_assisted"
+        assert float(orders[0]["total_amount"]) == 120.00

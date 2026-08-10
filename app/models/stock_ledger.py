@@ -19,7 +19,8 @@ from app.models.enums import StockChangeTypeEnum
 if TYPE_CHECKING:
     from app.models.inventory_item import InventoryItem
     from app.models.order import Order
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
+    from app.models.user import User
 
 
 class StockLedger(Base):
@@ -28,9 +29,9 @@ class StockLedger(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -68,6 +69,7 @@ class StockLedger(Base):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
+    outlet: Mapped[Outlet] = relationship("Outlet")
     item: Mapped[InventoryItem] = relationship("InventoryItem")
     reference_order: Mapped[Order | None] = relationship("Order")
+    user: Mapped[User | None] = relationship("User")

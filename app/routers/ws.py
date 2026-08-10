@@ -1,5 +1,5 @@
 """
-WebSocket kitchen dashboard route.
+WebSocket dashboard route.
 Auth via short-lived ticket — JWTs must NEVER be passed as query params.
 """
 
@@ -11,7 +11,7 @@ from fastapi import APIRouter, WebSocket, WebSocketDisconnect, status
 from jose import JWTError
 
 from app.core.security import create_ws_ticket, decode_token
-from app.dependencies import AuthenticatedUser, DBSession
+from app.dependencies import AuthenticatedUser
 from app.services.websocket_service import ws_manager
 
 router = APIRouter(tags=["websocket"])
@@ -26,29 +26,18 @@ async def get_ws_ticket(current_user: AuthenticatedUser):
     """
     ticket = create_ws_ticket(
         user_id=current_user.user_id,
-        restaurant_id=current_user.restaurant_id,
+        outlet_id=current_user.outlet_id,
         ttl_seconds=60,
     )
     return {"ticket": ticket}
 
 
-@router.websocket("/ws/kitchen/{restaurant_id}")
-async def kitchen_websocket(
-    websocket: WebSocket,
-    restaurant_id: uuid.UUID,
-):
-    """
-    WebSocket endpoint for kitchen dashboard.
-    Authenticates via ticket query param (NOT a JWT).
-    Subscribes to Redis pub/sub for real-time event fan-out.
-    """
-    # Extract ticket from query params
+async def _handle_ws_connection(websocket: WebSocket, target_id: uuid.UUID):
     ticket = websocket.query_params.get("ticket")
     if not ticket:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Validate ticket
     try:
         payload = decode_token(ticket)
     except JWTError:
@@ -59,23 +48,22 @@ async def kitchen_websocket(
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Verify the ticket's restaurant_id matches the path param
-    ticket_restaurant_id = uuid.UUID(payload["restaurant_id"])
-    if ticket_restaurant_id != restaurant_id:
+    raw_tid = payload.get("outlet_id")
+    if not raw_tid or uuid.UUID(raw_tid) != target_id:
         await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
         return
 
-    # Accept and manage connection
-    await ws_manager.connect(websocket, restaurant_id)
-
+    await ws_manager.connect(websocket, target_id)
     try:
-        # Keep connection alive — listen for client messages (ping/pong)
         while True:
             data = await websocket.receive_text()
-            # Clients can send "ping" to keep alive
             if data == "ping":
                 await websocket.send_text("pong")
-    except WebSocketDisconnect:
-        await ws_manager.disconnect(websocket, restaurant_id)
-    except Exception:
-        await ws_manager.disconnect(websocket, restaurant_id)
+    except (WebSocketDisconnect, Exception):
+        await ws_manager.disconnect(websocket, target_id)
+
+
+@router.websocket("/ws/mart/{outlet_id}")
+async def mart_websocket(websocket: WebSocket, outlet_id: uuid.UUID):
+    """WebSocket endpoint for mart & grocery dashboard."""
+    await _handle_ws_connection(websocket, outlet_id)

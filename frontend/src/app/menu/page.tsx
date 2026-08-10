@@ -264,7 +264,7 @@ function DigitalMenuApp() {
   return (
     <div className="mx-auto min-h-screen max-w-lg bg-[var(--bg-base)] pb-28 transition-colors">
       <Header
-        restaurantName={menuData?.restaurant_name || "ApnaGreen Basket"}
+        restaurantName={menuData?.outlet_name || "ApnaGreen Basket"}
         tableNumber={tableNumber}
         logoUrl={menuData?.logo_url || undefined}
         onSearchClick={() => setIsSearchOpen(!isSearchOpen)}
@@ -420,8 +420,8 @@ function DigitalMenuApp() {
       <CartFloatingBar />
 
       <CheckoutDrawer
-        restaurantSlug={menuData?.restaurant_slug || restaurantSlug}
-        restaurantName={menuData?.restaurant_name || "ApnaGreen Basket"}
+        restaurantSlug={menuData?.outlet_slug || restaurantSlug}
+        restaurantName={menuData?.outlet_name || "ApnaGreen Basket"}
         allowedPaymentMode={menuData?.payment_mode}
       />
 

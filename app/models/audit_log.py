@@ -20,9 +20,9 @@ class AuditLog(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID | None] = mapped_column(
+    outlet_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="SET NULL"),
+        ForeignKey("outlets.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )

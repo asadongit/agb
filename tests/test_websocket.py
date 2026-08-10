@@ -11,7 +11,7 @@ import pytest
 from app.core.security import create_ws_ticket
 from app.models.enums import RoleEnum
 from tests.conftest import (
-    create_test_restaurant,
+    create_test_outlet,
     create_test_user,
     get_auth_headers,
 )
@@ -23,11 +23,11 @@ class TestWebSocketTicket:
 
     async def test_get_ws_ticket(self, client, db_session):
         """Authenticated user can get a WS ticket."""
-        restaurant = await create_test_restaurant(db_session)
-        user = await create_test_user(db_session, restaurant)
+        outlet = await create_test_outlet(db_session)
+        user = await create_test_user(db_session, outlet)
         await db_session.commit()
 
-        headers = get_auth_headers(user, restaurant)
+        headers = get_auth_headers(user, outlet)
         resp = await client.post("/api/ws-ticket", headers=headers)
         assert resp.status_code == 200
         data = resp.json()
@@ -48,13 +48,13 @@ class TestWebSocketAuth:
         from app.core.security import decode_token
 
         user_id = uuid.uuid4()
-        restaurant_id = uuid.uuid4()
-        ticket = create_ws_ticket(user_id, restaurant_id, ttl_seconds=60)
+        outlet_id = uuid.uuid4()
+        ticket = create_ws_ticket(user_id, outlet_id, ttl_seconds=60)
 
         payload = decode_token(ticket)
         assert payload["type"] == "ws_ticket"
         assert payload["sub"] == str(user_id)
-        assert payload["restaurant_id"] == str(restaurant_id)
+        assert payload["outlet_id"] == str(outlet_id)
 
     def test_ws_ticket_contains_jti(self):
         """Each WS ticket should have a unique JTI for single-use enforcement."""

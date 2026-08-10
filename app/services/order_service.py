@@ -17,13 +17,13 @@ from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.models.order import Order
 from app.models.order_item import OrderItem
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.schemas.order import CheckoutRequest, OrderItemRequest
 
 
 def evaluate_verification_rules(
-    restaurant: Restaurant,
-    item_menu_item_ids: list[str | uuid.UUID],
+    outlet: Outlet,
+    has_flagged_item: bool,
     total_amount: Decimal,
 ) -> bool:
     """
@@ -31,19 +31,16 @@ def evaluate_verification_rules(
     Returns True if manual staff verification is required, False if it can auto-skip.
 
     Rule Precedence:
-    1. Flagged item check: A flagged item in cart ALWAYS requires verification.
+    1. Flagged item check: A flagged product (is_verification_required=True) in cart ALWAYS requires verification.
     2. Amount cutoff check: If amount cutoff is configured and total_amount < cutoff, auto-skip verification.
     3. Default (no rules set, or total >= cutoff): Requires manual verification.
     """
-    flagged_set = {str(fid) for fid in (restaurant.flagged_item_ids or [])}
-    order_item_ids = {str(mid) for mid in item_menu_item_ids}
-
     # Rule 1: Flagged item override
-    if flagged_set and (flagged_set & order_item_ids):
+    if has_flagged_item:
         return True  # Requires verification!
 
     # Rule 2: Amount cutoff check
-    cutoff = restaurant.verification_amount_cutoff
+    cutoff = outlet.verification_amount_cutoff
     if cutoff is not None and total_amount < cutoff:
         return False  # Auto-skip verification!
 
@@ -60,25 +57,29 @@ async def create_order(
     Total is computed from stored MenuItem/MenuItemVariant prices —
     NEVER trust a client-submitted total.
     """
-    # Look up restaurant by slug
+    # Look up outlet by slug
     result = await db.execute(
-        select(Restaurant).where(Restaurant.slug == data.restaurant_slug)
+        select(Outlet).where(Outlet.slug == data.outlet_slug)
     )
-    restaurant = result.scalar_one_or_none()
-    if not restaurant:
+    outlet = result.scalar_one_or_none()
+    if not outlet:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Restaurant '{data.restaurant_slug}' not found",
+            detail=f"Outlet '{data.outlet_slug}' not found",
         )
 
     # Build order items with snapshot pricing
     order_items: list[OrderItem] = []
     total = Decimal("0.00")
+    has_flagged_item = False
 
     for item_req in data.items:
-        unit_price = await _compute_unit_price(
-            db, restaurant.id, item_req
+        unit_price, is_verif = await _compute_unit_price(
+            db, outlet.id, item_req
         )
+        if is_verif:
+            has_flagged_item = True
+
         order_item = OrderItem(
             id=uuid.uuid4(),
             menu_item_id=item_req.menu_item_id,
@@ -90,14 +91,14 @@ async def create_order(
         total += unit_price * item_req.quantity
 
     requires_verification = evaluate_verification_rules(
-        restaurant, [item.menu_item_id for item in order_items], total
+        outlet, has_flagged_item, total
     )
 
     order = Order(
         id=uuid.uuid4(),
-        restaurant_id=restaurant.id,
+        outlet_id=outlet.id,
         session_id=data.session_id,
-        table_number=data.table_number,
+        basket_number=data.basket_number,
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
         total_amount=total,
@@ -122,17 +123,17 @@ async def create_order(
 
 async def _compute_unit_price(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     item_req: OrderItemRequest,
-) -> Decimal:
+) -> tuple[Decimal, bool]:
     """
-    Compute the unit price for an order item from stored prices.
+    Compute the unit price and check verification flag for an order item.
     unit_price = MenuItem.price + MenuItemVariant.price_delta (if variant selected)
     """
     result = await db.execute(
         select(MenuItem).where(
             MenuItem.id == item_req.menu_item_id,
-            MenuItem.restaurant_id == restaurant_id,
+            MenuItem.outlet_id == outlet_id,
             MenuItem.is_available == True,  # noqa: E712
         )
     )
@@ -144,6 +145,7 @@ async def _compute_unit_price(
         )
 
     price = menu_item.price
+    is_verif = getattr(menu_item, "is_verification_required", False)
 
     if item_req.variant_id:
         var_result = await db.execute(
@@ -161,7 +163,7 @@ async def _compute_unit_price(
             )
         price += variant.price_delta
 
-    return price
+    return price, is_verif
 
 
 async def transition_order_status(
@@ -202,18 +204,18 @@ async def transition_order_status(
         from app.services.session_service import check_session_completion
         await check_session_completion(db, order.session_id)
 
-    return await get_order_with_items(db, order.id, order.restaurant_id)
+    return await get_order_with_items(db, order.id, order.outlet_id)
 
 
 async def get_order_with_items(
     db: AsyncSession,
     order_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
 ) -> Order:
-    """Get an order by ID, scoped to a restaurant, with items loaded."""
+    """Get an order by ID, scoped to an outlet, with items loaded."""
     result = await db.execute(
         select(Order)
-        .where(Order.id == order_id, Order.restaurant_id == restaurant_id)
+        .where(Order.id == order_id, Order.outlet_id == outlet_id)
         .options(selectinload(Order.items))
     )
     order = result.scalar_one_or_none()
@@ -227,10 +229,10 @@ async def get_order_with_items(
 
 async def purge_old_non_completed_orders(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
 ) -> int:
     """
-    Purge non-completed orders older than 24 hours for a restaurant.
+    Purge non-completed orders older than 24 hours for an outlet.
     COMPLETED (Served) orders are NEVER deleted — kept forever for inventory & reporting.
     """
     from datetime import datetime, timedelta, timezone
@@ -241,7 +243,7 @@ async def purge_old_non_completed_orders(
     subquery = (
         select(Order.id)
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.status != OrderStatusEnum.COMPLETED,
             Order.created_at < cutoff_utc,
         )

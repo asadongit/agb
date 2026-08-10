@@ -68,12 +68,12 @@ async def get_kpi_summary_endpoint(
     to_date: str | None = Query(None),
 ):
     """Fetch KPI summary strip metrics with period-over-period percentage comparisons."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_kpi_summary(db, target_restaurant_id, from_dt, to_dt)
+    return await get_kpi_summary(db, target_outlet_id, from_dt, to_dt)
 
 
 @router.get("/revenue", response_model=RevenueAnalyticsResponse)
@@ -85,12 +85,12 @@ async def get_revenue_endpoint(
     to_date: str | None = Query(None),
 ):
     """Time-bucketed revenue and order counts."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_revenue_analytics(db, target_restaurant_id, granularity, from_dt, to_dt)
+    return await get_revenue_analytics(db, target_outlet_id, granularity, from_dt, to_dt)
 
 
 @router.get("/peak-hours", response_model=PeakHoursResponse)
@@ -101,12 +101,12 @@ async def get_peak_hours_endpoint(
     to_date: str | None = Query(None),
 ):
     """Order volume distribution by hour-of-day (0-23)."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_peak_hours(db, target_restaurant_id, from_dt, to_dt)
+    return await get_peak_hours(db, target_outlet_id, from_dt, to_dt)
 
 
 @router.get("/top-items", response_model=TopItemsResponse)
@@ -119,12 +119,12 @@ async def get_top_items_endpoint(
     to_date: str | None = Query(None),
 ):
     """Top selling menu items ranked by quantity or revenue share."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_top_selling_items(db, target_restaurant_id, sort_by, limit, from_dt, to_dt)
+    return await get_top_selling_items(db, target_outlet_id, sort_by, limit, from_dt, to_dt)
 
 
 @router.get("/funnel", response_model=OrderFunnelResponse)
@@ -135,12 +135,12 @@ async def get_funnel_endpoint(
     to_date: str | None = Query(None),
 ):
     """Order lifecycle conversion funnel and cancellation metrics."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_order_funnel(db, target_restaurant_id, from_dt, to_dt)
+    return await get_order_funnel(db, target_outlet_id, from_dt, to_dt)
 
 
 @router.get("/profit", response_model=ProfitMarginResponse)
@@ -152,12 +152,12 @@ async def get_profit_endpoint(
     to_date: str | None = Query(None),
 ):
     """Profit margin analysis (Revenue - COGS) using stock ledger unit cost snapshots."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
-    return await get_profit_margin_analytics(db, target_restaurant_id, granularity, from_dt, to_dt)
+    return await get_profit_margin_analytics(db, target_outlet_id, granularity, from_dt, to_dt)
 
 
 @router.get("/export")
@@ -170,39 +170,39 @@ async def export_analytics_endpoint(
     to_date: str | None = Query(None),
 ):
     """Export analytics report data as CSV file."""
-    target_restaurant_id = current_user.restaurant_id
-    if not target_restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     from_dt, to_dt = _parse_date_range(from_date, to_date)
     output = io.StringIO()
     writer = csv.writer(output)
 
     if report == "revenue":
-        data = await get_revenue_analytics(db, target_restaurant_id, "daily", from_dt, to_dt)
+        data = await get_revenue_analytics(db, target_outlet_id, "daily", from_dt, to_dt)
         writer.writerow(["Timestamp Bucket", "Revenue (INR)", "Orders Count"])
         for b in data.buckets:
             writer.writerow([b.bucket, f"{b.revenue:.2f}", b.orders_count])
     elif report == "top_items":
-        data = await get_top_selling_items(db, target_restaurant_id, "quantity", 50, from_dt, to_dt)
+        data = await get_top_selling_items(db, target_outlet_id, "quantity", 50, from_dt, to_dt)
         writer.writerow(["Item Name", "Quantity Sold", "Revenue (INR)", "Revenue Share %"])
         for item in data.items:
             writer.writerow([item.name, item.quantity_sold, f"{item.revenue:.2f}", f"{item.revenue_share_pct:.2f}%"])
     elif report == "profit":
-        data = await get_profit_margin_analytics(db, target_restaurant_id, "daily", from_dt, to_dt)
+        data = await get_profit_margin_analytics(db, target_outlet_id, "daily", from_dt, to_dt)
         writer.writerow(["Timestamp Bucket", "Revenue (INR)", "COGS (INR)", "Net Profit (INR)", "Margin %"])
         for b in data.buckets:
             writer.writerow([b.bucket, f"{b.revenue:.2f}", f"{b.cogs:.2f}", f"{b.profit:.2f}", f"{b.margin_pct:.2f}%"])
     else:
-        data = await get_order_funnel(db, target_restaurant_id, from_dt, to_dt)
+        data = await get_order_funnel(db, target_outlet_id, from_dt, to_dt)
         writer.writerow(["Stage", "Label", "Order Count", "Percentage %"])
         for s in data.stages:
             writer.writerow([s.stage, s.stage_label, s.count, f"{s.percentage:.2f}%"])
 
-    csv_content = output.getvalue()
-    filename = f"analytics_{report}_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.csv"
+    csv_data = output.getvalue()
+    filename = f"analytics_{report}_{datetime.utcnow().strftime('%Y%m%d')}.csv"
     return Response(
-        content=csv_content,
+        content=csv_data,
         media_type="text/csv",
         headers={"Content-Disposition": f"attachment; filename={filename}"},
     )

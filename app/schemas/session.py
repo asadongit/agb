@@ -10,7 +10,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.schemas.common import BaseResponse, StrictSchema
 from app.schemas.order import OrderResponse
@@ -21,8 +21,8 @@ from app.schemas.order import OrderResponse
 
 class StartSessionRequest(StrictSchema):
     """Start a new session or resume an existing one at a basket."""
-    restaurant_slug: str
-    table_number: str = Field(min_length=1, max_length=50)
+    outlet_slug: str = Field(min_length=1, max_length=100)
+    basket_number: str = Field(min_length=1, max_length=50)
     customer_name: str = Field(min_length=1, max_length=255)
     customer_phone: str | None = Field(None, max_length=20)
 
@@ -30,7 +30,7 @@ class StartSessionRequest(StrictSchema):
 class StartSessionResponse(BaseResponse):
     session_id: uuid.UUID
     customer_name: str
-    table_number: str
+    basket_number: str
     is_returning: bool = False  # true if phone matched existing customer
     active_orders: list[OrderResponse] = []
     expires_at: datetime
@@ -39,8 +39,8 @@ class StartSessionResponse(BaseResponse):
 
 class ResumeSessionRequest(StrictSchema):
     """Lookup and resume an active session by name + basket."""
-    restaurant_slug: str
-    table_number: str = Field(min_length=1, max_length=50)
+    outlet_slug: str = Field(min_length=1, max_length=100)
+    basket_number: str = Field(min_length=1, max_length=50)
     customer_name: str = Field(min_length=1, max_length=255)
 
 
@@ -50,7 +50,7 @@ class ResumeSessionRequest(StrictSchema):
 class SessionStatusResponse(BaseResponse):
     session_id: uuid.UUID
     customer_name: str
-    table_number: str
+    basket_number: str
     is_active: bool
     status: str  # ACTIVE / COMPLETED / EXPIRED / TERMINATED
     expires_at: datetime
@@ -89,14 +89,14 @@ class AbandonCartRequest(StrictSchema):
 
 class AbandonedCartResponse(BaseResponse):
     id: str
-    restaurant_id: str
+    outlet_id: str | None = None
     session_id: str
-    table_number: str
+    basket_number: str
     customer_name: str
     customer_phone: str | None = None
     items: list[dict[str, Any]] = []
     total_estimate: float
-    status: str  # ABANDONED / CONVERTED
+    status: str  # ABANDONED / CONVERTED / DISMISSED
     converted_order_id: str | None = None
     created_at: str
 
@@ -106,7 +106,7 @@ class AbandonedCartResponse(BaseResponse):
 
 class CustomerHistoryRequest(StrictSchema):
     phone: str = Field(min_length=1, max_length=20)
-    restaurant_slug: str
+    outlet_slug: str = Field(min_length=1, max_length=100)
     days: int = Field(default=30, ge=1, le=365)
 
 
@@ -114,3 +114,30 @@ class CustomerHistoryResponse(BaseResponse):
     customer_name: str
     customer_phone: str
     past_orders: list[OrderResponse] = []
+
+
+# ── Staff Assistance ────────────────────────────────────────────────────
+
+
+class StaffAddItemInput(StrictSchema):
+    """Single item input for staff adding items to customer basket."""
+    menu_item_id: str
+    variant_id: str | None = None
+    quantity: Decimal = Field(default=Decimal("1.0"), gt=0)
+
+
+class StaffAddItemsRequest(StrictSchema):
+    """Staff adds items directly to an active customer basket session."""
+    items: list[StaffAddItemInput] = Field(min_length=1)
+    notes: str | None = Field(None, max_length=500)
+
+
+class StaffAddItemsResponse(BaseResponse):
+    order_id: uuid.UUID
+    session_id: uuid.UUID
+    basket_number: str
+    customer_name: str
+    total_amount: Decimal
+    status: str
+    added_items_count: int
+    added_by_staff_id: uuid.UUID | None = None

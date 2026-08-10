@@ -15,7 +15,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.database import Base
 
 if TYPE_CHECKING:
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
     from app.models.staff import Staff
 
 
@@ -31,9 +31,9 @@ class StaffAuditLog(Base):
         nullable=True,
         index=True,
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -46,5 +46,5 @@ class StaffAuditLog(Base):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
     staff: Mapped[Staff | None] = relationship("Staff")
+    outlet: Mapped[Outlet] = relationship("Outlet")

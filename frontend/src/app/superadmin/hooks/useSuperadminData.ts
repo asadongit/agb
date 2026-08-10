@@ -1,0 +1,615 @@
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getApiBaseUrl } from "@/lib/api";
+import type { StaffMember } from "@/types";
+import {
+  SA_ACCESS_TOKEN_KEY,
+  SA_REFRESH_TOKEN_KEY,
+  type AdminUserForm,
+  type LoginResponse,
+  type RestaurantCreateForm,
+  type RestaurantWithUsers,
+} from "../superadminTypes";
+
+function decodeJwtRole(token: string): string | null {
+  try {
+    const payloadBase64 = token.split(".")[1];
+    if (!payloadBase64) return null;
+    const payloadJson = atob(payloadBase64);
+    const payload = JSON.parse(payloadJson);
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
+
+async function parseApiResponse<T>(response: Response): Promise<T> {
+  if (response.status === 204) return undefined as T;
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const detail =
+      typeof payload?.detail === "string"
+        ? payload.detail
+        : "Request failed. Please try again.";
+    throw new Error(detail);
+  }
+  return payload as T;
+}
+
+export function useSuperadminData() {
+  const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
+  const [accessToken, setAccessToken] = useState<string | null>(null);
+  const [isMounted, setIsMounted] = useState(false);
+
+  const [isAuthenticating, setIsAuthenticating] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+
+  // Theme Mode
+  const [theme, setTheme] = useState<"light" | "dark">("light");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const stored = (localStorage.getItem("app_theme") as "light" | "dark") || "light";
+      setTheme(stored);
+      document.documentElement.setAttribute("data-theme", stored);
+      if (stored === "dark") {
+        document.documentElement.classList.add("dark");
+      } else {
+        document.documentElement.classList.remove("dark");
+      }
+    }
+  }, []);
+
+  const toggleTheme = () => {
+    const next = theme === "light" ? "dark" : "light";
+    setTheme(next);
+    localStorage.setItem("app_theme", next);
+    document.documentElement.setAttribute("data-theme", next);
+    if (next === "dark") {
+      document.documentElement.classList.add("dark");
+    } else {
+      document.documentElement.classList.remove("dark");
+    }
+  };
+
+  // Directory state
+  const [restaurants, setRestaurants] = useState<RestaurantWithUsers[]>([]);
+  const [isLoadingRestaurants, setIsLoadingRestaurants] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(new Set());
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const [staffByOutlet, setStaffByOutlet] = useState<Record<string, StaffMember[]>>({});
+
+  // Check stored token on load and verify role is SUPERADMIN
+  useEffect(() => {
+    setIsMounted(true);
+    if (typeof window === "undefined") return;
+    const storedToken = window.localStorage.getItem(SA_ACCESS_TOKEN_KEY);
+    if (storedToken) {
+      const role = decodeJwtRole(storedToken);
+      if (role === "SUPERADMIN") {
+        setAccessToken(storedToken);
+      } else {
+        window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+        window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+      }
+    }
+  }, []);
+
+  // Restaurant creation state
+  const [restaurantForm, setRestaurantForm] = useState<RestaurantCreateForm>({
+    name: "",
+    slug: "",
+    payment_mode: "PAY_AT_COUNTER",
+    razorpay_account_id: "",
+    direct_upi_id: "",
+    raw_upi_payload: "",
+    logo_url: "",
+    address: "",
+    phone: "",
+    gstin: "",
+    fssai_no: "",
+    session_duration_minutes: 30,
+    verification_amount_cutoff: "",
+  });
+  const [isCreatingRestaurant, setIsCreatingRestaurant] = useState(false);
+
+  // Outlet Settings Modal state
+  const [settingsOutlet, setSettingsOutlet] = useState<RestaurantWithUsers | null>(null);
+  const [settingsForm, setSettingsForm] = useState<RestaurantCreateForm>({
+    name: "",
+    slug: "",
+    payment_mode: "PAY_AT_COUNTER",
+    razorpay_account_id: "",
+    direct_upi_id: "",
+    raw_upi_payload: "",
+    logo_url: "",
+    address: "",
+    phone: "",
+    gstin: "",
+    fssai_no: "",
+    session_duration_minutes: 30,
+    verification_amount_cutoff: "",
+  });
+  const [isSavingSettings, setIsSavingSettings] = useState(false);
+
+  // User creation state
+  const [adminUserForm, setAdminUserForm] = useState<AdminUserForm>({
+    email: "",
+    password: "",
+    role: "OUTLET_ADMIN",
+  });
+  const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>("");
+  const [isCreatingUser, setIsCreatingUser] = useState(false);
+
+  // Step: "create_restaurant" | "create_admin" | "done"
+  const [step, setStep] = useState<"create_restaurant" | "create_admin" | "done">("create_restaurant");
+
+  const authHeaders = useMemo(() => {
+    if (!accessToken) return null;
+    return {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${accessToken}`,
+    };
+  }, [accessToken]);
+
+  const refreshTokenPromiseRef = useRef<Promise<string | null> | null>(null);
+
+  const tryRefreshToken = useCallback(async (): Promise<string | null> => {
+    if (refreshTokenPromiseRef.current) {
+      return refreshTokenPromiseRef.current;
+    }
+
+    const refreshToken = window.localStorage.getItem(SA_REFRESH_TOKEN_KEY);
+    if (!refreshToken) return null;
+
+    refreshTokenPromiseRef.current = (async () => {
+      try {
+        const apiBase = getApiBaseUrl();
+        const response = await fetch(`${apiBase}/api/auth/refresh`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+
+        if (!response.ok) {
+          window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+          window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+          setAccessToken(null);
+          return null;
+        }
+
+        const data = (await response.json()) as LoginResponse;
+        setAccessToken(data.access_token);
+        window.localStorage.setItem(SA_ACCESS_TOKEN_KEY, data.access_token);
+        window.localStorage.setItem(SA_REFRESH_TOKEN_KEY, data.refresh_token);
+        return data.access_token;
+      } catch {
+        window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+        window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+        setAccessToken(null);
+        return null;
+      } finally {
+        refreshTokenPromiseRef.current = null;
+      }
+    })();
+
+    return refreshTokenPromiseRef.current;
+  }, []);
+
+  const apiRequest = useCallback(
+    async <T,>(path: string, options?: RequestInit): Promise<T> => {
+      if (!authHeaders) throw new Error("Please sign in first.");
+      const apiBase = getApiBaseUrl();
+      let response = await fetch(`${apiBase}${path}`, {
+        ...options,
+        headers: { ...authHeaders, ...(options?.headers || {}) },
+      });
+
+      if (response.status === 401) {
+        const newAccessToken = await tryRefreshToken();
+        if (newAccessToken) {
+          response = await fetch(`${apiBase}${path}`, {
+            ...options,
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${newAccessToken}`,
+              ...(options?.headers || {}),
+            },
+          });
+        }
+      }
+
+      return parseApiResponse<T>(response);
+    },
+    [authHeaders, tryRefreshToken]
+  );
+
+  const loadStaffForOutlet = useCallback(
+    async (restaurantId: string) => {
+      if (!authHeaders || !restaurantId) return;
+      try {
+        const staffData = await apiRequest<StaffMember[]>(`/api/staff?outlet_id=${restaurantId}`);
+        setStaffByOutlet((prev) => ({ ...prev, [restaurantId]: staffData }));
+      } catch (err) {
+        console.error("Superadmin staff fetch error:", err);
+      }
+    },
+    [apiRequest, authHeaders]
+  );
+
+  const loadRestaurants = useCallback(async () => {
+    if (!accessToken) return;
+    setIsLoadingRestaurants(true);
+    setError(null);
+
+    try {
+      const data = await apiRequest<RestaurantWithUsers[]>("/api/admin/restaurants");
+      setRestaurants(data);
+      // Auto-expand all restaurant team sections by default
+      setExpandedIds(new Set(data.map((r) => r.id)));
+      data.forEach((r) => void loadStaffForOutlet(r.id));
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to load outlets.";
+      setError(message);
+    } finally {
+      setIsLoadingRestaurants(false);
+    }
+  }, [accessToken, apiRequest, loadStaffForOutlet]);
+
+  useEffect(() => {
+    if (accessToken) {
+      void loadRestaurants();
+    }
+  }, [accessToken, loadRestaurants]);
+
+  const onLogin = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsAuthenticating(true);
+    setError(null);
+    setNotice(null);
+
+    try {
+      const apiBase = getApiBaseUrl();
+      const response = await fetch(`${apiBase}/api/auth/login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await parseApiResponse<LoginResponse>(response);
+
+      if (data.role !== "SUPERADMIN") {
+        throw new Error(
+          `Access denied. Superadmin credentials required. Your account role is '${data.role || "UNKNOWN"}'.`
+        );
+      }
+
+      setAccessToken(data.access_token);
+      window.localStorage.setItem(SA_ACCESS_TOKEN_KEY, data.access_token);
+      window.localStorage.setItem(SA_REFRESH_TOKEN_KEY, data.refresh_token);
+      setNotice("Signed in as superadmin.");
+    } catch (loginError) {
+      const message =
+        loginError instanceof Error ? loginError.message : "Unable to sign in.";
+      setError(message);
+    } finally {
+      setIsAuthenticating(false);
+    }
+  };
+
+  const onLogout = async () => {
+    try {
+      if (accessToken) {
+        const apiBase = getApiBaseUrl();
+        await fetch(`${apiBase}/api/auth/logout`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${accessToken}`,
+          },
+        });
+      }
+    } catch {
+      // Ignore
+    }
+
+    setAccessToken(null);
+    window.localStorage.removeItem(SA_ACCESS_TOKEN_KEY);
+    window.localStorage.removeItem(SA_REFRESH_TOKEN_KEY);
+    setRestaurants([]);
+    setStep("create_restaurant");
+    setNotice("Signed out.");
+  };
+
+  const onCreateRestaurant = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setIsCreatingRestaurant(true);
+    setError(null);
+
+    try {
+      const payload = {
+        name: restaurantForm.name.trim(),
+        slug: restaurantForm.slug.trim(),
+        payment_mode: restaurantForm.payment_mode,
+        razorpay_account_id: restaurantForm.razorpay_account_id.trim() || null,
+        direct_upi_id: restaurantForm.direct_upi_id.trim() || null,
+        raw_upi_payload: restaurantForm.raw_upi_payload.trim() || null,
+        logo_url: restaurantForm.logo_url.trim() || null,
+        address: restaurantForm.address.trim() || null,
+        phone: restaurantForm.phone.trim() || null,
+        gstin: restaurantForm.gstin.trim() || null,
+        fssai_no: restaurantForm.fssai_no.trim() || null,
+        session_duration_minutes: Number(restaurantForm.session_duration_minutes) || 30,
+        verification_amount_cutoff: restaurantForm.verification_amount_cutoff ? Number(restaurantForm.verification_amount_cutoff) : null,
+      };
+
+      const created = await apiRequest<RestaurantWithUsers>(
+        "/api/admin/restaurants",
+        {
+          method: "POST",
+          body: JSON.stringify(payload),
+        }
+      );
+
+      setSelectedRestaurantId(created.id);
+      setRestaurantForm({
+        name: "",
+        slug: "",
+        payment_mode: "PAY_AT_COUNTER",
+        razorpay_account_id: "",
+        direct_upi_id: "",
+        raw_upi_payload: "",
+        logo_url: "",
+        address: "",
+        phone: "",
+        gstin: "",
+        fssai_no: "",
+        session_duration_minutes: 30,
+        verification_amount_cutoff: "",
+      });
+      setNotice(`Outlet "${created.name}" created successfully! Now assign a user.`);
+      setStep("create_admin");
+      void loadRestaurants();
+    } catch (createError) {
+      const message =
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create outlet.";
+      setError(message);
+    } finally {
+      setIsCreatingRestaurant(false);
+    }
+  };
+
+  const openOutletSettings = (outlet: RestaurantWithUsers) => {
+    setSettingsOutlet(outlet);
+    setSettingsForm({
+      name: outlet.name,
+      slug: outlet.slug,
+      payment_mode: outlet.payment_mode || "PAY_AT_COUNTER",
+      razorpay_account_id: outlet.razorpay_account_id || "",
+      direct_upi_id: outlet.direct_upi_id || "",
+      raw_upi_payload: outlet.raw_upi_payload || "",
+      logo_url: outlet.logo_url || "",
+      address: outlet.address || "",
+      phone: outlet.phone || "",
+      gstin: outlet.gstin || "",
+      fssai_no: outlet.fssai_no || "",
+      session_duration_minutes: outlet.session_duration_minutes ?? 30,
+      verification_amount_cutoff: outlet.verification_amount_cutoff != null ? String(outlet.verification_amount_cutoff) : "",
+    });
+  };
+
+  const onSaveOutletSettings = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!settingsOutlet) return;
+    setIsSavingSettings(true);
+    setError(null);
+
+    try {
+      const payload = {
+        name: settingsForm.name.trim(),
+        slug: settingsForm.slug.trim(),
+        payment_mode: settingsForm.payment_mode,
+        razorpay_account_id: settingsForm.razorpay_account_id.trim() || null,
+        direct_upi_id: settingsForm.direct_upi_id.trim() || null,
+        raw_upi_payload: settingsForm.raw_upi_payload.trim() || null,
+        logo_url: settingsForm.logo_url.trim() || null,
+        address: settingsForm.address.trim() || null,
+        phone: settingsForm.phone.trim() || null,
+        gstin: settingsForm.gstin.trim() || null,
+        fssai_no: settingsForm.fssai_no.trim() || null,
+        session_duration_minutes: Number(settingsForm.session_duration_minutes) || 30,
+        verification_amount_cutoff: settingsForm.verification_amount_cutoff ? Number(settingsForm.verification_amount_cutoff) : null,
+      };
+
+      await apiRequest(`/api/admin/restaurants/${settingsOutlet.id}`, {
+        method: "PATCH",
+        body: JSON.stringify(payload),
+      });
+
+      setNotice(`Outlet "${settingsForm.name}" configuration updated successfully!`);
+      setSettingsOutlet(null);
+      void loadRestaurants();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to save outlet settings.";
+      setError(message);
+    } finally {
+      setIsSavingSettings(false);
+    }
+  };
+
+  const onCreateAdminUser = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!selectedRestaurantId) {
+      setError("Select an outlet first.");
+      return;
+    }
+
+    setIsCreatingUser(true);
+    setError(null);
+
+    try {
+      await apiRequest<{ message: string }>("/api/auth/register", {
+        method: "POST",
+        body: JSON.stringify({
+          email: adminUserForm.email.trim(),
+          password: adminUserForm.password,
+          outlet_id: selectedRestaurantId,
+          role: adminUserForm.role,
+        }),
+      });
+
+      setNotice(
+        `User "${adminUserForm.email}" (${adminUserForm.role.replace("_", " ")}) created successfully.`
+      );
+      setAdminUserForm({ email: "", password: "", role: "OUTLET_ADMIN" });
+      setStep("done");
+      void loadRestaurants();
+    } catch (createError) {
+      const message =
+        createError instanceof Error
+          ? createError.message
+          : "Unable to create user.";
+      setError(message);
+    } finally {
+      setIsCreatingUser(false);
+    }
+  };
+
+  const deleteRestaurant = async (restaurantId: string, restaurantName: string) => {
+    if (
+      !window.confirm(
+        `Are you sure you want to delete "${restaurantName}"?\n\nThis will permanently delete this outlet, all categories, products, variants, orders, and associated user accounts!`
+      )
+    ) {
+      return;
+    }
+
+    setError(null);
+    try {
+      await apiRequest<void>(`/api/admin/restaurants/${restaurantId}`, {
+        method: "DELETE",
+      });
+      setNotice(`Outlet "${restaurantName}" deleted successfully.`);
+      void loadRestaurants();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete outlet.";
+      setError(message);
+    }
+  };
+
+  const deleteUser = async (userId: string, userEmail: string) => {
+    if (!window.confirm(`Delete user account "${userEmail}"?`)) return;
+
+    setError(null);
+    try {
+      await apiRequest<void>(`/api/auth/users/${userId}`, {
+        method: "DELETE",
+      });
+      setNotice(`User account "${userEmail}" deleted.`);
+      void loadRestaurants();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Unable to delete user.";
+      setError(message);
+    }
+  };
+
+  const toggleExpand = (id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
+
+  const copyToClipboard = (text: string, id: string) => {
+    void navigator.clipboard.writeText(text);
+    setCopiedId(id);
+    setTimeout(() => setCopiedId(null), 2000);
+  };
+
+  const startAddUserForRestaurant = (restaurantId: string) => {
+    setSelectedRestaurantId(restaurantId);
+    setStep("create_admin");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  };
+
+  const autoSlug = (name: string) => {
+    return name
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-")
+      .replace(/^-|-$/g, "");
+  };
+
+  const filteredRestaurants = useMemo(() => {
+    if (!searchQuery.trim()) return restaurants;
+    const query = searchQuery.toLowerCase();
+    return restaurants.filter((r) => {
+      const matchesName = r.name.toLowerCase().includes(query);
+      const matchesSlug = r.slug.toLowerCase().includes(query);
+      const matchesUser = r.users.some((u) => u.email.toLowerCase().includes(query));
+      return matchesName || matchesSlug || matchesUser;
+    });
+  }, [restaurants, searchQuery]);
+
+  return {
+    email,
+    setEmail,
+    password,
+    setPassword,
+    accessToken,
+    isMounted,
+    isAuthenticating,
+    error,
+    setError,
+    notice,
+    setNotice,
+    theme,
+    toggleTheme,
+    restaurants,
+    isLoadingRestaurants,
+    searchQuery,
+    setSearchQuery,
+    expandedIds,
+    toggleExpand,
+    copiedId,
+    copyToClipboard,
+    staffByOutlet,
+    restaurantForm,
+    setRestaurantForm,
+    isCreatingRestaurant,
+    settingsOutlet,
+    setSettingsOutlet,
+    settingsForm,
+    setSettingsForm,
+    isSavingSettings,
+    adminUserForm,
+    setAdminUserForm,
+    selectedRestaurantId,
+    setSelectedRestaurantId,
+    isCreatingUser,
+    step,
+    setStep,
+    filteredRestaurants,
+    onLogin,
+    onLogout,
+    loadRestaurants,
+    onCreateRestaurant,
+    openOutletSettings,
+    onSaveOutletSettings,
+    onCreateAdminUser,
+    deleteRestaurant,
+    deleteUser,
+    startAddUserForRestaurant,
+    autoSlug,
+  };
+}

@@ -44,9 +44,30 @@ def _calc_pct_change(current: float, prev: float) -> float:
     return round(((current - prev) / prev) * 100.0, 2)
 
 
+def _get_time_bucket_expr(column, granularity: str, dialect_name: str = "sqlite"):
+    """Return SQL expression for time-bucketing compatible with PostgreSQL and SQLite."""
+    granularity = granularity.lower()
+    if dialect_name == "postgresql":
+        trunc_unit = {
+            "hourly": "hour",
+            "daily": "day",
+            "weekly": "week",
+            "monthly": "month",
+        }.get(granularity, "day")
+        return func.date_trunc(trunc_unit, column)
+    else:
+        fmt = {
+            "hourly": "%Y-%m-%d %H:00",
+            "daily": "%Y-%m-%d",
+            "weekly": "%Y-%W",
+            "monthly": "%Y-%m",
+        }.get(granularity, "%Y-%m-%d")
+        return func.strftime(fmt, column)
+
+
 async def get_kpi_summary(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     from_dt: datetime,
     to_dt: datetime,
 ) -> KpiSummaryResponse:
@@ -60,7 +81,7 @@ async def get_kpi_summary(
         func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
         func.count(Order.id).label("orders_count"),
     ).where(
-        Order.restaurant_id == restaurant_id,
+        Order.outlet_id == outlet_id,
         Order.created_at >= from_dt,
         Order.created_at <= to_dt,
         Order.status.in_(SETTLED_STATUSES),
@@ -81,7 +102,7 @@ async def get_kpi_summary(
             0,
         )
     ).where(
-        StockLedger.restaurant_id == restaurant_id,
+        StockLedger.outlet_id == outlet_id,
         StockLedger.created_at >= from_dt,
         StockLedger.created_at <= to_dt,
         StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
@@ -99,7 +120,7 @@ async def get_kpi_summary(
             0,
         )
     ).where(
-        StockLedger.restaurant_id == restaurant_id,
+        StockLedger.outlet_id == outlet_id,
         StockLedger.created_at >= from_dt,
         StockLedger.created_at <= to_dt,
         StockLedger.change_type == StockChangeTypeEnum.RESTOCK,
@@ -116,7 +137,7 @@ async def get_kpi_summary(
         func.coalesce(func.sum(Order.total_amount), 0).label("revenue"),
         func.count(Order.id).label("orders_count"),
     ).where(
-        Order.restaurant_id == restaurant_id,
+        Order.outlet_id == outlet_id,
         Order.created_at >= prev_from_dt,
         Order.created_at <= prev_to_dt,
         Order.status.in_(SETTLED_STATUSES),
@@ -136,7 +157,7 @@ async def get_kpi_summary(
             0,
         )
     ).where(
-        StockLedger.restaurant_id == restaurant_id,
+        StockLedger.outlet_id == outlet_id,
         StockLedger.created_at >= prev_from_dt,
         StockLedger.created_at <= prev_to_dt,
         StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
@@ -166,20 +187,16 @@ async def get_kpi_summary(
 
 async def get_revenue_analytics(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     granularity: str,
     from_dt: datetime,
     to_dt: datetime,
 ) -> RevenueAnalyticsResponse:
     """Bucket revenue and order counts over time with previous period comparison overlay."""
-    trunc_unit = {
-        "hourly": "hour",
-        "daily": "day",
-        "weekly": "week",
-        "monthly": "month",
-    }.get(granularity.lower(), "day")
+    bind = db.bind or db.get_bind()
+    dialect = bind.dialect.name if bind else "sqlite"
+    bucket_expr = _get_time_bucket_expr(Order.created_at, granularity, dialect).label("bucket_time")
 
-    bucket_expr = func.date_trunc(trunc_unit, Order.created_at).label("bucket_time")
     stmt = (
         select(
             bucket_expr,
@@ -187,7 +204,7 @@ async def get_revenue_analytics(
             func.count(Order.id).label("orders_count"),
         )
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
             Order.status.in_(SETTLED_STATUSES),
@@ -220,7 +237,7 @@ async def get_revenue_analytics(
 
 async def get_peak_hours(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     from_dt: datetime,
     to_dt: datetime,
 ) -> PeakHoursResponse:
@@ -232,7 +249,7 @@ async def get_peak_hours(
             func.count(Order.id).label("cnt"),
         )
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
         )
@@ -258,7 +275,7 @@ async def get_peak_hours(
 
 async def get_top_selling_items(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     sort_by: str,
     limit: int,
     from_dt: datetime,
@@ -277,7 +294,7 @@ async def get_top_selling_items(
         )
         .join(Order, OrderItem.order_id == Order.id)
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
             Order.status.in_(SETTLED_STATUSES),
@@ -321,7 +338,7 @@ async def get_top_selling_items(
 
 async def get_order_funnel(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     from_dt: datetime,
     to_dt: datetime,
 ) -> OrderFunnelResponse:
@@ -332,7 +349,7 @@ async def get_order_funnel(
             func.count(Order.id).label("cnt"),
         )
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
         )
@@ -391,32 +408,30 @@ async def get_order_funnel(
 
 async def get_profit_margin_analytics(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     granularity: str,
     from_dt: datetime,
     to_dt: datetime,
 ) -> ProfitMarginResponse:
     """Bucket revenue, COGS (from unit_cost_snapshot), and net profit margins."""
-    trunc_unit = {
-        "hourly": "hour",
-        "daily": "day",
-        "weekly": "week",
-        "monthly": "month",
-    }.get(granularity.lower(), "day")
+    bind = db.bind or db.get_bind()
+    dialect = bind.dialect.name if bind else "sqlite"
+    rev_b_expr = _get_time_bucket_expr(Order.created_at, granularity, dialect).label("b_time")
+    cogs_b_expr = _get_time_bucket_expr(StockLedger.created_at, granularity, dialect).label("b_time")
 
     # Revenue query
     rev_stmt = (
         select(
-            func.date_trunc(trunc_unit, Order.created_at).label("b_time"),
+            rev_b_expr,
             func.sum(Order.total_amount).label("rev"),
         )
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
             Order.status.in_(SETTLED_STATUSES),
         )
-        .group_by(text("b_time"))
+        .group_by(rev_b_expr)
     )
     res_rev = await db.execute(rev_stmt)
     rev_map = {
@@ -427,19 +442,19 @@ async def get_profit_margin_analytics(
     # COGS deduction query
     cogs_stmt = (
         select(
-            func.date_trunc(trunc_unit, StockLedger.created_at).label("b_time"),
+            cogs_b_expr,
             func.sum(
                 func.abs(StockLedger.quantity_change)
                 * func.coalesce(StockLedger.unit_cost_snapshot, 0)
             ).label("cogs_val"),
         )
         .where(
-            StockLedger.restaurant_id == restaurant_id,
+            StockLedger.outlet_id == outlet_id,
             StockLedger.created_at >= from_dt,
             StockLedger.created_at <= to_dt,
             StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
         )
-        .group_by(text("b_time"))
+        .group_by(cogs_b_expr)
     )
     res_cogs = await db.execute(cogs_stmt)
     cogs_map = {

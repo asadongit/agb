@@ -370,7 +370,7 @@ function OrderCard({
 
       {showDate && (
         <p className="text-[11px] text-[var(--text-muted)] mb-1">
-          {formatDateTime(order.created_at)} · Basket #{order.table_number}
+          {formatDateTime(order.created_at)} · Basket #{order.basket_number}
         </p>
       )}
 

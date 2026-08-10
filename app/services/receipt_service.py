@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Any
 
 from app.models.order import Order
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 
 
 # IST timezone offset (UTC+5:30)
@@ -29,7 +29,7 @@ def format_ist_datetime(dt: datetime | None) -> str:
 
 def calculate_order_receipt(
     order: Order,
-    restaurant: Restaurant,
+    outlet: Outlet,
     menu_items_map: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """
@@ -72,20 +72,20 @@ def calculate_order_receipt(
         "order_id": str(order.id),
         "bill_type": "Sale",
         "date_time": format_ist_datetime(order.created_at),
-        "table_number": order.table_number,
+        "basket_number": order.basket_number,
         "is_paid": is_paid,
         "payment_reference": order.payment_reference,
         "order_status": order.status.value,
         
-        # Store & Restaurant Details (Pure store branding, zero app branding)
-        "restaurant": {
-            "name": restaurant.name,
-            "slug": restaurant.slug,
-            "logo_url": restaurant.logo_url,
-            "address": restaurant.address or "Main Branch",
-            "phone": restaurant.phone,
-            "gstin": restaurant.gstin or "01AAFCB7044K1ZV",
-            "fssai_no": restaurant.fssai_no or "10718026000722",
+        # Store & Outlet Details (Pure store branding, zero app branding)
+        "outlet": {
+            "name": outlet.name,
+            "slug": outlet.slug,
+            "logo_url": outlet.logo_url,
+            "address": outlet.address or "Main Branch",
+            "phone": outlet.phone,
+            "gstin": outlet.gstin or "01AAFCB7044K1ZV",
+            "fssai_no": outlet.fssai_no or "10718026000722",
         },
 
         # Customer Info

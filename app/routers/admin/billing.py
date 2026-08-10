@@ -62,8 +62,8 @@ def _format_bill_response(order: Order) -> BillResponse:
 
     return BillResponse(
         id=str(order.id),
-        restaurant_id=str(order.restaurant_id),
-        table_number=order.table_number,
+        outlet_id=str(order.outlet_id),
+        basket_number=order.basket_number,
         customer_name=order.customer_name,
         customer_phone=order.customer_phone,
         status=order.status.value if hasattr(order.status, "value") else str(order.status),
@@ -86,13 +86,13 @@ def _format_bill_response(order: Order) -> BillResponse:
 @router.post("/bills", response_model=BillResponse)
 async def create_bill_endpoint(
     data: CreateManualBillRequest,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Create a draft manual bill."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    order = await create_manual_bill(db, current_user.restaurant_id, current_user, data)
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    order = await create_manual_bill(db, current_user.outlet_id, current_user, data)
     return _format_bill_response(order)
 
 
@@ -100,13 +100,13 @@ async def create_bill_endpoint(
 async def update_bill_endpoint(
     bill_id: uuid.UUID,
     data: UpdateManualBillRequest,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
-    """Update line items or table info on draft bill."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    order = await update_manual_bill(db, bill_id, current_user.restaurant_id, data)
+    """Update line items or basket info on draft bill."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    order = await update_manual_bill(db, bill_id, current_user.outlet_id, data)
     return _format_bill_response(order)
 
 
@@ -114,13 +114,13 @@ async def update_bill_endpoint(
 async def apply_discount_endpoint(
     bill_id: uuid.UUID,
     data: ApplyDiscountRequest,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Apply discount (% / flat / complimentary) with reason note."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    order = await apply_discount(db, bill_id, current_user.restaurant_id, current_user, data)
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    order = await apply_discount(db, bill_id, current_user.outlet_id, current_user, data)
     return _format_bill_response(order)
 
 
@@ -128,26 +128,26 @@ async def apply_discount_endpoint(
 async def resolve_discount_approval_endpoint(
     approval_id: uuid.UUID,
     data: ApproveDiscountRequest,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Manager/Admin approves or rejects a pending discount request."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    approval = await approve_discount(db, approval_id, current_user.restaurant_id, current_user, data.approve)
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    approval = await approve_discount(db, approval_id, current_user.outlet_id, current_user, data.approve)
     return {"status": approval.status, "message": f"Discount approval {approval.status.lower()} successfully."}
 
 
 @router.post("/bills/{bill_id}/finalize", response_model=BillResponse)
 async def finalize_bill_endpoint(
     bill_id: uuid.UUID,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Lock draft bill from further item edits."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    order = await finalize_bill(db, bill_id, current_user.restaurant_id)
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    order = await finalize_bill(db, bill_id, current_user.outlet_id)
     return _format_bill_response(order)
 
 
@@ -155,35 +155,35 @@ async def finalize_bill_endpoint(
 async def mark_paid_endpoint(
     bill_id: uuid.UUID,
     data: MarkPaidRequest,
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Record Cash or UPI payment and mark bill as paid."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
-    order = await mark_bill_paid(db, bill_id, current_user.restaurant_id, data.payment_method)
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    order = await mark_bill_paid(db, bill_id, current_user.outlet_id, data.payment_method)
     return _format_bill_response(order)
 
 
 @router.get("/pending-approvals-count")
 async def pending_approvals_count_endpoint(
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """Get count of pending discount approval requests for manager badge."""
-    if not current_user.restaurant_id:
+    if not current_user.outlet_id:
         return {"count": 0}
-    cnt = await get_pending_approvals_count(db, current_user.restaurant_id)
+    cnt = await get_pending_approvals_count(db, current_user.outlet_id)
     return {"count": cnt}
 
 
 @router.get("/pending-approvals", response_model=list[DiscountApprovalResponse])
 async def list_pending_approvals_endpoint(
+    db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
 ):
     """List pending discount approvals for manager action panel."""
-    if not current_user.restaurant_id:
+    if not current_user.outlet_id:
         return []
 
     stmt = (
@@ -191,7 +191,7 @@ async def list_pending_approvals_endpoint(
         .join(Order, BillDiscountApproval.order_id == Order.id)
         .options(selectinload(BillDiscountApproval.order), selectinload(BillDiscountApproval.requested_by))
         .where(
-            Order.restaurant_id == current_user.restaurant_id,
+            Order.outlet_id == current_user.outlet_id,
             BillDiscountApproval.status == "PENDING",
         )
         .order_by(BillDiscountApproval.created_at.desc())
@@ -206,14 +206,14 @@ async def list_pending_approvals_endpoint(
                 id=str(appr.id),
                 order_id=str(appr.order_id),
                 requested_by_id=str(appr.requested_by_id),
-                requested_by_name=appr.requested_by.name if appr.requested_by else None,
+                requested_by_name=appr.requested_by.email if appr.requested_by else None,
                 approved_by_id=str(appr.approved_by_id) if appr.approved_by_id else None,
                 status=appr.status,
                 discount_type=appr.discount_type,
                 discount_value=float(appr.discount_value or 0.0),
                 reason_note=appr.reason_note,
                 created_at=appr.created_at.isoformat() if hasattr(appr.created_at, "isoformat") else str(appr.created_at),
-                order_table_number=appr.order.table_number if appr.order else "N/A",
+                order_basket_number=appr.order.basket_number if appr.order else "N/A",
                 order_total_amount=float(appr.order.total_amount if appr.order else 0.0),
             )
         )
@@ -222,19 +222,19 @@ async def list_pending_approvals_endpoint(
 
 @router.get("/bills", response_model=list[BillResponse])
 async def list_bills_endpoint(
-    current_user: User = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
     status: str | None = Query(None),
     source: str | None = Query(None),
 ):
     """List bills with optional status and source filtering."""
-    if not current_user.restaurant_id:
+    if not current_user.outlet_id:
         return []
 
     stmt = (
         select(Order)
         .options(selectinload(Order.items))
-        .where(Order.restaurant_id == current_user.restaurant_id)
+        .where(Order.outlet_id == current_user.outlet_id)
     )
 
     if source:
@@ -252,19 +252,19 @@ async def list_bills_endpoint(
 @router.get("/bills/{bill_id}", response_model=BillResponse)
 async def get_bill_endpoint(
     bill_id: uuid.UUID,
-    current_user: User = Depends(require_permission("can_manage_billing")),
-    db: DBSession = None,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
 ):
     """Fetch single bill by ID."""
-    if not current_user.restaurant_id:
-        raise HTTPException(status_code=400, detail="restaurant_id required")
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
 
     res = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
         .where(
             Order.id == bill_id,
-            Order.restaurant_id == current_user.restaurant_id,
+            Order.outlet_id == current_user.outlet_id,
         )
     )
     order = res.scalar_one_or_none()

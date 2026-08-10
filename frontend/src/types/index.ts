@@ -20,11 +20,13 @@ export type PricingMode = "WEIGHT_BASED" | "FIXED_UNIT";
 export interface MenuItem {
   id: string;
   name: string;
+  barcode?: string | null;
   description?: string | null;
   price: string;
   image_url?: string | null;
   is_available: boolean;
   is_on_offer?: boolean;
+  is_verification_required?: boolean;
   offer_price?: string | null;
   offer_label?: string | null;
   pricing_mode?: PricingMode;
@@ -39,9 +41,25 @@ export interface Category {
   items: MenuItem[];
 }
 
+export interface OutletInfoResponse {
+  id: string;
+  name: string;
+  slug: string;
+  address?: string | null;
+  phone?: string | null;
+  gstin?: string | null;
+  fssai_no?: string | null;
+  logo_url?: string | null;
+  session_duration_minutes?: number;
+  session_grace_period_minutes?: number;
+  basket_locking_enabled?: boolean;
+}
+
+export type Outlet = OutletInfoResponse;
+
 export interface PublicMenuResponse {
-  restaurant_name: string;
-  restaurant_slug: string;
+  outlet_name: string;
+  outlet_slug: string;
   payment_mode: PaymentMode;
   logo_url?: string | null;
   categories: Category[];
@@ -53,17 +71,6 @@ export interface CartItem {
   selectedVariant?: Variant | null;
   quantity: number;
   unitPrice: number; // base price + variant delta
-}
-
-export interface RestaurantInfoResponse {
-  id: string;
-  name: string;
-  slug: string;
-  address?: string | null;
-  phone?: string | null;
-  gstin?: string | null;
-  fssai_no?: string | null;
-  logo_url?: string | null;
 }
 
 export interface OrderItemResponse {
@@ -79,9 +86,9 @@ export interface OrderItemResponse {
 
 export interface OrderResponse {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   session_id?: string | null;
-  table_number: string;
+  basket_number: string;
   customer_name?: string | null;
   customer_phone?: string | null;
   total_amount: string;
@@ -93,7 +100,7 @@ export interface OrderResponse {
   created_at: string;
   updated_at: string;
   items: OrderItemResponse[];
-  restaurant?: RestaurantInfoResponse | null;
+  outlet?: OutletInfoResponse | null;
 }
 
 export interface RazorpayCheckoutResponse {
@@ -117,7 +124,7 @@ export type SessionStatus = "ACTIVE" | "COMPLETED" | "EXPIRED" | "TERMINATED";
 export interface StartSessionResponse {
   session_id: string;
   customer_name: string;
-  table_number: string;
+  basket_number: string;
   is_returning: boolean;
   active_orders: OrderResponse[];
   expires_at: string;
@@ -127,7 +134,7 @@ export interface StartSessionResponse {
 export interface SessionStatusResponse {
   session_id: string;
   customer_name: string;
-  table_number: string;
+  basket_number: string;
   is_active: boolean;
   status: SessionStatus;
   expires_at: string;
@@ -153,21 +160,21 @@ export interface AbandonCartItem {
 
 export interface AbandonedCart {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   session_id: string;
-  table_number: string;
+  basket_number: string;
   customer_name: string;
   customer_phone?: string | null;
   items: AbandonCartItem[];
   total_estimate: number;
-  status: "ABANDONED" | "CONVERTED";
+  status: "ABANDONED" | "CONVERTED" | "DISMISSED";
   converted_order_id?: string | null;
   created_at: string;
 }
 
 export interface ActiveSession {
   id: string;
-  table_number: string;
+  basket_number: string;
   customer_name: string;
   customer_phone?: string | null;
   status: SessionStatus;
@@ -195,10 +202,18 @@ export type StockChangeType =
   | "MANUAL_ADJUSTMENT"
   | "RESTOCK";
 
+export type WastageReason =
+  | "SPOILED_EXPIRED"
+  | "DAMAGED_TRANSIT"
+  | "AUDIT_CORRECTION"
+  | "THEFT_LOST"
+  | "OTHER";
+
 export interface InventoryItem {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   name: string;
+  barcode?: string | null;
   unit: InventoryUnit;
   category: string;
   current_stock: string;
@@ -211,8 +226,9 @@ export interface InventoryItem {
 
 export interface StockIntake {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   item_id: string;
+  batch_number?: string | null;
   quantity: string;
   remaining_quantity?: string;
   unit_cost: string;
@@ -222,6 +238,29 @@ export interface StockIntake {
   added_by?: string | null;
   notes?: string | null;
   created_at: string;
+}
+
+export interface BatchDetail {
+  id: string;
+  outlet_id: string;
+  item_id: string;
+  item_name: string;
+  item_barcode?: string | null;
+  unit: InventoryUnit;
+  batch_number: string;
+  quantity: string | number;
+  remaining_quantity: string | number;
+  unit_cost: string | number;
+  supplier_name?: string | null;
+  intake_date: string;
+  expiry_date?: string | null;
+  status: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED" | "DEPLETED";
+}
+
+export interface ScanLookupResponse {
+  found: boolean;
+  barcode: string;
+  item?: InventoryItem | null;
 }
 
 export interface BatchExpiryAlert {
@@ -246,7 +285,7 @@ export interface RecipeIngredient {
 
 export interface StockLedgerEntry {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   item_id: string;
   item_name?: string | null;
   unit?: InventoryUnit | null;
@@ -270,7 +309,7 @@ export interface StockLedgerPage {
 
 export type StaffRole =
   | "SUPERADMIN"
-  | "RESTAURANT_ADMIN"
+  | "OUTLET_ADMIN"
   | "MANAGER"
   | "FLOOR_STAFF"
   | "CASHIER"
@@ -280,7 +319,7 @@ export type StaffRole =
 
 export interface StaffMember {
   id: string;
-  restaurant_id: string;
+  outlet_id: string;
   name: string;
   email: string;
   phone?: string | null;
@@ -307,7 +346,7 @@ export interface StaffAuditEntry {
   id: string;
   staff_id?: string | null;
   staff_name?: string | null;
-  restaurant_id: string;
+  outlet_id: string;
   action_type: string;
   reference_type?: string | null;
   reference_id?: string | null;
@@ -433,8 +472,8 @@ export interface ManualBillItem {
 
 export interface ManualBill {
   id: string;
-  restaurant_id: string;
-  table_number: string;
+  outlet_id: string;
+  basket_number: string;
   customer_name?: string | null;
   customer_phone?: string | null;
   status: string;
@@ -464,6 +503,23 @@ export interface DiscountApproval {
   discount_value: number;
   reason_note: string;
   created_at: string;
-  order_table_number: string;
+  order_basket_number: string;
   order_total_amount: number;
+}
+
+export interface StaffAddItemInput {
+  menu_item_id: string;
+  variant_id?: string;
+  quantity: number;
+}
+
+export interface StaffAddItemsResponse {
+  order_id: string;
+  session_id: string;
+  basket_number: string;
+  customer_name: string;
+  total_amount: string | number;
+  status: string;
+  added_items_count: number;
+  added_by_staff_id?: string | null;
 }

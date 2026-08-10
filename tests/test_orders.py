@@ -13,7 +13,7 @@ from app.models.enums import OrderStatusEnum, PaymentModeEnum
 from tests.conftest import (
     create_test_category,
     create_test_menu_item,
-    create_test_restaurant,
+    create_test_outlet,
     create_test_user,
     create_test_variant,
     get_auth_headers,
@@ -26,13 +26,13 @@ class TestOrderCreation:
 
     async def test_checkout_computes_total_server_side(self, client, db_session):
         """Total must be computed from stored prices, never from client."""
-        restaurant = await create_test_restaurant(
+        outlet = await create_test_outlet(
             db_session,
             payment_mode=PaymentModeEnum.PAY_AT_COUNTER,
         )
-        cat = await create_test_category(db_session, restaurant)
+        cat = await create_test_category(db_session, outlet)
         item = await create_test_menu_item(
-            db_session, restaurant, cat, price=Decimal("10.00")
+            db_session, outlet, cat, price=Decimal("10.00")
         )
         variant = await create_test_variant(
             db_session, item, price_delta=Decimal("3.00")
@@ -40,8 +40,8 @@ class TestOrderCreation:
         await db_session.commit()
 
         resp = await client.post("/api/orders/checkout", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "T1",
+            "outlet_slug": outlet.slug,
+            "basket_number": "T1",
             "customer_name": "Test Customer",
             "items": [
                 {
@@ -58,19 +58,19 @@ class TestOrderCreation:
 
     async def test_checkout_unavailable_item_rejected(self, client, db_session):
         """Ordering an unavailable item should fail."""
-        restaurant = await create_test_restaurant(
+        outlet = await create_test_outlet(
             db_session,
             payment_mode=PaymentModeEnum.PAY_AT_COUNTER,
         )
-        cat = await create_test_category(db_session, restaurant)
+        cat = await create_test_category(db_session, outlet)
         item = await create_test_menu_item(
-            db_session, restaurant, cat, is_available=False
+            db_session, outlet, cat, is_available=False
         )
         await db_session.commit()
 
         resp = await client.post("/api/orders/checkout", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "T1",
+            "outlet_slug": outlet.slug,
+            "basket_number": "T1",
             "items": [{"menu_item_id": str(item.id), "quantity": 1}],
         })
         assert resp.status_code == 404
@@ -82,18 +82,18 @@ class TestOrderStateMachine:
 
     async def test_valid_transition_paid_to_payment_pending(self, client, db_session):
         """PAID → PAYMENT_PENDING should succeed."""
-        restaurant = await create_test_restaurant(db_session)
-        user = await create_test_user(db_session, restaurant)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat)
+        outlet = await create_test_outlet(db_session)
+        user = await create_test_user(db_session, outlet)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat)
         await db_session.commit()
 
-        headers = get_auth_headers(user, restaurant)
+        headers = get_auth_headers(user, outlet)
 
         # Create order via checkout
         resp = await client.post("/api/orders/checkout", json={
-            "restaurant_slug": restaurant.slug,
-            "table_number": "T1",
+            "outlet_slug": outlet.slug,
+            "basket_number": "T1",
             "items": [{"menu_item_id": str(item.id), "quantity": 1}],
         })
         order_id = resp.json().get("order_id")
@@ -105,16 +105,16 @@ class TestOrderStateMachine:
         from app.models.order import Order
         from app.models.order_item import OrderItem
 
-        restaurant = await create_test_restaurant(db_session)
-        user = await create_test_user(db_session, restaurant)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat)
+        outlet = await create_test_outlet(db_session)
+        user = await create_test_user(db_session, outlet)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat)
 
         # Create order directly in COMPLETED state
         order = Order(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
-            table_number="T1",
+            outlet_id=outlet.id,
+            basket_number="T1",
             total_amount=Decimal("10.00"),
             status=OrderStatusEnum.COMPLETED,
             items=[
@@ -129,7 +129,7 @@ class TestOrderStateMachine:
         db_session.add(order)
         await db_session.commit()
 
-        headers = get_auth_headers(user, restaurant)
+        headers = get_auth_headers(user, outlet)
         resp = await client.patch(
             f"/api/admin/orders/{order.id}/status",
             json={"status": "PENDING"},
@@ -142,15 +142,15 @@ class TestOrderStateMachine:
         from app.models.order import Order
         from app.models.order_item import OrderItem
 
-        restaurant = await create_test_restaurant(db_session)
-        user = await create_test_user(db_session, restaurant)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat)
+        outlet = await create_test_outlet(db_session)
+        user = await create_test_user(db_session, outlet)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat)
 
         order = Order(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
-            table_number="T1",
+            outlet_id=outlet.id,
+            basket_number="T1",
             total_amount=Decimal("10.00"),
             status=OrderStatusEnum.PENDING,
             items=[
@@ -165,7 +165,7 @@ class TestOrderStateMachine:
         db_session.add(order)
         await db_session.commit()
 
-        headers = get_auth_headers(user, restaurant)
+        headers = get_auth_headers(user, outlet)
         resp = await client.post(
             f"/api/admin/orders/{order.id}/cancel",
             headers=headers,
@@ -178,18 +178,18 @@ class TestOrderStateMachine:
         from app.models.order import Order
         from app.models.order_item import OrderItem
 
-        restaurant = await create_test_restaurant(
+        outlet = await create_test_outlet(
             db_session,
             payment_mode=PaymentModeEnum.PAY_AT_COUNTER,
         )
-        user = await create_test_user(db_session, restaurant)
-        cat = await create_test_category(db_session, restaurant)
-        item = await create_test_menu_item(db_session, restaurant, cat)
+        user = await create_test_user(db_session, outlet)
+        cat = await create_test_category(db_session, outlet)
+        item = await create_test_menu_item(db_session, outlet, cat)
 
         order = Order(
             id=uuid.uuid4(),
-            restaurant_id=restaurant.id,
-            table_number="T1",
+            outlet_id=outlet.id,
+            basket_number="T1",
             total_amount=Decimal("10.00"),
             status=OrderStatusEnum.PAID,
             items=[
@@ -204,7 +204,7 @@ class TestOrderStateMachine:
         db_session.add(order)
         await db_session.commit()
 
-        headers = get_auth_headers(user, restaurant)
+        headers = get_auth_headers(user, outlet)
         resp = await client.post(
             f"/api/admin/orders/{order.id}/refund",
             headers=headers,

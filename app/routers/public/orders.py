@@ -4,6 +4,7 @@ Order public routes — checkout (both modes), claim paid (Mode B).
 
 from __future__ import annotations
 
+import logging
 import uuid
 
 from fastapi import APIRouter, HTTPException, Request, status
@@ -14,7 +15,7 @@ from app.core.rate_limit import limiter
 from app.dependencies import DBSession
 from app.models.enums import OrderStatusEnum, PaymentModeEnum
 from app.models.order import Order
-from app.models.restaurant import Restaurant
+from app.models.outlet import Outlet
 from app.schemas.order import (
     CheckoutRequest,
     ClaimPaidRequest,
@@ -23,16 +24,10 @@ from app.schemas.order import (
     PayAfterMealCheckoutResponse,
 )
 from app.services.order_service import create_order
-from app.services.payment_service import (
-    create_razorpay_order,
-)
+from app.services.payment_service import create_razorpay_order
 from app.services.websocket_service import broadcast_verification_needed
 
 router = APIRouter(prefix="/api/orders", tags=["orders"])
-
-
-import logging
-
 logger = logging.getLogger(__name__)
 
 
@@ -45,25 +40,25 @@ async def checkout(
     Create an order and initiate payment.
     Total is computed server-side — NEVER trust a client-submitted total.
 
-    Returns different response based on restaurant's payment_mode:
+    Returns different response based on outlet's payment_mode:
     - RAZORPAY_GATEWAY: Razorpay order details for frontend checkout widget
     - PAY_AT_COUNTER: Pay At Counter confirmation response
     """
-    # Look up restaurant
+    # Look up outlet
     result = await db.execute(
-        select(Restaurant).where(Restaurant.slug == data.restaurant_slug)
+        select(Outlet).where(Outlet.slug == data.outlet_slug)
     )
-    restaurant = result.scalar_one_or_none()
-    if not restaurant:
+    outlet = result.scalar_one_or_none()
+    if not outlet:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Restaurant '{data.restaurant_slug}' not found",
+            detail=f"Outlet '{data.outlet_slug}' not found",
         )
 
-    # Verify requested payment mode is enabled by restaurant
+    # Verify requested payment mode is enabled by outlet
     requested_mode = data.payment_mode
-    allowed_modes = {restaurant.payment_mode}
-    if restaurant.payment_mode == PaymentModeEnum.BOTH:
+    allowed_modes = {outlet.payment_mode}
+    if outlet.payment_mode == PaymentModeEnum.BOTH:
         allowed_modes = {PaymentModeEnum.RAZORPAY_GATEWAY, PaymentModeEnum.PAY_AT_COUNTER}
 
     if requested_mode not in allowed_modes:
@@ -78,7 +73,7 @@ async def checkout(
 
     if requested_mode == PaymentModeEnum.RAZORPAY_GATEWAY:
         # Mode A: Create Razorpay order
-        rz_data = await create_razorpay_order(db, order, restaurant)
+        rz_data = await create_razorpay_order(db, order, outlet)
         return RazorpayCheckoutResponse(
             order_id=order.id,
             razorpay_order_id=rz_data["razorpay_order_id"],
@@ -99,13 +94,13 @@ async def checkout(
         # Broadcast to staff dashboard
         if order.session_id:
             from app.services.websocket_service import broadcast_session_changed
-            await broadcast_session_changed(restaurant.id, order.session_id, "UPDATED")
+            await broadcast_session_changed(outlet.id, order.session_id, "UPDATED")
 
         if not order.is_auto_verified:
             await broadcast_verification_needed(
-                restaurant_id=restaurant.id,
+                outlet_id=outlet.id,
                 order_id=order.id,
-                table_number=order.table_number,
+                basket_number=order.basket_number,
             )
 
         return PayAfterMealCheckoutResponse(
@@ -149,11 +144,11 @@ async def claim_paid(
         order.payment_reference = body.utr_number.strip()
         await db.flush()
 
-    # Broadcast to kitchen/staff dashboard
+    # Broadcast to staff dashboard
     await broadcast_verification_needed(
-        restaurant_id=order.restaurant_id,
+        outlet_id=order.outlet_id,
         order_id=order.id,
-        table_number=order.table_number,
+        basket_number=order.basket_number,
     )
 
     return {"message": "Verification request sent to staff", "order_id": str(order.id)}
@@ -168,7 +163,7 @@ async def get_order_status(
     result = await db.execute(
         select(Order)
         .where(Order.id == order_id)
-        .options(selectinload(Order.items), joinedload(Order.restaurant))
+        .options(selectinload(Order.items), joinedload(Order.outlet))
     )
     order = result.scalar_one_or_none()
     if not order:
@@ -204,22 +199,21 @@ async def get_order_receipt(
         )
 
     # Restrict receipt download to paid/completed orders only
-    from app.models.enums import OrderStatusEnum
     if order.status not in (OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Receipt is only available for paid or completed orders.",
         )
 
-    # Fetch Restaurant
-    rest_result = await db.execute(
-        select(Restaurant).where(Restaurant.id == order.restaurant_id)
+    # Fetch Outlet
+    outlet_result = await db.execute(
+        select(Outlet).where(Outlet.id == order.outlet_id)
     )
-    restaurant = rest_result.scalar_one_or_none()
-    if not restaurant:
+    outlet = outlet_result.scalar_one_or_none()
+    if not outlet:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail="Restaurant not found",
+            detail="Outlet not found",
         )
 
     # Fetch Menu Item Names
@@ -231,5 +225,5 @@ async def get_order_receipt(
         )
         menu_items_map = {str(item.id): {"name": item.name, "image_url": item.image_url} for item in items_result.scalars().all()}
 
-    receipt_data = calculate_order_receipt(order, restaurant, menu_items_map)
+    receipt_data = calculate_order_receipt(order, outlet, menu_items_map)
     return receipt_data

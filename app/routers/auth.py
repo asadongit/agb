@@ -29,22 +29,22 @@ async def register(
     db: DBSession,
 ):
     """
-    Register a new user — protected endpoint for Superadmin and Restaurant Admin.
-    - Superadmin can create STAFF or RESTAURANT_ADMIN accounts for any restaurant.
-    - Restaurant Admin can only create STAFF accounts for their own restaurant.
+    Register a new user — protected endpoint for Superadmin and Outlet Admin.
+    - Superadmin can create STAFF or OUTLET_ADMIN accounts for any outlet.
+    - Outlet Admin can only create STAFF accounts for their own outlet.
     """
-    if current_user.role == RoleEnum.RESTAURANT_ADMIN:
+    if current_user.role == RoleEnum.OUTLET_ADMIN:
         if data.role == RoleEnum.SUPERADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Restaurant admins cannot create superadmin accounts",
+                detail="Outlet admins cannot create superadmin accounts",
             )
-        data.restaurant_id = current_user.restaurant_id
+        data.outlet_id = current_user.outlet_id
     elif current_user.role == RoleEnum.SUPERADMIN:
-        if not data.restaurant_id:
+        if not data.outlet_id:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail="restaurant_id is required for superadmin user creation",
+                detail="outlet_id is required for superadmin user creation",
             )
 
     await auth_service.register_user(db, data)
@@ -79,7 +79,7 @@ async def delete_user(
     """
     Delete a user account.
     - Superadmin can delete any admin or staff user.
-    - Restaurant Admin can only delete staff users belonging to their restaurant.
+    - Outlet Admin can only delete staff users belonging to their outlet.
     """
     if current_user.user_id == user_id:
         raise HTTPException(
@@ -95,16 +95,16 @@ async def delete_user(
             detail="User account not found",
         )
 
-    if current_user.role == RoleEnum.RESTAURANT_ADMIN:
-        if target_user.restaurant_id != current_user.restaurant_id:
+    if current_user.role == RoleEnum.OUTLET_ADMIN:
+        if target_user.outlet_id != current_user.outlet_id:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Cannot delete users from another restaurant",
+                detail="Cannot delete users from another outlet",
             )
         if target_user.role == RoleEnum.SUPERADMIN:
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
-                detail="Restaurant admins cannot delete superadmin accounts",
+                detail="Outlet admins cannot delete superadmin accounts",
             )
 
     await db.delete(target_user)

@@ -18,7 +18,7 @@ from app.models.enums import PricingModeEnum
 if TYPE_CHECKING:
     from app.models.category import Category
     from app.models.menu_item_variant import MenuItemVariant
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
 
 
 class MenuItem(Base, TimestampMixin):
@@ -27,9 +27,9 @@ class MenuItem(Base, TimestampMixin):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -40,6 +40,9 @@ class MenuItem(Base, TimestampMixin):
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
+    barcode: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
+    )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     # NEVER use Float for money — Numeric(10,2) mapped to Python Decimal
     price: Mapped[Decimal] = mapped_column(
@@ -50,6 +53,9 @@ class MenuItem(Base, TimestampMixin):
         Boolean, default=True, nullable=False
     )
     is_on_offer: Mapped[bool] = mapped_column(
+        Boolean, default=False, nullable=False, server_default="false"
+    )
+    is_verification_required: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
     )
     offer_price: Mapped[Decimal | None] = mapped_column(
@@ -74,8 +80,8 @@ class MenuItem(Base, TimestampMixin):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship(
-        "Restaurant", back_populates="menu_items"
+    outlet: Mapped[Outlet] = relationship(
+        "Outlet", back_populates="menu_items"
     )
     category: Mapped[Category] = relationship(
         "Category", back_populates="menu_items"

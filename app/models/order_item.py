@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.menu_item import MenuItem
     from app.models.menu_item_variant import MenuItemVariant
     from app.models.order import Order
+    from app.models.user import User
 
 
 class OrderItem(Base):
@@ -42,6 +43,12 @@ class OrderItem(Base):
         ForeignKey("menu_item_variants.id", ondelete="SET NULL"),
         nullable=True,
     )
+    added_by_staff_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     # Numeric(10,3) to support weight-based quantities (e.g. 1.250 kg)
     # For fixed-unit products this will be a whole number stored as Decimal
     quantity: Mapped[Decimal] = mapped_column(Numeric(10, 3), nullable=False)
@@ -58,3 +65,4 @@ class OrderItem(Base):
     order: Mapped[Order] = relationship("Order", back_populates="items")
     menu_item: Mapped[MenuItem] = relationship("MenuItem")
     variant: Mapped[MenuItemVariant | None] = relationship("MenuItemVariant")
+    added_by_staff: Mapped[User | None] = relationship("User")

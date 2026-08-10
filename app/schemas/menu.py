@@ -8,7 +8,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from app.models.enums import PricingModeEnum
 from app.schemas.common import BaseResponse, StrictSchema
@@ -20,11 +20,13 @@ from app.schemas.common import BaseResponse, StrictSchema
 class MenuItemCreate(StrictSchema):
     category_id: uuid.UUID
     name: str = Field(min_length=1, max_length=255)
+    barcode: str | None = Field(None, max_length=100)
     description: str | None = None
     price: Decimal = Field(ge=0, decimal_places=2)
     image_url: str | None = None
     is_available: bool = True
     is_on_offer: bool = False
+    is_verification_required: bool = False
     offer_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     offer_label: str | None = None
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
@@ -34,11 +36,13 @@ class MenuItemCreate(StrictSchema):
 class MenuItemUpdate(StrictSchema):
     category_id: uuid.UUID | None = None
     name: str | None = Field(None, min_length=1, max_length=255)
+    barcode: str | None = Field(None, max_length=100)
     description: str | None = None
     price: Decimal | None = Field(None, ge=0, decimal_places=2)
     image_url: str | None = None
     is_available: bool | None = None
     is_on_offer: bool | None = None
+    is_verification_required: bool | None = None
     offer_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     offer_label: str | None = None
     pricing_mode: PricingModeEnum | None = None
@@ -47,14 +51,16 @@ class MenuItemUpdate(StrictSchema):
 
 class MenuItemResponse(BaseResponse):
     id: uuid.UUID
-    restaurant_id: uuid.UUID
+    outlet_id: uuid.UUID
     category_id: uuid.UUID
     name: str
+    barcode: str | None = None
     description: str | None
     price: Decimal
     image_url: str | None
     is_available: bool
     is_on_offer: bool = False
+    is_verification_required: bool = False
     offer_price: Decimal | None = None
     offer_label: str | None = None
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
@@ -99,11 +105,13 @@ class PublicVariant(BaseResponse):
 class PublicMenuItem(BaseResponse):
     id: uuid.UUID
     name: str
+    barcode: str | None = None
     description: str | None
     price: Decimal
     image_url: str | None
     is_available: bool
     is_on_offer: bool = False
+    is_verification_required: bool = False
     offer_price: Decimal | None = None
     offer_label: str | None = None
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
@@ -119,6 +127,6 @@ class PublicCategory(BaseResponse):
 
 
 class PublicMenuResponse(BaseResponse):
-    restaurant_name: str
-    restaurant_slug: str
+    outlet_name: str
+    outlet_slug: str
     categories: list[PublicCategory] = []

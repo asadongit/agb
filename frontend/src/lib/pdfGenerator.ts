@@ -5,37 +5,7 @@ import { OrderResponse } from "@/types";
 export interface ReceiptPdfData {
   invoice_no?: string;
   order_id: string;
-  table_number: string;
-  created_at?: string;
-  date_time?: string;
-  customer_name?: string;
-  customer_phone?: string;
-  total_amount: string | number;
-  subtotal_without_tax?: number;
-  total_tax?: number;
-  cgst?: number;
-  sgst?: number;
-  items: Array<{
-    menu_item_id?: string;
-    item_name?: string;
-    quantity: number;
-    unit_price: string | number;
-    line_total?: string | number;
-  }>;
-  restaurant?: {
-    name?: string;
-    address?: string;
-    phone?: string;
-    gstin?: string;
-    fssai_no?: string;
-    logo_url?: string;
-  };
-}
-
-export interface ReceiptPdfData {
-  invoice_no?: string;
-  order_id: string;
-  table_number: string;
+  basket_number: string;
   created_at?: string;
   date_time?: string;
   customer_name?: string;
@@ -154,7 +124,7 @@ export function generateReceiptPDF(
   doc.setFontSize(7.5);
 
   const invoiceNo = (order as any).invoice_no || (order as any).id?.slice(0, 8).toUpperCase() || "RECEIPT";
-  const tableNo = order.table_number || "#";
+  const tableNo = order.basket_number || "#";
   doc.text(`Bill No : #${invoiceNo}`, margin, y);
   doc.text(`Basket: #${tableNo}`, pageWidth - margin, y, { align: "right" });
 

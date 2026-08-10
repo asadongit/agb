@@ -7,6 +7,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from fastapi import HTTPException
 from sqlalchemy import func, select
@@ -19,7 +20,9 @@ from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.models.order import Order
 from app.models.order_item import OrderItem
+from app.models.outlet import Outlet
 from app.models.user import User
+
 from app.schemas.billing import (
     ApplyDiscountRequest,
     ApproveDiscountRequest,
@@ -36,15 +39,15 @@ def _get_user_id(user: Any) -> uuid.UUID:
 
 async def create_manual_bill(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_user: Any,
     data: CreateManualBillRequest,
 ) -> Order:
     """Create a draft manual bill with line items and snapshot pricing."""
     order = Order(
         id=uuid.uuid4(),
-        restaurant_id=restaurant_id,
-        table_number=data.table_number or "WALK-IN",
+        outlet_id=outlet_id,
+        basket_number=data.basket_number or "WALK-IN",
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
         status=OrderStatusEnum.PENDING,
@@ -59,75 +62,59 @@ async def create_manual_bill(
 
     subtotal = Decimal("0.00")
     for item_in in data.items:
-        item_name = "Custom Item"
-        price = Decimal("0.00")
+        menu_item_uuid = uuid.UUID(str(item_in.menu_item_id)) if item_in.menu_item_id else None
+        menu_item = await db.get(MenuItem, menu_item_uuid) if menu_item_uuid else None
+        if not menu_item or menu_item.outlet_id != outlet_id:
+            raise HTTPException(status_code=404, detail=f"Menu item {item_in.menu_item_id} not found.")
 
-        if item_in.menu_item_id:
-            m_res = await db.execute(
-                select(MenuItem).where(
-                    MenuItem.id == uuid.UUID(item_in.menu_item_id),
-                    MenuItem.restaurant_id == restaurant_id,
-                )
-            )
-            m_item = m_res.scalar_one_or_none()
-            if m_item:
-                item_name = m_item.name
-                price = m_item.price
+        price = Decimal(str(menu_item.price))
+        variant_uuid = uuid.UUID(str(item_in.variant_id)) if item_in.variant_id else None
+        if variant_uuid:
+            variant = await db.get(MenuItemVariant, variant_uuid)
+            if variant and variant.menu_item_id == menu_item.id:
+                price += Decimal(str(variant.price_delta))
 
-        if item_in.variant_id:
-            v_res = await db.execute(
-                select(MenuItemVariant).where(
-                    MenuItemVariant.id == uuid.UUID(item_in.variant_id)
-                )
-            )
-            v_item = v_res.scalar_one_or_none()
-            if v_item:
-                item_name = f"{item_name} ({v_item.name})"
-                price = v_item.price
-
-        if item_in.is_complimentary:
-            line_total = Decimal("0.00")
-        else:
-            line_total = price * item_in.quantity
+        item_subtotal = price * Decimal(str(item_in.quantity))
+        subtotal += item_subtotal
 
         order_item = OrderItem(
             id=uuid.uuid4(),
             order_id=order.id,
-            menu_item_id=uuid.UUID(item_in.menu_item_id) if item_in.menu_item_id else None,
-            variant_id=uuid.UUID(item_in.variant_id) if item_in.variant_id else None,
-            item_name=item_name,
+            menu_item_id=menu_item.id,
+            variant_id=variant_uuid,
             quantity=item_in.quantity,
-            unit_price=price if not item_in.is_complimentary else Decimal("0.00"),
-            is_complimentary=item_in.is_complimentary,
-            line_total=line_total,
+            unit_price=price,
         )
         db.add(order_item)
-        subtotal += line_total
 
     order.subtotal_amount = subtotal
     order.total_amount = subtotal
-    await db.flush()
 
-    # Re-query with eager loading
-    res = await db.execute(
-        select(Order).options(selectinload(Order.items)).where(Order.id == order.id)
-    )
-    return res.scalar_one()
+    # Evaluate Verification Rules (Anti-theft)
+    res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+    outlet = res_rest.scalar_one_or_none()
+    if outlet:
+        # Manual bills created by staff are auto-verified unless flagged items exist
+        order.is_auto_verified = True
+
+    await db.flush()
+    await db.refresh(order)
+    return order
 
 
 async def update_manual_bill(
     db: AsyncSession,
     order_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     data: UpdateManualBillRequest,
 ) -> Order:
-    """Update line items or table info on a draft bill."""
+    """Update line items or basket info on a draft bill."""
     res = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             Order.source == "manual",
         )
     )
@@ -138,8 +125,8 @@ async def update_manual_bill(
     if order.finalized_at is not None:
         raise HTTPException(status_code=400, detail="Cannot edit a finalized bill.")
 
-    if data.table_number is not None:
-        order.table_number = data.table_number
+    if data.basket_number is not None:
+        order.basket_number = data.basket_number
     if data.customer_name is not None:
         order.customer_name = data.customer_name
     if data.customer_phone is not None:
@@ -160,7 +147,7 @@ async def update_manual_bill(
                 m_res = await db.execute(
                     select(MenuItem).where(
                         MenuItem.id == uuid.UUID(item_in.menu_item_id),
-                        MenuItem.restaurant_id == restaurant_id,
+                        MenuItem.outlet_id == outlet_id,
                     )
                 )
                 m_item = m_res.scalar_one_or_none()
@@ -208,7 +195,7 @@ async def update_manual_bill(
 async def apply_discount(
     db: AsyncSession,
     order_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     staff_user: User,
     data: ApplyDiscountRequest,
 ) -> Order:
@@ -218,7 +205,7 @@ async def apply_discount(
         .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
         )
     )
     order = res.scalar_one_or_none()
@@ -227,7 +214,7 @@ async def apply_discount(
 
     is_manager_or_admin = staff_user.role in [
         RoleEnum.SUPERADMIN,
-        RoleEnum.RESTAURANT_ADMIN,
+        RoleEnum.OUTLET_ADMIN,
         RoleEnum.MANAGER,
     ]
 
@@ -273,12 +260,12 @@ async def apply_discount(
 async def approve_discount(
     db: AsyncSession,
     approval_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     manager_user: Any,
     approve: bool,
 ) -> BillDiscountApproval:
     """Manager/Admin approves or rejects a pending discount request."""
-    if manager_user.role not in [RoleEnum.SUPERADMIN, RoleEnum.RESTAURANT_ADMIN, RoleEnum.MANAGER]:
+    if manager_user.role not in [RoleEnum.SUPERADMIN, RoleEnum.OUTLET_ADMIN, RoleEnum.MANAGER]:
         raise HTTPException(status_code=403, detail="Only Managers or Admins can resolve discount approvals.")
 
     res = await db.execute(
@@ -286,7 +273,7 @@ async def approve_discount(
         .join(Order, BillDiscountApproval.order_id == Order.id)
         .where(
             BillDiscountApproval.id == approval_id,
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             BillDiscountApproval.status == "PENDING",
         )
     )
@@ -325,7 +312,7 @@ async def approve_discount(
 async def finalize_bill(
     db: AsyncSession,
     order_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
 ) -> Order:
     """Lock draft bill from further item edits."""
     res = await db.execute(
@@ -333,7 +320,7 @@ async def finalize_bill(
         .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
         )
     )
     order = res.scalar_one_or_none()
@@ -348,7 +335,7 @@ async def finalize_bill(
 async def mark_bill_paid(
     db: AsyncSession,
     order_id: uuid.UUID,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
     payment_method: str,
 ) -> Order:
     """Record cash/UPI payment method, set order status to PAID, and trigger inventory auto-deduction."""
@@ -357,7 +344,7 @@ async def mark_bill_paid(
         .options(selectinload(Order.items))
         .where(
             Order.id == order_id,
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
         )
     )
     order = res.scalar_one_or_none()
@@ -379,14 +366,14 @@ async def mark_bill_paid(
 
 async def get_pending_approvals_count(
     db: AsyncSession,
-    restaurant_id: uuid.UUID,
+    outlet_id: uuid.UUID,
 ) -> int:
     """Get count of pending discount approval requests for manager notification badge."""
     stmt = (
         select(func.count(BillDiscountApproval.id))
         .join(Order, BillDiscountApproval.order_id == Order.id)
         .where(
-            Order.restaurant_id == restaurant_id,
+            Order.outlet_id == outlet_id,
             BillDiscountApproval.status == "PENDING",
         )
     )

@@ -127,7 +127,7 @@ export function OrderTicketSlip() {
                   Basket Ticket
                 </span>
                 <span className="font-sans text-base font-black text-[var(--text-primary)]">
-                  Basket #{activeOrder.table_number}
+                  Basket #{activeOrder.basket_number}
                 </span>
                 {customerName && (
                   <span className="block text-xs text-[var(--text-secondary)]">
@@ -204,32 +204,76 @@ export function OrderTicketSlip() {
             </div>
           </div>
 
-          {/* Other session orders */}
-          {otherOrders.length > 0 && (
-            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5">
-              <h4 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
-                Other Orders This Session ({otherOrders.length})
-              </h4>
-              <div className="space-y-2">
-                {otherOrders.map((order) => {
-                  const badge = getStatusBadge(order.status);
+            {/* Other session orders */}
+            {otherOrders.length > 0 && (
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5">
+                <h4 className="text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                  Other Orders This Session ({otherOrders.length})
+                </h4>
+                <div className="space-y-2">
+                  {otherOrders.map((order) => {
+                    const badge = getStatusBadge(order.status);
+                    return (
+                      <div
+                        key={order.id}
+                        className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-2.5"
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono text-[11px] font-bold text-[var(--accent-brand)]">
+                            #{order.id.slice(0, 8)}
+                          </span>
+                          <div className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${badge.bg} ${badge.text}`}>
+                            {badge.icon}
+                            {badge.label}
+                          </div>
+                        </div>
+                        <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
+                          ₹{parseFloat(order.total_amount).toFixed(2)}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+          {/* Past Orders in Session (Multi-Order Bill Accumulation) */}
+          {sessionOrders.length > 1 && (
+            <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4 space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] block">
+                All Orders This Visit ({sessionOrders.length})
+              </span>
+              <div className="space-y-1.5">
+                {sessionOrders.map((so, idx) => {
+                  const isCurrent = so.id === activeOrder.id;
                   return (
                     <div
-                      key={order.id}
-                      className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-2.5"
+                      key={so.id}
+                      className={`flex items-center justify-between text-xs rounded-lg px-2.5 py-1.5 transition ${
+                        isCurrent
+                          ? "bg-[var(--accent-brand-subtle)] text-[var(--accent-brand)] font-bold"
+                          : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface)]"
+                      }`}
                     >
                       <div className="flex items-center gap-2">
-                        <span className="font-mono text-[11px] font-bold text-[var(--accent-brand)]">
-                          #{order.id.slice(0, 8)}
+                        <span className="font-mono text-[10px]">#{idx + 1}</span>
+                        <span className="font-mono text-[10px] opacity-60">
+                          {so.id.slice(0, 6)}
                         </span>
-                        <div className={`flex items-center gap-1 rounded-full px-1.5 py-0.5 text-[9px] font-bold ${badge.bg} ${badge.text}`}>
-                          {badge.icon}
-                          {badge.label}
-                        </div>
+                        {isCurrent && (
+                          <span className="text-[10px] bg-[var(--accent-brand)] text-white px-1.5 py-0.2 rounded-full font-bold">
+                            Current
+                          </span>
+                        )}
                       </div>
-                      <span className="font-mono text-xs font-bold text-[var(--text-primary)]">
-                        ₹{parseFloat(order.total_amount).toFixed(2)}
-                      </span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] font-semibold uppercase opacity-75">
+                          {so.status}
+                        </span>
+                        <span className="font-mono font-bold">
+                          ₹{Number(so.total_amount).toFixed(2)}
+                        </span>
+                      </div>
                     </div>
                   );
                 })}
@@ -241,7 +285,7 @@ export function OrderTicketSlip() {
           <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3.5 flex items-center justify-between">
             <div>
               <span className="block text-xs font-bold text-[var(--text-primary)]">
-                Need anything at Basket #{activeOrder.table_number}?
+                Need anything at Basket #{activeOrder.basket_number}?
               </span>
               <span className="block text-[11px] text-[var(--text-secondary)]">
                 Water, cutlery, or napkins

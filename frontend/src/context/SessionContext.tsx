@@ -292,7 +292,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         },
         body: JSON.stringify({
           restaurant_slug: activeSlug,
-          table_number: activeTable,
+          basket_number: activeTable,
           customer_name: name.trim(),
           customer_phone: phone?.trim() || null,
         }),

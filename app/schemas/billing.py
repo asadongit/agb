@@ -19,14 +19,14 @@ class BillItemInput(StrictSchema):
 
 
 class CreateManualBillRequest(StrictSchema):
-    table_number: str = "WALK-IN"
+    basket_number: str = "WALK-IN"
     customer_name: str | None = None
     customer_phone: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
 
 class UpdateManualBillRequest(StrictSchema):
-    table_number: str | None = None
+    basket_number: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
@@ -59,8 +59,8 @@ class BillItemResponse(StrictSchema):
 
 class BillResponse(BaseResponse):
     id: str
-    restaurant_id: str
-    table_number: str
+    outlet_id: str
+    basket_number: str
     customer_name: str | None = None
     customer_phone: str | None = None
     status: str
@@ -90,5 +90,5 @@ class DiscountApprovalResponse(BaseResponse):
     discount_value: float
     reason_note: str
     created_at: str
-    order_table_number: str
+    order_basket_number: str
     order_total_amount: float

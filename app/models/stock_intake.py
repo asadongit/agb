@@ -17,7 +17,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.inventory_item import InventoryItem
-    from app.models.restaurant import Restaurant
+    from app.models.outlet import Outlet
 
 
 class StockIntake(Base):
@@ -26,9 +26,9 @@ class StockIntake(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    restaurant_id: Mapped[uuid.UUID] = mapped_column(
+    outlet_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("restaurants.id", ondelete="CASCADE"),
+        ForeignKey("outlets.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
@@ -37,6 +37,9 @@ class StockIntake(Base):
         ForeignKey("inventory_items.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
+    )
+    batch_number: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, index=True
     )
     quantity: Mapped[Decimal] = mapped_column(
         Numeric(12, 3), nullable=False
@@ -67,5 +70,6 @@ class StockIntake(Base):
     )
 
     # Relationships
-    restaurant: Mapped[Restaurant] = relationship("Restaurant")
+    outlet: Mapped[Outlet] = relationship("Outlet")
     item: Mapped[InventoryItem] = relationship("InventoryItem")
+    added_by_user: Mapped[User | None] = relationship("User")

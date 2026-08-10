@@ -3,7 +3,6 @@ SQLAlchemy async engine, session factory, and declarative Base.
 """
 
 from __future__ import annotations
-
 from collections.abc import AsyncGenerator
 from datetime import datetime
 

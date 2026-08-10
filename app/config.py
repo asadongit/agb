@@ -4,11 +4,8 @@ Uses pydantic-settings for validation and type coercion.
 """
 
 from __future__ import annotations
-
 from functools import lru_cache
-
 from pydantic_settings import BaseSettings, SettingsConfigDict
-
 
 class Settings(BaseSettings):
     """All config comes from env vars — never hardcode secrets."""

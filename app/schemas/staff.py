@@ -7,14 +7,14 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from pydantic import EmailStr, Field
+from pydantic import EmailStr, Field, computed_field
 
 from app.models.enums import RoleEnum
 from app.schemas.common import BaseResponse, StrictSchema
 
 
 class StaffCreate(StrictSchema):
-    restaurant_id: uuid.UUID | None = None
+    outlet_id: uuid.UUID | None = None
     name: str = Field(min_length=1, max_length=255)
     email: EmailStr
     phone: str | None = Field(None, max_length=50)
@@ -33,7 +33,7 @@ class StaffUpdate(StrictSchema):
 
 class StaffResponse(BaseResponse):
     id: uuid.UUID
-    restaurant_id: uuid.UUID
+    outlet_id: uuid.UUID
     name: str
     email: str
     phone: str | None
@@ -87,7 +87,7 @@ class StaffAuditLogResponse(BaseResponse):
     id: uuid.UUID
     staff_id: uuid.UUID | None
     staff_name: str | None = None
-    restaurant_id: uuid.UUID
+    outlet_id: uuid.UUID
     action_type: str
     reference_type: str | None
     reference_id: str | None
