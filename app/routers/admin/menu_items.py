@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
 from app.models.category import Category
 from app.models.enums import PricingModeEnum
 from app.models.menu_item import MenuItem

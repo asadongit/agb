@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import pytest
 
+from app.models.enums import RoleEnum
 from tests.conftest import (
     create_test_outlet,
     create_test_user,
@@ -20,7 +21,7 @@ class TestAuth:
     async def test_register_and_login(self, client, db_session):
         """Register a user, then log in and receive tokens."""
         outlet = await create_test_outlet(db_session)
-        admin = await create_test_user(db_session, outlet)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.SUPERADMIN)
         await db_session.commit()
         headers = get_auth_headers(admin, outlet)
 
@@ -63,7 +64,7 @@ class TestAuth:
     async def test_duplicate_registration(self, client, db_session):
         """Registering duplicate email returns 409."""
         outlet = await create_test_outlet(db_session)
-        admin = await create_test_user(db_session, outlet)
+        admin = await create_test_user(db_session, outlet, role=RoleEnum.SUPERADMIN)
         await db_session.commit()
         headers = get_auth_headers(admin, outlet)
 
@@ -114,3 +115,48 @@ class TestAuth:
         headers = get_auth_headers(user, outlet)
         resp = await client.post("/api/auth/logout", headers=headers)
         assert resp.status_code == 200
+
+    async def test_staff_token_refresh_and_logout(self, client, db_session):
+        """Staff login, refresh token rotation, and logout token revocation."""
+        from tests.conftest import create_test_staff
+        from app.core.security import create_access_token
+
+        outlet = await create_test_outlet(db_session)
+        staff = await create_test_staff(db_session, outlet, email="staff1@test.com", password="password123")
+        await db_session.commit()
+
+        # 1. Staff Login
+        resp = await client.post("/api/staff/login", json={
+            "email": "staff1@test.com",
+            "password": "password123",
+        })
+        assert resp.status_code == 200
+        tokens = resp.json()
+        refresh_token_1 = tokens["refresh_token"]
+
+        # 2. Staff Refresh Token Rotation
+        resp = await client.post("/api/auth/refresh", json={
+            "refresh_token": refresh_token_1,
+        })
+        assert resp.status_code == 200
+        refreshed = resp.json()
+        refresh_token_2 = refreshed["refresh_token"]
+        assert refresh_token_1 != refresh_token_2
+
+        # 3. Old refresh token replay fails with 401
+        resp = await client.post("/api/auth/refresh", json={
+            "refresh_token": refresh_token_1,
+        })
+        assert resp.status_code == 401
+
+        # 4. Staff Logout
+        staff_token = create_access_token(user_id=staff.id, outlet_id=outlet.id, role=staff.role.value)
+        headers = {"Authorization": f"Bearer {staff_token}"}
+        resp = await client.post("/api/auth/logout", headers=headers)
+        assert resp.status_code == 200
+
+        # 5. Refresh token after logout fails with 401
+        resp = await client.post("/api/auth/refresh", json={
+            "refresh_token": refresh_token_2,
+        })
+        assert resp.status_code == 401

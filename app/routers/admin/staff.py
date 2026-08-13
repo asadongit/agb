@@ -12,14 +12,14 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.core.security import create_access_token, create_refresh_token
+from app.core.security import create_access_token, create_refresh_token, hash_token
 from app.dependencies import (
     AuthenticatedUser,
     DBSession,
     RequireAdmin,
     RequireSuperadmin,
     require_permission,
-    tenant_scoped_query,
+    outlet_scoped_query,
 )
 from app.models.enums import RoleEnum
 from app.models.staff import Staff
@@ -90,7 +90,7 @@ async def list_staff_endpoint(
     target_outlet_id = outlet_id or current_user.outlet_id
 
     stmt = select(Staff)
-    stmt = tenant_scoped_query(stmt, Staff, target_outlet_id, current_user)
+    stmt = outlet_scoped_query(stmt, Staff, target_outlet_id, current_user)
     stmt = stmt.order_by(Staff.name)
 
     result = await db.execute(stmt)
@@ -202,6 +202,10 @@ async def staff_login_endpoint(
         outlet_id=staff.outlet_id,
         role=staff.role.value,
     )
+
+    staff.refresh_token_hash = hash_token(refresh_token)
+    await db.flush()
+    await db.refresh(staff)
 
     await create_staff_audit_log(
         db,

@@ -169,6 +169,7 @@ def upgrade() -> None:
     sa.Column('role', sa.Enum('SUPERADMIN', 'OUTLET_ADMIN', 'MANAGER', 'FLOOR_STAFF', 'CASHIER', 'WAITER', 'DELIVERY_BOY', 'STAFF', name='roleenum'), nullable=False),
     sa.Column('password_hash', sa.String(length=512), nullable=False),
     sa.Column('pin_hash', sa.String(length=512), nullable=True),
+    sa.Column('refresh_token_hash', sa.String(length=512), nullable=True),
     sa.Column('status', sa.String(length=20), nullable=False),
     sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),

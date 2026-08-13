@@ -28,13 +28,13 @@ class OutletCreate(StrictSchema):
     fssai_no: str | None = None
     session_duration_minutes: int = Field(default=30, ge=5, le=120)
     public_basket_number: str | None = None
-    verification_amount_cutoff: Decimal | None = Field(None, ge=0)
+    verification_amount_cutoff: Decimal | None = Field(default=None, ge=Decimal("0"))
     flagged_item_ids: list[str] = Field(default_factory=list)
 
 
 class OutletUpdate(StrictSchema):
-    name: str | None = Field(None, min_length=1, max_length=255)
-    slug: str | None = Field(None, min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    slug: str | None = Field(default=None, min_length=1, max_length=100, pattern=r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
     payment_mode: PaymentModeEnum | None = None
     razorpay_account_id: str | None = None
     direct_upi_id: str | None = None
@@ -44,9 +44,9 @@ class OutletUpdate(StrictSchema):
     phone: str | None = None
     gstin: str | None = None
     fssai_no: str | None = None
-    session_duration_minutes: int | None = Field(None, ge=5, le=120)
+    session_duration_minutes: int | None = Field(default=None, ge=5, le=120)
     public_basket_number: str | None = None
-    verification_amount_cutoff: Decimal | None = Field(None, ge=0)
+    verification_amount_cutoff: Decimal | None = Field(default=None, ge=Decimal("0"))
     flagged_item_ids: list[str] | None = None
 
 

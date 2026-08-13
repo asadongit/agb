@@ -27,6 +27,20 @@ from app.services.audit_service import log_action
 router = APIRouter(prefix="/api/admin/outlets", tags=["admin-outlets"])
 
 
+async def _build_outlet_response(db: DBSession, outlet: Outlet) -> OutletResponse:
+    from app.models.menu_item import MenuItem
+    res = await db.execute(
+        select(MenuItem.id).where(
+            MenuItem.outlet_id == outlet.id,
+            MenuItem.is_verification_required == True,  # noqa: E712
+        )
+    )
+    flagged_ids = [str(id_) for id_ in res.scalars().all()]
+    data = {c.name: getattr(outlet, c.name) for c in outlet.__table__.columns}
+    data["flagged_item_ids"] = flagged_ids
+    return OutletResponse(**data)
+
+
 @router.get("", response_model=list[OutletWithUsersResponse])
 async def list_all_outlets(
     current_user: RequireSuperadmin,
@@ -78,20 +92,6 @@ async def create_outlet(
     )
 
     return outlet
-
-
-async def _build_outlet_response(db: DBSession, outlet: Outlet) -> OutletResponse:
-    from app.models.menu_item import MenuItem
-    res = await db.execute(
-        select(MenuItem.id).where(
-            MenuItem.outlet_id == outlet.id,
-            MenuItem.is_verification_required == True,  # noqa: E712
-        )
-    )
-    flagged_ids = [str(id_) for id_ in res.scalars().all()]
-    data = {c.name: getattr(outlet, c.name) for c in outlet.__table__.columns}
-    data["flagged_item_ids"] = flagged_ids
-    return OutletResponse(**data)
 
 
 @router.get("/me", response_model=OutletResponse)

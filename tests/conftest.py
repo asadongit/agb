@@ -130,6 +130,30 @@ async def create_test_user(
     return user
 
 
+async def create_test_staff(
+    db: AsyncSession,
+    outlet: Outlet,
+    name: str = "Test Staff",
+    email: str = "staff@test.com",
+    password: str = "staffpassword123",
+    role: RoleEnum = RoleEnum.CASHIER,
+) -> Staff:
+    from app.models.staff import Staff
+
+    staff = Staff(
+        id=uuid.uuid4(),
+        outlet_id=outlet.id,
+        name=name,
+        email=email,
+        role=role,
+        password_hash=hash_password(password),
+        status="active",
+    )
+    db.add(staff)
+    await db.flush()
+    return staff
+
+
 async def create_test_category(
     db: AsyncSession,
     outlet: Outlet,

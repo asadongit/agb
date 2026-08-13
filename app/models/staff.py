@@ -16,6 +16,7 @@ from app.models.enums import RoleEnum
 
 if TYPE_CHECKING:
     from app.models.outlet import Outlet
+    from app.models.user import User
 
 
 class Staff(Base, TimestampMixin):
@@ -40,6 +41,9 @@ class Staff(Base, TimestampMixin):
     )
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
     pin_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    refresh_token_hash: Mapped[str | None] = mapped_column(
+        String(512), nullable=True
+    )
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default="active"
     )

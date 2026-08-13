@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
 from app.models.category import Category
 from app.schemas.category import CategoryCreate, CategoryResponse, CategoryUpdate
 from app.services.audit_service import log_action
@@ -27,7 +27,7 @@ async def list_categories(
 ):
     """List all categories for the current user's outlet."""
     stmt = select(Category).order_by(Category.display_order)
-    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     return result.scalars().all()
 
@@ -72,7 +72,7 @@ async def get_category(
 ):
     """Get a single category (tenant-scoped)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:
@@ -92,7 +92,7 @@ async def update_category(
 ):
     """Update a category (tenant-scoped)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:
@@ -128,7 +128,7 @@ async def delete_category(
 ):
     """Delete a category (tenant-scoped, cascades to menu items)."""
     stmt = select(Category).where(Category.id == category_id)
-    stmt = tenant_scoped_query(stmt, Category, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Category, current_user.outlet_id)
     result = await db.execute(stmt)
     category = result.scalar_one_or_none()
     if not category:

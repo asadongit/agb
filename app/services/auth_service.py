@@ -22,7 +22,7 @@ from app.models.staff import Staff
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
-
+#Superadmin
 async def register_user(
     db: AsyncSession,
     data: RegisterRequest,
@@ -47,7 +47,7 @@ async def register_user(
     await db.flush()
     return user
 
-
+#User
 async def login_user(
     db: AsyncSession,
     data: LoginRequest,
@@ -89,7 +89,7 @@ async def login_user(
         role=user.role.value,
     )
 
-
+#User and Staff
 async def refresh_tokens(
     db: AsyncSession,
     refresh_token: str,
@@ -113,9 +113,6 @@ async def refresh_tokens(
         )
 
     user_id = uuid.UUID(payload["sub"])
-    role_val = payload.get("role")
-    raw_outlet_id = payload.get("outlet_id")
-    outlet_id = uuid.UUID(raw_outlet_id) if raw_outlet_id else None
 
     # Check User table first, then Staff table
     result = await db.execute(select(User).where(User.id == user_id))
@@ -144,8 +141,19 @@ async def refresh_tokens(
             detail="Staff account is inactive",
         )
 
-    target_role = user.role.value if user else (staff.role.value if staff else role_val)
-    target_outlet_id = user.outlet_id if user else (staff.outlet_id if staff else outlet_id)
+    target_entity = user if user else staff
+    assert target_entity is not None
+
+    # Verify refresh token hash matches stored hash
+    incoming_hash = hash_token(refresh_token)
+    if target_entity.refresh_token_hash != incoming_hash:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid or revoked refresh token",
+        )
+
+    target_role = target_entity.role.value
+    target_outlet_id = target_entity.outlet_id
 
     # Issue new tokens
     new_access = create_access_token(
@@ -159,9 +167,8 @@ async def refresh_tokens(
         role=target_role,
     )
 
-    if user:
-        user.refresh_token_hash = hash_token(new_refresh)
-        await db.flush()
+    target_entity.refresh_token_hash = hash_token(new_refresh)
+    await db.flush()
 
     return TokenResponse(
         access_token=new_access,
@@ -169,14 +176,21 @@ async def refresh_tokens(
         role=target_role,
     )
 
-
+#User and Staff
 async def logout_user(
     db: AsyncSession,
     user_id: uuid.UUID,
 ) -> None:
-    """Revoke refresh token on logout."""
+    """Revoke refresh token on logout (User or Staff)."""
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if user:
         user.refresh_token_hash = None
+        await db.flush()
+        return
+
+    result_staff = await db.execute(select(Staff).where(Staff.id == user_id))
+    staff = result_staff.scalar_one_or_none()
+    if staff:
+        staff.refresh_token_hash = None
         await db.flush()

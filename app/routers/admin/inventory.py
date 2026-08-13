@@ -12,7 +12,7 @@ from fastapi import APIRouter, HTTPException, Query, status
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
 from app.models.enums import StockChangeTypeEnum
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item_recipe import MenuItemRecipe

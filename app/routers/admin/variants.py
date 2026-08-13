@@ -1,5 +1,5 @@
 """
-MenuItemVariant admin routes — CRUD under a menu item, tenant-scoped.
+MenuItemVariant admin routes — CRUD under a menu item, outlet-scoped.
 """
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import select
 
-from app.dependencies import DBSession, RequireAdmin, tenant_scoped_query
+from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
 from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
 from app.schemas.menu import VariantCreate, VariantResponse, VariantUpdate
@@ -22,12 +22,12 @@ router = APIRouter(
 )
 
 
-async def _get_tenant_menu_item(
+async def _get_outlet_menu_item(
     db, item_id: uuid.UUID, outlet_id: uuid.UUID
 ) -> MenuItem:
-    """Verify the menu item exists and belongs to the current tenant."""
+    """Verify the menu item exists and belongs to the current outlet."""
     stmt = select(MenuItem).where(MenuItem.id == item_id)
-    stmt = tenant_scoped_query(stmt, MenuItem, outlet_id)
+    stmt = outlet_scoped_query(stmt, MenuItem, outlet_id)
     result = await db.execute(stmt)
     item = result.scalar_one_or_none()
     if not item:
@@ -44,8 +44,8 @@ async def list_variants(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """List all variants for a menu item (tenant-scoped)."""
-    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
+    """List all variants for a menu item (outlet-scoped)."""
+    await _get_outlet_menu_item(db, item_id, current_user.outlet_id)
     result = await db.execute(
         select(MenuItemVariant).where(MenuItemVariant.menu_item_id == item_id)
     )
@@ -64,7 +64,7 @@ async def create_variant(
     db: DBSession,
 ):
     """Create a variant for a menu item."""
-    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
+    await _get_outlet_menu_item(db, item_id, current_user.outlet_id)
 
     variant = MenuItemVariant(
         id=uuid.uuid4(),
@@ -94,8 +94,8 @@ async def update_variant(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Update a variant (tenant-scoped via parent menu item)."""
-    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
+    """Update a variant (outlet-scoped via parent menu item)."""
+    await _get_outlet_menu_item(db, item_id, current_user.outlet_id)
 
     result = await db.execute(
         select(MenuItemVariant).where(
@@ -135,8 +135,8 @@ async def delete_variant(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Delete a variant (tenant-scoped via parent menu item)."""
-    await _get_tenant_menu_item(db, item_id, current_user.outlet_id)
+    """Delete a variant (outlet-scoped via parent menu item)."""
+    await _get_outlet_menu_item(db, item_id, current_user.outlet_id)
 
     result = await db.execute(
         select(MenuItemVariant).where(

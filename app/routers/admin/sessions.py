@@ -1,6 +1,6 @@
 """
 Admin session routes — list active sessions, manage abandoned carts,
-terminate sessions. All tenant-scoped via JWT.
+terminate sessions. All outlet-scoped via JWT.
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from app.dependencies import (
     DBSession,
     RequireAdmin,
     RequireStaffOrAdmin,
-    tenant_scoped_query,
+    outlet_scoped_query,
 )
 from app.models.abandoned_cart import AbandonedCart
 from app.models.enums import SessionStatusEnum

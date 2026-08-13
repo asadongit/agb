@@ -15,7 +15,7 @@ from app.dependencies import (
     DBSession,
     RequireAdmin,
     RequireStaffOrAdmin,
-    tenant_scoped_query,
+    outlet_scoped_query,
 )
 from app.models.enums import OrderStatusEnum, PaymentModeEnum, is_valid_transition
 from app.models.order import Order
@@ -58,7 +58,7 @@ async def list_orders(
 
     # 2. Build base query
     stmt = select(Order).options(selectinload(Order.items), joinedload(Order.outlet))
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
 
     if status_filter:
         stmt = stmt.where(Order.status == status_filter)
@@ -92,7 +92,7 @@ async def get_order(
         .where(Order.id == order_id)
         .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -119,7 +119,7 @@ async def update_order_status(
         .where(Order.id == order_id)
         .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -161,7 +161,7 @@ async def confirm_payment(
         .where(Order.id == order_id)
         .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -204,7 +204,7 @@ async def cancel_order(
         .where(Order.id == order_id)
         .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:
@@ -244,7 +244,7 @@ async def refund_order(
         .where(Order.id == order_id)
         .options(selectinload(Order.items), joinedload(Order.outlet))
     )
-    stmt = tenant_scoped_query(stmt, Order, current_user.outlet_id)
+    stmt = outlet_scoped_query(stmt, Order, current_user.outlet_id)
     result = await db.execute(stmt)
     order = result.scalar_one_or_none()
     if not order:

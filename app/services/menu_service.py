@@ -148,12 +148,14 @@ async def get_outlet_slug(
 
 
 async def invalidate_outlet_menu(
-    db: AsyncSession, outlet_id: uuid.UUID
+    db: AsyncSession, outlet_id: uuid.UUID | None
 ) -> None:
     """
     Invalidate the cached menu for an outlet.
     MUST be called after any Category/MenuItem/Variant create/update/delete.
     """
+    if outlet_id is None:
+        return
     slug = await get_outlet_slug(db, outlet_id)
     await invalidate_menu_cache(slug)
 

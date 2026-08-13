@@ -1,5 +1,5 @@
 """
-Shared FastAPI dependencies — DB sessions, auth, tenant scoping.
+Shared FastAPI dependencies — DB sessions, auth, outlet scoping.
 """
 
 from __future__ import annotations
@@ -137,27 +137,23 @@ def require_permission(perm_name: str):
     return _check
 
 
-# ── Tenant scoping ──────────────────────────────────────────────────────
+# ── Outlet scoping ──────────────────────────────────────────────────────
 
 
-def tenant_scoped_query(
+def outlet_scoped_query(
     stmt: Select,
     model: type,
-    tenant_id: uuid.UUID | None,
+    outlet_id: uuid.UUID | None,
     current_user: CurrentUser | None = None,
 ) -> Select:
     """
-    Append tenant scoping to query (.where(model.outlet_id == tenant_id)).
-    If current_user is a SUPERADMIN and no specific tenant_id is provided, bypass tenant scoping!
+    Append outlet scoping to query (.where(model.outlet_id == outlet_id)).
+    If current_user is a SUPERADMIN and no specific outlet_id is provided, bypass outlet scoping!
     """
-    if current_user and current_user.role == RoleEnum.SUPERADMIN and tenant_id is None:
+    if current_user and current_user.role == RoleEnum.SUPERADMIN and outlet_id is None:
         return stmt
-    if tenant_id is not None:
+    if outlet_id is not None:
         col = getattr(model, "outlet_id", None)
         if col is not None:
-            return stmt.where(col == tenant_id)
+            return stmt.where(col == outlet_id)
     return stmt
-
-
-# Backward-compatible alias
-outlet_scoped_query = tenant_scoped_query
