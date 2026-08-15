@@ -11,6 +11,7 @@ type StaffAssistBasketModalProps = {
   session: ActiveSession | null;
   menuItems: any[];
   onSuccess?: () => void;
+  authToken?: string;
 };
 
 type SelectedCartItem = {
@@ -25,6 +26,7 @@ export function StaffAssistBasketModal({
   session,
   menuItems,
   onSuccess,
+  authToken,
 }: StaffAssistBasketModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedItems, setSelectedItems] = useState<SelectedCartItem[]>([]);
@@ -88,7 +90,14 @@ export function StaffAssistBasketModal({
     setErrorMessage(null);
 
     try {
-      const token = localStorage.getItem("token");
+      const token =
+        authToken ||
+        (typeof window !== "undefined"
+          ? localStorage.getItem("admin_access_token") ||
+            localStorage.getItem("admin_token") ||
+            localStorage.getItem("access_token") ||
+            localStorage.getItem("token")
+          : "");
       const apiBase = getApiBaseUrl();
       const res = await fetch(`${apiBase}/api/admin/sessions/${session.id}/add-items`, {
         method: "POST",

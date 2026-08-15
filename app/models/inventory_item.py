@@ -57,6 +57,18 @@ class InventoryItem(Base, TimestampMixin):
     cost_per_unit: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00")
     )
+    mrp: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    wholesale_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    tax_category: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default="GST 0%"
+    )
+    tax_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True, default=Decimal("0.00")
+    )
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )

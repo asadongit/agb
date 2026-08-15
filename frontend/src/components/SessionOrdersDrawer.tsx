@@ -10,6 +10,7 @@ import {
   ExternalLink,
   Package,
   Download,
+  Eye,
 } from "lucide-react";
 import { useSession } from "@/context/SessionContext";
 import type { OrderResponse, OrderStatus } from "@/types";
@@ -190,14 +191,26 @@ export function SessionOrdersDrawer({
                       Track status
                     </Link>
                     {(order.status === "PAID" || order.status === "COMPLETED") && (
-                      <button
-                        type="button"
-                        onClick={() => generateReceiptPDF(order, "ApnaGreen Basket")}
-                        className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2.5 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
-                      >
-                        <Download className="h-3 w-3 text-emerald-500" />
-                        <span>Download Bill</span>
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={() => generateReceiptPDF(order, "ApnaGreen Basket", {}, "view")}
+                          className="flex items-center gap-1 rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-2 py-1 text-[10px] font-bold text-cyan-600 dark:text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
+                          title="View Bill PDF"
+                        >
+                          <Eye className="h-3 w-3 text-cyan-500" />
+                          <span>View</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => generateReceiptPDF(order, "ApnaGreen Basket", {}, "download")}
+                          className="flex items-center gap-1 rounded-lg border border-emerald-500/40 bg-emerald-500/10 px-2 py-1 text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
+                          title="Download Bill PDF"
+                        >
+                          <Download className="h-3 w-3 text-emerald-500" />
+                          <span>Download</span>
+                        </button>
+                      </div>
                     )}
                   </div>
                 </div>

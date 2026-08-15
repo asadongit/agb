@@ -539,8 +539,14 @@ async def staff_add_items_to_session(
     outlet_id: uuid.UUID,
     staff_user: Any,
     data: StaffAddItemsRequest,
-) -> Order:
-    """Staff adds items directly to an active customer basket session."""
+) -> dict[str, Any]:
+    """
+    Staff assists customer by adding items directly to their active session's live draft cart.
+    Updates Redis cart, triggers WebSocket broadcast to customer's phone, and logs staff audit.
+    """
+    from app.services import cart_service
+    from app.services.websocket_service import broadcast_cart_updated
+
     session = await db.get(BasketSession, session_id)
     if not session or session.outlet_id != outlet_id:
         raise HTTPException(
@@ -548,91 +554,109 @@ async def staff_add_items_to_session(
             detail="Active basket session not found.",
         )
 
-    if session.status != SessionStatusEnum.ACTIVE or session.expires_at < datetime.utcnow():
+    if session.status != SessionStatusEnum.ACTIVE:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Session is no longer active.",
+            detail="Session is no longer active (terminated or completed).",
         )
 
-    staff_id = getattr(staff_user, "user_id", None) or getattr(staff_user, "id", None)
-
-    order = Order(
-        id=uuid.uuid4(),
-        outlet_id=outlet_id,
-        session_id=session.id,
-        basket_number=session.basket_number,
-        customer_name=session.customer_name,
-        customer_phone=session.customer.phone if session.customer else None,
-        status=OrderStatusEnum.PAYMENT_PENDING,
-        payment_reference=None,
-        source="staff_assisted",
-        is_auto_verified=True,
-        created_by_staff_id=staff_id,
-        subtotal_amount=Decimal("0.00"),
-        total_amount=Decimal("0.00"),
+    # Auto-extend active session duration if staff is assisting
+    now = datetime.utcnow()
+    rest_result = await db.execute(
+        select(Outlet.session_duration_minutes)
+        .where(Outlet.id == session.outlet_id)
     )
-    db.add(order)
+    duration_minutes = rest_result.scalar_one_or_none() or 30
+    session.expires_at = now + timedelta(minutes=duration_minutes)
     await db.flush()
 
-    subtotal = Decimal("0.00")
-    has_flagged_item = False
-    added_items_meta = []
+    staff_id = getattr(staff_user, "user_id", None) or getattr(staff_user, "id", None)
+    staff_name = getattr(staff_user, "name", None) or getattr(staff_user, "email", "Staff")
+
+    cart_data = await cart_service.get_cart(session_id)
+    added_count = 0
 
     for item_in in data.items:
         m_uuid = uuid.UUID(str(item_in.menu_item_id)) if item_in.menu_item_id else None
-        menu_item = await db.get(MenuItem, m_uuid) if m_uuid else None
-        if not menu_item or menu_item.outlet_id != outlet_id:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail=f"Menu item {item_in.menu_item_id} not found.",
-            )
-
-        if menu_item.is_verification_required:
-            has_flagged_item = True
-
-        price = Decimal(str(menu_item.price))
-        item_name = menu_item.name
         v_uuid = uuid.UUID(str(item_in.variant_id)) if item_in.variant_id else None
-        if v_uuid:
-            variant = await db.get(MenuItemVariant, v_uuid)
-            if variant and variant.menu_item_id == menu_item.id:
-                price += Decimal(str(variant.price_delta))
-                item_name = f"{item_name} ({variant.name})"
+        if not m_uuid:
+            continue
 
-        line_total = price * Decimal(str(item_in.quantity))
-        subtotal += line_total
-
-        order_item = OrderItem(
-            id=uuid.uuid4(),
-            order_id=order.id,
-            menu_item_id=menu_item.id,
+        cart_data = await cart_service.add_or_update_item(
+            db=db,
+            session_id=session.id,
+            outlet_id=outlet_id,
+            menu_item_id=m_uuid,
             variant_id=v_uuid,
-            added_by_staff_id=staff_id,
-            quantity=item_in.quantity,
-            unit_price=price,
-            item_name=item_name,
-            line_total=line_total,
+            quantity=Decimal(str(item_in.quantity)),
+            added_by="staff",
+            staff_id=staff_id,
+            staff_name=staff_name,
         )
-        db.add(order_item)
-        added_items_meta.append({
-            "menu_item_id": str(menu_item.id),
-            "name": item_name,
-            "quantity": float(item_in.quantity),
-            "unit_price": float(price),
-            "line_total": float(line_total),
-        })
+        added_count += 1
 
-    order.subtotal_amount = subtotal
-    order.total_amount = subtotal
+    # Broadcast updated cart to customer phone via WebSocket (session:{session_id})
+    await broadcast_cart_updated(
+        session_id=session.id,
+        outlet_id=outlet_id,
+        cart_data=cart_data,
+    )
 
-    # Anti-theft rule evaluation
-    res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
-    outlet = res_rest.scalar_one_or_none()
-    if outlet:
-        requires_verification = evaluate_verification_rules(outlet, has_flagged_item, subtotal)
-        order.is_auto_verified = not requires_verification
-        if requires_verification:
-            order.status = OrderStatusEnum.PENDING_VERIFICATION
+    subtotal = cart_data.get("subtotal", 0.0)
+    subtotal_dec = Decimal(str(subtotal))
+
+    # Synchronize SQL Order & OrderItems for POS billing & active session tracking
+    order_stmt = select(Order).where(
+        Order.session_id == session.id,
+        Order.outlet_id == outlet_id,
+        Order.status.in_([OrderStatusEnum.PENDING, OrderStatusEnum.PENDING_VERIFICATION]),
+    ).options(selectinload(Order.items))
+    order_res = await db.execute(order_stmt)
+    existing_order = order_res.scalars().first()
+
+    if not existing_order:
+        existing_order = Order(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            session_id=session.id,
+            basket_number=session.basket_number,
+            customer_name=session.customer_name,
+            customer_phone=session.customer.phone if getattr(session, "customer", None) else None,
+            total_amount=subtotal_dec,
+            subtotal_amount=subtotal_dec,
+            status=OrderStatusEnum.PENDING,
+            source="staff_assist",
+            created_by_staff_id=staff_id,
+        )
+        db.add(existing_order)
+        await db.flush()
+    else:
+        existing_order.total_amount = subtotal_dec
+        existing_order.subtotal_amount = subtotal_dec
+        # Clear previous items for replacement with updated cart items
+        for old_item in list(existing_order.items):
+            await db.delete(old_item)
+        await db.flush()
+
+    # Re-create OrderItem rows from cart_data["items"]
+    for cart_item in cart_data.get("items", []):
+        m_id = uuid.UUID(str(cart_item["menu_item_id"])) if cart_item.get("menu_item_id") else None
+        v_id = uuid.UUID(str(cart_item["variant_id"])) if cart_item.get("variant_id") else None
+        q_dec = Decimal(str(cart_item.get("quantity", 1)))
+        u_price_dec = Decimal(str(cart_item.get("unit_price", 0)))
+        l_total_dec = q_dec * u_price_dec
+
+        o_item = OrderItem(
+            id=uuid.uuid4(),
+            order_id=existing_order.id,
+            menu_item_id=m_id,
+            variant_id=v_id,
+            item_name=cart_item.get("name", "Item"),
+            quantity=q_dec,
+            unit_price=u_price_dec,
+            line_total=l_total_dec,
+        )
+        db.add(o_item)
 
     # Record staff audit log
     audit_entry = StaffAuditLog(
@@ -642,27 +666,20 @@ async def staff_add_items_to_session(
         action_type="STAFF_ASSIST_BASKET_ADD",
         reference_type="session",
         reference_id=str(session.id),
-        details=f"Staff added {len(added_items_meta)} item(s) to Basket #{session.basket_number} ({session.customer_name}). Total: ₹{subtotal:.2f}",
+        details=f"Staff added {added_count} item(s) to Basket #{session.basket_number} ({session.customer_name}). Cart Total: ₹{subtotal:.2f}",
     )
     db.add(audit_entry)
-
     await db.commit()
-    await db.refresh(order)
 
-    # Broadcast WebSocket notification
-    await manager.broadcast_to_outlet(
-        outlet_id=outlet_id,
-        event_type="new_order",
-        data={
-            "order_id": str(order.id),
-            "session_id": str(session.id),
-            "basket_number": session.basket_number,
-            "customer_name": session.customer_name,
-            "source": "staff_assisted",
-            "status": order.status.value,
-            "total_amount": float(order.total_amount),
-            "created_by_staff_id": str(staff_id) if staff_id else None,
-        },
-    )
+    return {
+        "order_id": existing_order.id,
+        "session_id": session.id,
+        "basket_number": session.basket_number,
+        "customer_name": session.customer_name,
+        "total_amount": Decimal(str(subtotal)),
+        "status": "DRAFT_CART_UPDATED",
+        "added_items_count": added_count,
+        "added_by_staff_id": staff_id,
+        "cart": cart_data,
+    }
 
-    return order

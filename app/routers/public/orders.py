@@ -87,21 +87,22 @@ async def checkout(
             order.status = OrderStatusEnum.PAYMENT_PENDING
             from app.services.inventory_service import process_order_auto_deduction
             await process_order_auto_deduction(db, order)
+            from app.services.websocket_service import broadcast_new_order_paid
+            await broadcast_new_order_paid(outlet.id, order.id)
         else:
             order.status = OrderStatusEnum.PENDING_VERIFICATION
-        await db.flush()
-
-        # Broadcast to staff dashboard
-        if order.session_id:
-            from app.services.websocket_service import broadcast_session_changed
-            await broadcast_session_changed(outlet.id, order.session_id, "UPDATED")
-
-        if not order.is_auto_verified:
+            from app.services.websocket_service import broadcast_verification_needed
             await broadcast_verification_needed(
                 outlet_id=outlet.id,
                 order_id=order.id,
                 basket_number=order.basket_number,
             )
+        await db.flush()
+
+        # Broadcast to staff dashboard session feed if session exists
+        if order.session_id:
+            from app.services.websocket_service import broadcast_session_changed
+            await broadcast_session_changed(outlet.id, order.session_id, "UPDATED")
 
         return PayAfterMealCheckoutResponse(
             order_id=order.id,

@@ -86,6 +86,14 @@ class AsyncMockRedis:
                 count += 1
         return count
 
+    async def keys(self, pattern: str = "*") -> list[str]:
+        import fnmatch
+        return [k for k in self._store.keys() if fnmatch.fnmatch(k, pattern)]
+
+    async def flushdb(self) -> bool:
+        self._store.clear()
+        return True
+
     async def publish(self, channel: str, message: str) -> int:
         queues = self._channel_subs.get(channel, [])
         for q in queues:

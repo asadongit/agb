@@ -38,6 +38,12 @@ export function useMenuManagement({
   // Offer Modal State
   const [isOfferModalOpen, setIsOfferModalOpen] = useState(false);
   const [selectedItemForOffer, setSelectedItemForOffer] = useState<AdminMenuItem | null>(null);
+  const [offerForm, setOfferForm] = useState<OfferFormState>({
+    is_on_offer: true,
+    offer_price: "",
+    offer_label: "",
+  });
+  const [isSavingOffer, setIsSavingOffer] = useState(false);
 
   // Load categories, items, and variants
   const loadCategoriesAndMenuItems = useCallback(async () => {
@@ -74,19 +80,41 @@ export function useMenuManagement({
   const handleSaveMenuItem = useCallback(
     async (itemId: string | null, formData: MenuItemFormState) => {
       try {
+        const cleanPayload = {
+          ...formData,
+          inventory_item_id: formData.inventory_item_id || null,
+          price: parseFloat(formData.price) || 0,
+          barcode: formData.barcode?.trim() || null,
+          description: formData.description?.trim() || null,
+          offer_label: formData.offer_label?.trim() || null,
+          offer_price:
+            formData.offer_price && String(formData.offer_price).trim() !== ""
+              ? parseFloat(String(formData.offer_price))
+              : null,
+          mrp:
+            formData.mrp && String(formData.mrp).trim() !== ""
+              ? parseFloat(String(formData.mrp))
+              : null,
+          tax_category: formData.tax_category?.trim() || "GST 0%",
+          tax_rate:
+            formData.tax_rate && String(formData.tax_rate).trim() !== ""
+              ? parseFloat(String(formData.tax_rate))
+              : 0,
+        };
+
         if (itemId) {
           const updated = await apiRequest<AdminMenuItem>(
             `/api/admin/menu-items/${itemId}`,
             {
               method: "PATCH",
-              body: JSON.stringify(formData),
+              body: JSON.stringify(cleanPayload),
             }
           );
           setMenuItems((prev) => prev.map((it) => (it.id === itemId ? updated : it)));
         } else {
           const created = await apiRequest<AdminMenuItem>("/api/admin/menu-items", {
             method: "POST",
-            body: JSON.stringify(formData),
+            body: JSON.stringify(cleanPayload),
           });
           setMenuItems((prev) => [created, ...prev]);
         }
@@ -190,6 +218,11 @@ export function useMenuManagement({
   // Offer Modal handlers
   const openOfferModal = (item: AdminMenuItem) => {
     setSelectedItemForOffer(item);
+    setOfferForm({
+      is_on_offer: item.is_on_offer ?? false,
+      offer_price: item.offer_price ? String(item.offer_price) : "",
+      offer_label: item.offer_label || "",
+    });
     setIsOfferModalOpen(true);
   };
 
@@ -198,21 +231,75 @@ export function useMenuManagement({
     setSelectedItemForOffer(null);
   };
 
-  const handleSaveOffer = async (itemId: string, formState: OfferFormState) => {
-    const updated = await apiRequest<AdminMenuItem>(
-      `/api/admin/menu-items/${itemId}`,
-      {
-        method: "PATCH",
-        body: JSON.stringify({
-          is_on_offer: true,
-          offer_price: formState.offer_price,
-          offer_label: formState.offer_label,
-        }),
-      }
-    );
-    setMenuItems((prev) => prev.map((it) => (it.id === itemId ? updated : it)));
-    closeOfferModal();
+  const handleSaveOffer = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    if (!selectedItemForOffer) return;
+    try {
+      setIsSavingOffer(true);
+      const payload = {
+        is_on_offer: offerForm.is_on_offer,
+        offer_price:
+          offerForm.is_on_offer && offerForm.offer_price && String(offerForm.offer_price).trim() !== ""
+            ? parseFloat(String(offerForm.offer_price))
+            : null,
+        offer_label:
+          offerForm.is_on_offer && offerForm.offer_label && String(offerForm.offer_label).trim() !== ""
+            ? String(offerForm.offer_label).trim()
+            : null,
+      };
+
+      const updated = await apiRequest<AdminMenuItem>(
+        `/api/admin/menu-items/${selectedItemForOffer.id}`,
+        {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        }
+      );
+      setMenuItems((prev) => prev.map((it) => (it.id === selectedItemForOffer.id ? updated : it)));
+      if (setNotice) setNotice("Special offer updated successfully");
+      closeOfferModal();
+    } catch (err: any) {
+      if (setError) setError(err?.message || "Failed to update special offer");
+      throw err;
+    } finally {
+      setIsSavingOffer(false);
+    }
   };
+
+  const handleCreateCategory = useCallback(
+    async (name: string, display_order: number = 0) => {
+      try {
+        const created = await apiRequest<AdminCategory>("/api/admin/categories", {
+          method: "POST",
+          body: JSON.stringify({ name, display_order }),
+        });
+        setCategories((prev) => [...prev, created]);
+        if (setNotice) setNotice("Category created successfully");
+        return created;
+      } catch (err: any) {
+        if (setError) setError(err?.message || "Failed to create category");
+        throw err;
+      }
+    },
+    [apiRequest, setNotice, setError]
+  );
+
+  const handleDeleteCategory = useCallback(
+    async (catId: string) => {
+      try {
+        await apiRequest(`/api/admin/categories/${catId}`, {
+          method: "DELETE",
+        });
+        setCategories((prev) => prev.filter((c) => c.id !== catId));
+        if (selectedCategory === catId) setSelectedCategory("ALL");
+        if (setNotice) setNotice("Category deleted");
+      } catch (err: any) {
+        if (setError) setError(err?.message || "Failed to delete category");
+        throw err;
+      }
+    },
+    [apiRequest, selectedCategory, setNotice, setError]
+  );
 
   return {
     categories,
@@ -229,6 +316,8 @@ export function useMenuManagement({
     handleSaveMenuItem,
     handleDeleteMenuItem,
     handleToggleAvailability,
+    handleCreateCategory,
+    handleDeleteCategory,
     // Variants
     isVariantModalOpen,
     selectedItemForVariants,
@@ -240,6 +329,9 @@ export function useMenuManagement({
     // Offers
     isOfferModalOpen,
     selectedItemForOffer,
+    offerForm,
+    setOfferForm,
+    isSavingOffer,
     openOfferModal,
     closeOfferModal,
     handleSaveOffer,

@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type {
   DiscountApproval,
   ManualBill,
@@ -55,9 +55,9 @@ export function useBillingManagement({
     setIsLoadingBilling(true);
     try {
       const [billsRes, approvalsRes, countRes] = await Promise.all([
-        apiRequest<ManualBill[]>("/api/billing/bills"),
-        apiRequest<DiscountApproval[]>("/api/billing/pending-approvals"),
-        apiRequest<{ count: number }>("/api/billing/pending-approvals-count"),
+        apiRequest<ManualBill[]>("/api/billing/bills").catch(() => []),
+        apiRequest<DiscountApproval[]>("/api/billing/pending-approvals").catch(() => []),
+        apiRequest<{ count: number }>("/api/billing/pending-approvals-count").catch(() => ({ count: 0 })),
       ]);
       setBillsList(billsRes || []);
       setPendingApprovals(approvalsRes || []);
@@ -69,10 +69,24 @@ export function useBillingManagement({
     }
   }, [apiRequest, authHeaders]);
 
+  // Auto-load billing data when authHeaders is ready
+  useEffect(() => {
+    if (authHeaders) {
+      void loadBillingData();
+    }
+  }, [authHeaders, loadBillingData]);
+
   const handleCreateBill = async (proceedToPayment = false) => {
     if (!draftCartItems.length) {
       setError("Please add at least one menu item to the bill.");
       return;
+    }
+    if (customerPhone.trim()) {
+      const cleanPhone = customerPhone.replace(/\D/g, "");
+      if (cleanPhone.length < 10) {
+        setError("Customer phone number must be at least 10 digits");
+        return;
+      }
     }
     try {
       const createdBill = await apiRequest<ManualBill>("/api/billing/bills", {
@@ -84,7 +98,10 @@ export function useBillingManagement({
           items: draftCartItems.map((item) => ({
             menu_item_id: item.menu_item_id || null,
             variant_id: item.variant_id || null,
+            item_name: item.item_name,
             quantity: item.quantity,
+            unit_price: item.unit_price,
+            pricing_type: item.pricing_type || "RETAIL",
             is_complimentary: item.is_complimentary,
           })),
         }),
@@ -106,6 +123,27 @@ export function useBillingManagement({
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create manual bill.");
     }
+  };
+
+  const handleResumeDraft = (bill: ManualBill) => {
+    setSelectedTable(bill.basket_number || "WALK-IN");
+    setCustomerName(bill.customer_name || "");
+    setCustomerPhone(bill.customer_phone || "");
+    if (bill.items && bill.items.length > 0) {
+      const itemsMapped: DraftCartItem[] = bill.items.map((it: any) => ({
+        menu_item_id: it.menu_item_id || "",
+        variant_id: it.variant_id || null,
+        item_name: it.item_name || it.menu_item?.name || "Item",
+        unit_price: typeof it.unit_price === "number" ? it.unit_price : parseFloat(it.unit_price) || 0,
+        quantity: typeof it.quantity === "number" ? it.quantity : parseFloat(it.quantity) || 1,
+        pricing_type: "RETAIL",
+        is_complimentary: !!it.is_complimentary,
+      }));
+      setDraftCartItems(itemsMapped);
+    } else {
+      setDraftCartItems([]);
+    }
+    setCreateBillModalOpen(true);
   };
 
   const handleApplyDiscount = async () => {
@@ -150,13 +188,14 @@ export function useBillingManagement({
     }
   };
 
-  const handleMarkPaid = async () => {
+  const handleMarkPaid = async (cashDenominations?: Record<string, number>) => {
     if (!paymentTargetBill) return;
     try {
       await apiRequest<ManualBill>(`/api/billing/bills/${paymentTargetBill.id}/mark-paid`, {
         method: "POST",
         body: JSON.stringify({
           payment_method: selectedPaymentMethod,
+          cash_denominations: cashDenominations || null,
         }),
       });
       setPaymentModalOpen(false);
@@ -228,6 +267,7 @@ export function useBillingManagement({
     setCashTendered,
     loadBillingData,
     handleCreateBill,
+    handleResumeDraft,
     handleApplyDiscount,
     handleResolveApproval,
     handleMarkPaid,

@@ -17,6 +17,9 @@ import {
   RefreshCw,
   Search,
   ShieldAlert,
+  Eye,
+  Download,
+  FileEdit,
 } from "lucide-react";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
 import type { DiscountApproval, ManualBill, RolePermissions } from "@/types";
@@ -37,6 +40,7 @@ type BillingTabProps = {
 
   // Modal triggers
   onOpenCreateBill: () => void;
+  onResumeDraft?: (bill: ManualBill) => void;
   onOpenDiscountModal: (bill: ManualBill) => void;
   onOpenPaymentModal: (bill: ManualBill) => void;
 };
@@ -54,6 +58,7 @@ export function BillingTab({
   billingSearchQuery,
   setBillingSearchQuery,
   onOpenCreateBill,
+  onResumeDraft,
   onOpenDiscountModal,
   onOpenPaymentModal,
 }: BillingTabProps) {
@@ -226,12 +231,26 @@ export function BillingTab({
               ) : (
                 billsList
                   .filter((b) => {
-                    if (billingStatusFilter !== "ALL" && b.status.toUpperCase() !== billingStatusFilter && b.discount_status?.toUpperCase() !== billingStatusFilter) {
-                      return false;
+                    if (billingStatusFilter !== "ALL") {
+                      const s = (b.status || "").toUpperCase();
+                      const ds = (b.discount_status || "").toUpperCase();
+                      if (billingStatusFilter === "DRAFT") {
+                        if (s !== "DRAFT" && s !== "PENDING" && s !== "PAYMENT_PENDING") return false;
+                      } else if (billingStatusFilter === "PENDING_APPROVAL") {
+                        if (ds !== "PENDING_APPROVAL") return false;
+                      } else if (billingStatusFilter === "FINALIZED") {
+                        if (s !== "FINALIZED" && s !== "COMPLETED" && s !== "PAID") return false;
+                      } else if (s !== billingStatusFilter && ds !== billingStatusFilter) {
+                        return false;
+                      }
                     }
                     if (billingSearchQuery) {
                       const q = billingSearchQuery.toLowerCase();
-                      return b.id.toLowerCase().includes(q) || b.basket_number.toLowerCase().includes(q);
+                      return (
+                        b.id.toLowerCase().includes(q) ||
+                        b.basket_number.toLowerCase().includes(q) ||
+                        (b.customer_name && b.customer_name.toLowerCase().includes(q))
+                      );
                     }
                     return true;
                   })
@@ -279,10 +298,14 @@ export function BillingTab({
                               ? "bg-amber-100 text-amber-800 animate-pulse"
                               : b.status === "CANCELLED"
                                 ? "bg-rose-100 text-rose-800"
-                                : "bg-sky-100 text-sky-800"
+                                : "bg-amber-500/20 text-amber-300 border border-amber-500/30"
                             }`}
                         >
-                          {b.discount_status === "PENDING_APPROVAL" ? "Pending Discount Approval" : b.status}
+                          {b.discount_status === "PENDING_APPROVAL"
+                            ? "Pending Discount Approval"
+                            : b.status === "PENDING"
+                              ? "DRAFT"
+                              : b.status}
                         </span>
                         {b.payment_method && (
                           <span className="block text-[10px] text-[var(--text-muted)] font-mono uppercase mt-0.5">
@@ -292,6 +315,18 @@ export function BillingTab({
                       </td>
 
                       <td className="p-3.5 text-right space-x-1">
+                        {/* Resume / Edit Draft Button */}
+                        {(b.status === "DRAFT" || b.status === "PENDING") && onResumeDraft && (
+                          <button
+                            type="button"
+                            onClick={() => onResumeDraft(b)}
+                            className="p-1.5 rounded-lg border border-amber-500/40 bg-amber-500/10 text-amber-400 hover:border-amber-400 transition"
+                            title="Resume / Edit Draft Bill"
+                          >
+                            <FileEdit className="h-4 w-4" />
+                          </button>
+                        )}
+
                         {/* Apply Discount Button */}
                         {b.status !== "PAID" && b.status !== "COMPLETED" && (
                           <button
@@ -304,29 +339,29 @@ export function BillingTab({
                           </button>
                         )}
 
-                        {/* Mark Paid Button */}
-                        {b.status !== "PAID" && b.status !== "COMPLETED" && (
+                        {/* View / Download PDF Receipt Buttons */}
+                        <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
-                            onClick={() => onOpenPaymentModal(b)}
-                            className="p-1.5 rounded-lg bg-emerald-600 text-white font-bold hover:bg-emerald-700 transition"
-                            title="Process Cash / UPI Payment"
+                            onClick={() => {
+                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, "view");
+                            }}
+                            className="p-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-500 hover:border-cyan-400 transition"
+                            title="View PDF Bill"
                           >
-                            <CreditCard className="h-4 w-4" />
+                            <Eye className="h-4 w-4" />
                           </button>
-                        )}
-
-                        {/* Print / PDF Receipt Button */}
-                        <button
-                          type="button"
-                          onClick={() => {
-                            generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT");
-                          }}
-                          className="p-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition"
-                          title="Print PDF Bill"
-                        >
-                          <Printer className="h-4 w-4" />
-                        </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, "download");
+                            }}
+                            className="p-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition"
+                            title="Download PDF Bill"
+                          >
+                            <Download className="h-4 w-4" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))

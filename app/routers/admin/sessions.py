@@ -13,6 +13,7 @@ from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
+from datetime import datetime
 from app.config import get_settings
 from app.core.shift_utils import get_current_shift_window_utc
 from app.dependencies import (
@@ -28,8 +29,9 @@ from app.models.basket_session import BasketSession
 from app.models.user import User
 from app.schemas.common import StrictSchema
 from app.schemas.session import AbandonedCartResponse, StaffAddItemsRequest, StaffAddItemsResponse
+from app.services import cart_service
 from app.services.audit_service import log_action
-from app.services.session_service import staff_add_items_to_session, terminate_session
+from app.services.session_service import _archive_session_key, save_abandoned_cart, staff_add_items_to_session, terminate_session
 
 router = APIRouter(prefix="/api/admin/sessions", tags=["admin-sessions"])
 
@@ -64,6 +66,7 @@ async def list_active_sessions(
     """
     List all ACTIVE sessions for this outlet, ordered by creation time.
     Includes active order count per session.
+    Auto-sweeps past-expiry sessions into EXPIRED or ABANDONED CARTS.
     """
     stmt = (
         select(BasketSession)
@@ -71,11 +74,41 @@ async def list_active_sessions(
             BasketSession.outlet_id == current_user.outlet_id,
             BasketSession.status == SessionStatusEnum.ACTIVE,
         )
-        .options(selectinload(BasketSession.orders))
+        .options(selectinload(BasketSession.orders), selectinload(BasketSession.customer))
         .order_by(BasketSession.created_at.desc())
     )
     result = await db.execute(stmt)
     sessions = result.scalars().all()
+
+    now = datetime.utcnow()
+    valid_active_sessions = []
+    has_swept = False
+
+    for s in sessions:
+        if s.expires_at < now:
+            s.status = SessionStatusEnum.EXPIRED
+            _archive_session_key(s)
+            has_swept = True
+
+            # If session had live draft cart items in Redis, archive as AbandonedCart
+            try:
+                cart_data = await cart_service.get_cart(s.id)
+                items = cart_data.get("items", [])
+                subtotal = Decimal(str(cart_data.get("subtotal", 0.0)))
+                if items:
+                    await save_abandoned_cart(
+                        db=db,
+                        session_id=s.id,
+                        items=items,
+                        total_estimate=subtotal,
+                    )
+            except Exception:
+                pass
+        else:
+            valid_active_sessions.append(s)
+
+    if has_swept:
+        await db.flush()
 
     return [
         ActiveSessionResponse(
@@ -88,7 +121,7 @@ async def list_active_sessions(
             expires_at=s.expires_at.isoformat(),
             order_count=len([o for o in s.orders if o.status.value not in ("CANCELLED", "REFUNDED")]),
         )
-        for s in sessions
+        for s in valid_active_sessions
     ]
 
 
@@ -161,10 +194,9 @@ async def staff_add_items_endpoint(
 ):
     """
     Staff assists customer by adding items directly to an active basket session.
-    Creates an order with source="staff_assisted", tags line items with added_by_staff_id,
-    evaluates anti-theft rules, logs audit event, and broadcasts WS event.
+    Mutates live draft cart in Redis, broadcasts WS update to customer, and logs audit.
     """
-    order = await staff_add_items_to_session(
+    res = await staff_add_items_to_session(
         db=db,
         session_id=session_id,
         outlet_id=current_user.outlet_id,
@@ -173,15 +205,65 @@ async def staff_add_items_endpoint(
     )
 
     return StaffAddItemsResponse(
-        order_id=order.id,
-        session_id=session_id,
-        basket_number=order.basket_number,
-        customer_name=order.customer_name or "Walk-In",
-        total_amount=order.total_amount,
-        status=order.status.value,
-        added_items_count=len(data.items),
-        added_by_staff_id=current_user.user_id,
+        order_id=res["order_id"],
+        session_id=res["session_id"],
+        basket_number=res["basket_number"],
+        customer_name=res["customer_name"],
+        total_amount=res["total_amount"],
+        status=res["status"],
+        added_items_count=res["added_items_count"],
+        added_by_staff_id=res["added_by_staff_id"],
     )
+
+
+@router.post(
+    "/baskets/{basket_number}/add-items",
+    response_model=StaffAddItemsResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def staff_add_items_by_basket_endpoint(
+    basket_number: str,
+    data: StaffAddItemsRequest,
+    current_user: RequireStaffOrAdmin,
+    db: DBSession,
+):
+    """
+    Staff adds items to the single active session of a smart basket (by basket_number).
+    Lookup targets the active session (`status == SessionStatusEnum.ACTIVE`) at staff's outlet.
+    """
+    stmt = select(BasketSession).where(
+        BasketSession.outlet_id == current_user.outlet_id,
+        BasketSession.basket_number == basket_number,
+        BasketSession.status == SessionStatusEnum.ACTIVE,
+    )
+    res_db = await db.execute(stmt)
+    session = res_db.scalar_one_or_none()
+
+    if not session:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No active session found for Basket #{basket_number}.",
+        )
+
+    res = await staff_add_items_to_session(
+        db=db,
+        session_id=session.id,
+        outlet_id=current_user.outlet_id,
+        staff_user=current_user,
+        data=data,
+    )
+
+    return StaffAddItemsResponse(
+        order_id=res["order_id"],
+        session_id=res["session_id"],
+        basket_number=res["basket_number"],
+        customer_name=res["customer_name"],
+        total_amount=res["total_amount"],
+        status=res["status"],
+        added_items_count=res["added_items_count"],
+        added_by_staff_id=res["added_by_staff_id"],
+    )
+
 
 
 # ── Abandoned carts ─────────────────────────────────────────────────────

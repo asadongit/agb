@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState } from "react";
 import Link from "next/link";
-import { X, CheckCircle2, Clock, BellRing, Sparkles, RefreshCw, ShieldCheck, ExternalLink, Package, Download, FileText } from "lucide-react";
+import { X, CheckCircle2, Clock, BellRing, Sparkles, RefreshCw, ShieldCheck, ExternalLink, Package, Download, FileText, Eye } from "lucide-react";
 import { useCart } from "@/context/CartContext";
 import { useSession } from "@/context/SessionContext";
 import { OrderStatus, OrderResponse } from "@/types";
@@ -108,15 +108,26 @@ export function OrderTicketSlip() {
 
         {/* The Receipt Slip Card */}
         <div className="my-4 flex-1 overflow-y-auto pr-1 space-y-4">
-          {/* Download Receipt Button above bill — ONLY WHEN PAID */}
+          {/* View / Download Receipt Buttons — ONLY WHEN PAID */}
           {(activeOrder.status === "PAID" || activeOrder.status === "COMPLETED") && (
-            <button
-              onClick={() => generateReceiptPDF(activeOrder, "Outlet Bill")}
-              className="w-full flex items-center justify-center gap-2 rounded-2xl bg-emerald-600 hover:bg-emerald-700 text-white py-3 px-4 text-xs font-bold shadow-md transition-all active:scale-98 cursor-pointer"
-            >
-              <Download className="h-4 w-4" />
-              <span>Download Official Bill / Receipt (PDF)</span>
-            </button>
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => generateReceiptPDF(activeOrder, "Outlet Bill", {}, "view")}
+                className="flex items-center justify-center gap-1.5 rounded-xl border border-cyan-500/40 bg-cyan-500/10 hover:bg-cyan-500/20 text-cyan-600 dark:text-cyan-400 py-2.5 px-3 text-xs font-bold shadow-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <Eye className="h-4 w-4 text-cyan-500" />
+                <span>View Bill (PDF)</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => generateReceiptPDF(activeOrder, "Outlet Bill", {}, "download")}
+                className="flex items-center justify-center gap-1.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white py-2.5 px-3 text-xs font-bold shadow-xs transition-all active:scale-98 cursor-pointer"
+              >
+                <Download className="h-4 w-4" />
+                <span>Download (PDF)</span>
+              </button>
+            </div>
           )}
 
           <div className="relative overflow-hidden rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4 shadow-xs">

@@ -35,16 +35,21 @@ export interface ReceiptPdfData {
 export function generateReceiptPDF(
   order: OrderResponse | ReceiptPdfData,
   restaurantName: string = "Outlet Receipt",
-  menuItemsMap?: Record<string, { name: string; price?: string }>,
-  storeDetails?: {
-    name?: string;
-    address?: string;
-    phone?: string;
-    gstin?: string;
-    fssai_no?: string;
-    logo_url?: string;
-  }
+  menuItemsMap?: Record<string, { name: string; price?: string; tax_rate?: number | string | null; tax_category?: string | null }>,
+  storeDetailsOrAction?: any,
+  actionOpt: "download" | "view" = "download"
 ) {
+  let storeDetails: any = undefined;
+  let action: "download" | "view" = actionOpt;
+
+  if (typeof storeDetailsOrAction === "string") {
+    if (storeDetailsOrAction === "download" || storeDetailsOrAction === "view") {
+      action = storeDetailsOrAction;
+    }
+  } else if (typeof storeDetailsOrAction === "object" && storeDetailsOrAction !== null) {
+    storeDetails = storeDetailsOrAction;
+  }
+
   // Pure Monospaced Courier Thermal POS Format (80mm Paper)
   const doc = new jsPDF({
     orientation: "portrait",
@@ -207,34 +212,85 @@ export function generateReceiptPDF(
   const finalY = (doc as any).lastAutoTable.finalY + 2;
   drawDashedLine(finalY);
 
-  // 4. TAX & FINANCIAL SUMMARY GRID (Clean Monospaced Offsets)
+  // 4. TAX & FINANCIAL SUMMARY GRID (Dynamic CGST/SGST by Item Tax Rates)
   let summaryY = finalY + 4;
   const totalAmountNum = parseFloat(String(order.total_amount || 0));
-  const subtotalWithoutTax =
-    (order as any).subtotal_without_tax ?? totalAmountNum / 1.05;
-  const totalTax =
-    (order as any).total_tax ?? totalAmountNum - subtotalWithoutTax;
-  const cgst = (order as any).cgst ?? totalTax / 2;
-  const sgst = (order as any).sgst ?? totalTax / 2;
+
+  let subtotalExclTax = 0;
+  let totalCalculatedTax = 0;
+
+  // Group taxes by rate (e.g. 5, 12, 18, 0)
+  const taxGroupMap: Record<number, { base: number; tax: number }> = {};
+
+  const itemsList = order.items || [];
+  if (itemsList.length > 0) {
+    itemsList.forEach((item: any) => {
+      const qtyVal = parseFloat(String(item.quantity || "0"));
+      const unitPrice = parseFloat(String(item.unit_price || "0"));
+      const lineTotal = item.line_total ? parseFloat(String(item.line_total)) : qtyVal * unitPrice;
+
+      // Determine tax_rate for this item
+      let itemTaxRate = 5.0; // default 5% fallback if unspecified
+      if (item.tax_rate !== undefined && item.tax_rate !== null) {
+        itemTaxRate = parseFloat(String(item.tax_rate));
+      } else if (item.item_tax_rate !== undefined && item.item_tax_rate !== null) {
+        itemTaxRate = parseFloat(String(item.item_tax_rate));
+      } else if (menuItemsMap && item.menu_item_id && menuItemsMap[item.menu_item_id]?.tax_rate !== undefined && menuItemsMap[item.menu_item_id]?.tax_rate !== null) {
+        itemTaxRate = parseFloat(String(menuItemsMap[item.menu_item_id].tax_rate));
+      }
+
+      if (isNaN(itemTaxRate)) itemTaxRate = 5.0;
+
+      const baseAmount = itemTaxRate > 0 ? lineTotal / (1 + itemTaxRate / 100) : lineTotal;
+      const taxAmount = lineTotal - baseAmount;
+
+      subtotalExclTax += baseAmount;
+      totalCalculatedTax += taxAmount;
+
+      if (!taxGroupMap[itemTaxRate]) {
+        taxGroupMap[itemTaxRate] = { base: 0, tax: 0 };
+      }
+      taxGroupMap[itemTaxRate].base += baseAmount;
+      taxGroupMap[itemTaxRate].tax += taxAmount;
+    });
+  } else {
+    // Fallback if no items array
+    subtotalExclTax = (order as any).subtotal_without_tax ?? totalAmountNum / 1.05;
+    totalCalculatedTax = (order as any).total_tax ?? totalAmountNum - subtotalExclTax;
+    taxGroupMap[5.0] = { base: subtotalExclTax, tax: totalCalculatedTax };
+  }
 
   doc.setFont("courier", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
 
   doc.text("Subtotal (Excl. Tax)", margin, summaryY);
-  doc.text(`INR ${subtotalWithoutTax.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  doc.text(`INR ${subtotalExclTax.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+
+  const taxRates = Object.keys(taxGroupMap).map(Number).sort((a, b) => a - b);
+
+  taxRates.forEach((rate) => {
+    const group = taxGroupMap[rate];
+    const groupTax = group.tax;
+    const cgstVal = groupTax / 2;
+    const sgstVal = groupTax / 2;
+
+    const cgstRateLabel = (rate / 2).toFixed(1).replace(/\.0$/, "");
+    const sgstRateLabel = (rate / 2).toFixed(1).replace(/\.0$/, "");
+
+    summaryY += 3.5;
+    doc.text(`CGST @ ${cgstRateLabel}%`, margin, summaryY);
+    doc.text(`INR ${cgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+
+    summaryY += 3.5;
+    doc.text(`SGST @ ${sgstRateLabel}%`, margin, summaryY);
+    doc.text(`INR ${sgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  });
 
   summaryY += 3.5;
-  doc.text("CGST @ 2.5%", margin, summaryY);
-  doc.text(`INR ${cgst.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-
-  summaryY += 3.5;
-  doc.text("SGST @ 2.5%", margin, summaryY);
-  doc.text(`INR ${sgst.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-
-  summaryY += 3.5;
-  doc.text("Total GST Tax (5%)", margin, summaryY);
-  doc.text(`INR ${totalTax.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  const overallTaxRateLabel = taxRates.length === 1 ? ` (${taxRates[0]}%)` : "";
+  doc.text(`Total GST Tax${overallTaxRateLabel}`, margin, summaryY);
+  doc.text(`INR ${totalCalculatedTax.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
 
   summaryY += 2;
   drawDashedLine(summaryY);
@@ -267,7 +323,12 @@ export function generateReceiptPDF(
   summaryY += 3.5;
   doc.text("*** HAVE A GREAT DAY ***", pageWidth / 2, summaryY, { align: "center" });
 
-  doc.save(`Receipt-${invoiceNo}.pdf`);
+  if (action === "view") {
+    const blobUrl = doc.output("bloburl");
+    window.open(blobUrl, "_blank");
+  } else {
+    doc.save(`Receipt-${invoiceNo}.pdf`);
+  }
 }
 
 export function generateAnalyticsPdfReport(

@@ -93,10 +93,12 @@ def create_app() -> FastAPI:
     from app.routers.admin.staff import router as staff_router
     from app.routers.admin.analytics import router as analytics_router
     from app.routers.admin.billing import router as billing_router
+    from app.routers.admin.customers import router as customers_router
     from app.routers.admin.sessions import router as admin_sessions_router
     from app.routers.public.menu import router as public_menu_router
     from app.routers.public.orders import router as public_orders_router
     from app.routers.public.sessions import router as sessions_router
+    from app.routers.public.cart import router as cart_router
     from app.routers.webhooks.razorpay import router as razorpay_router
     from app.routers.ws import router as ws_router
     from app.routers.upload import router as upload_router
@@ -111,10 +113,12 @@ def create_app() -> FastAPI:
     app.include_router(staff_router)
     app.include_router(analytics_router)
     app.include_router(billing_router)
+    app.include_router(customers_router)
     app.include_router(admin_sessions_router)
     app.include_router(public_menu_router)
     app.include_router(public_orders_router)
     app.include_router(sessions_router)
+    app.include_router(cart_router)
     app.include_router(razorpay_router)
     app.include_router(ws_router)
     app.include_router(upload_router)

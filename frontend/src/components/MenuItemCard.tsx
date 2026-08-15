@@ -106,20 +106,32 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
               <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-semibold">
                 {item.is_on_offer ? "Offer Price" : "Price"}
               </span>
-              <div className="flex items-baseline gap-1.5">
+              <div className="flex items-baseline gap-1.5 flex-wrap">
                 {item.is_on_offer && item.offer_price ? (
                   <>
                     <span className="font-sans text-sm font-black tracking-tight text-[var(--accent-brand)]">
                       ₹{parseFloat(item.offer_price).toFixed(2)}
                     </span>
-                    <span className="font-sans text-xs font-semibold text-[var(--text-muted)] line-through decoration-rose-500/80">
+                    <span className="font-sans text-[11px] font-semibold text-[var(--text-muted)] line-through decoration-rose-500/80">
                       ₹{parseFloat(item.price).toFixed(2)}
                     </span>
+                    {item.mrp && parseFloat(String(item.mrp)) > 0 && (
+                      <span className="font-sans text-[10px] text-[var(--text-muted)] opacity-80">
+                        MRP <span className="line-through font-mono">₹{parseFloat(String(item.mrp)).toFixed(2)}</span>
+                      </span>
+                    )}
                   </>
                 ) : (
-                  <span className="font-sans text-sm font-black tracking-tight text-[var(--text-primary)]">
-                    ₹{parseFloat(item.price).toFixed(2)}
-                  </span>
+                  <>
+                    <span className="font-sans text-sm font-black tracking-tight text-[var(--text-primary)]">
+                      ₹{parseFloat(item.price).toFixed(2)}
+                    </span>
+                    {item.mrp && parseFloat(String(item.mrp)) > 0 && (
+                      <span className="font-sans text-[10px] text-[var(--text-muted)] font-medium">
+                        MRP <span className="line-through decoration-rose-500/70 font-mono">₹{parseFloat(String(item.mrp)).toFixed(2)}</span>
+                      </span>
+                    )}
+                  </>
                 )}
               </div>
             </div>

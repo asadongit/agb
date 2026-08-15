@@ -107,6 +107,7 @@ async def create_menu_item(
         id=uuid.uuid4(),
         outlet_id=current_user.outlet_id,
         category_id=data.category_id,
+        inventory_item_id=data.inventory_item_id,
         name=data.name.strip(),
         barcode=data.barcode.strip() if data.barcode else None,
         description=data.description,
@@ -117,6 +118,9 @@ async def create_menu_item(
         is_verification_required=data.is_verification_required,
         offer_price=data.offer_price,
         offer_label=data.offer_label,
+        mrp=data.mrp,
+        tax_category=data.tax_category,
+        tax_rate=data.tax_rate,
         pricing_mode=data.pricing_mode,
         unit_label=data.unit_label,
     )
@@ -204,7 +208,9 @@ async def update_menu_item(
             detail="Menu item not found",
         )
 
-    if data.category_id is not None:
+    fields_set = data.model_fields_set
+
+    if "category_id" in fields_set and data.category_id is not None:
         cat_res = await db.execute(
             select(Category).where(
                 Category.id == data.category_id,
@@ -218,29 +224,37 @@ async def update_menu_item(
             )
         item.category_id = data.category_id
 
-    if data.name is not None:
+    if "inventory_item_id" in fields_set:
+        item.inventory_item_id = data.inventory_item_id
+    if "name" in fields_set and data.name is not None:
         item.name = data.name.strip()
-    if data.barcode is not None:
+    if "barcode" in fields_set:
         item.barcode = data.barcode.strip() if data.barcode else None
-    if data.description is not None:
+    if "description" in fields_set:
         item.description = data.description
-    if data.price is not None:
+    if "price" in fields_set and data.price is not None:
         item.price = data.price
-    if data.image_url is not None:
+    if "image_url" in fields_set:
         item.image_url = data.image_url
-    if data.is_available is not None:
+    if "is_available" in fields_set and data.is_available is not None:
         item.is_available = data.is_available
-    if data.is_on_offer is not None:
+    if "is_on_offer" in fields_set and data.is_on_offer is not None:
         item.is_on_offer = data.is_on_offer
-    if data.is_verification_required is not None:
+    if "is_verification_required" in fields_set and data.is_verification_required is not None:
         item.is_verification_required = data.is_verification_required
-    if data.offer_price is not None:
+    if "offer_price" in fields_set:
         item.offer_price = data.offer_price
-    if data.offer_label is not None:
+    if "offer_label" in fields_set:
         item.offer_label = data.offer_label
-    if data.pricing_mode is not None:
+    if "mrp" in fields_set:
+        item.mrp = data.mrp
+    if "tax_category" in fields_set:
+        item.tax_category = data.tax_category
+    if "tax_rate" in fields_set:
+        item.tax_rate = data.tax_rate
+    if "pricing_mode" in fields_set and data.pricing_mode is not None:
         item.pricing_mode = data.pricing_mode
-    if data.unit_label is not None:
+    if "unit_label" in fields_set and data.unit_label is not None:
         item.unit_label = data.unit_label
 
     await db.flush()

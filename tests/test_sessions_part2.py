@@ -258,10 +258,11 @@ class TestPart2Sessions:
         assert float(data["total_amount"]) == 120.00
         assert data["added_by_staff_id"] == str(admin.id)
 
-        # Check customer session status returns the new staff-assisted order
-        status_res = await client.get(f"/api/sessions/{session_id}")
-        assert status_res.status_code == 200
-        orders = status_res.json()["orders"]
-        assert len(orders) == 1
-        assert orders[0]["source"] == "staff_assisted"
-        assert float(orders[0]["total_amount"]) == 120.00
+        # Check customer live cart returns the new staff-assisted items
+        cart_res = await client.get(f"/api/sessions/{session_id}/cart")
+        assert cart_res.status_code == 200
+        cart = cart_res.json()
+        assert len(cart["items"]) == 1
+        assert cart["items"][0]["added_by"] == "staff"
+        assert float(cart["subtotal"]) == 120.00
+

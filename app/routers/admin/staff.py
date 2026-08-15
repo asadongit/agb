@@ -325,3 +325,139 @@ async def list_staff_audit_log_endpoint(
         page_size=page_size,
         total_pages=total_pages,
     )
+
+
+# ── Staff Incentives & Performance ──────────────────────────────────────
+
+
+@router.get("/incentives/report")
+async def get_staff_incentives_report(
+    current_user: RequireAdmin,
+    db: DBSession,
+    start_date: str | None = Query(None, description="Format: YYYY-MM-DD"),
+    end_date: str | None = Query(None, description="Format: YYYY-MM-DD"),
+):
+    """
+    Store-wide staff incentive report for settled orders.
+    Calculates total items assisted, sales volume generated, and estimated commission.
+    """
+    from app.models.enums import OrderStatusEnum
+    from app.models.order import Order
+    from app.models.order_item import OrderItem
+    from app.models.user import User
+
+    stmt = (
+        select(
+            OrderItem.added_by_staff_id,
+            User.name.label("staff_name"),
+            User.email.label("staff_email"),
+            func.count(OrderItem.id).label("item_count"),
+            func.sum(OrderItem.quantity).label("total_quantity"),
+            func.sum(OrderItem.unit_price * OrderItem.quantity).label("total_sales"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .join(User, User.id == OrderItem.added_by_staff_id)
+        .where(
+            Order.outlet_id == current_user.outlet_id,
+            Order.status == OrderStatusEnum.COMPLETED,
+            OrderItem.added_by_staff_id.isnot(None),
+        )
+    )
+
+    if start_date:
+        try:
+            dt_start = datetime.strptime(start_date, "%Y-%m-%d")
+            stmt = stmt.where(Order.created_at >= dt_start)
+        except ValueError:
+            pass
+
+    if end_date:
+        try:
+            dt_end = datetime.strptime(end_date + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+            stmt = stmt.where(Order.created_at <= dt_end)
+        except ValueError:
+            pass
+
+    stmt = stmt.group_by(OrderItem.added_by_staff_id, User.name, User.email)
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    report_items = []
+    grand_total_sales = 0.0
+    grand_total_items = 0
+
+    for r in rows:
+        sales = float(r.total_sales or 0.0)
+        items_cnt = int(r.total_quantity or 0)
+        est_incentive = round(sales * 0.05, 2)
+        grand_total_sales += sales
+        grand_total_items += items_cnt
+
+        report_items.append({
+            "staff_id": str(r.added_by_staff_id),
+            "staff_name": r.staff_name or r.staff_email or "Staff",
+            "assisted_items_count": items_cnt,
+            "total_assisted_sales": sales,
+            "estimated_incentive": est_incentive,
+            "commission_rate": "5%",
+        })
+
+    return {
+        "outlet_id": str(current_user.outlet_id),
+        "start_date": start_date,
+        "end_date": end_date,
+        "grand_total_sales": grand_total_sales,
+        "grand_total_items": grand_total_items,
+        "staff_reports": report_items,
+    }
+
+
+@router.get("/incentives/my-performance")
+async def get_my_incentive_performance(
+    current_user: AuthenticatedUser,
+    db: DBSession,
+):
+    """
+    Get personal incentive performance metrics for the logged-in staff member.
+    """
+    from app.models.enums import OrderStatusEnum
+    from app.models.order import Order
+    from app.models.order_item import OrderItem
+
+    staff_id = current_user.user_id
+    if not staff_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="User ID not found in current token.",
+        )
+
+    stmt = (
+        select(
+            func.count(OrderItem.id).label("item_count"),
+            func.sum(OrderItem.quantity).label("total_quantity"),
+            func.sum(OrderItem.unit_price * OrderItem.quantity).label("total_sales"),
+        )
+        .join(Order, Order.id == OrderItem.order_id)
+        .where(
+            OrderItem.added_by_staff_id == staff_id,
+            Order.status == OrderStatusEnum.COMPLETED,
+        )
+    )
+
+    res = await db.execute(stmt)
+    row = res.one_or_none()
+
+    total_sales = float(row.total_sales or 0.0) if row else 0.0
+    items_count = int(row.total_quantity or 0) if row else 0
+    est_incentive = round(total_sales * 0.05, 2)
+
+    return {
+        "staff_id": str(staff_id),
+        "user_email": current_user.email,
+        "role": current_user.role,
+        "total_assisted_items": items_count,
+        "total_assisted_sales": total_sales,
+        "estimated_incentive": est_incentive,
+        "commission_rate": "5%",
+    }
+

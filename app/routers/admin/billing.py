@@ -21,6 +21,7 @@ from app.dependencies import (
 from app.models.bill_discount_approval import BillDiscountApproval
 from app.models.enums import RoleEnum
 from app.models.order import Order
+from app.models.order_item import OrderItem
 from app.models.user import User
 from app.schemas.billing import (
     ApplyDiscountRequest,
@@ -47,16 +48,29 @@ router = APIRouter(prefix="/api/billing", tags=["billing"])
 def _format_bill_response(order: Order) -> BillResponse:
     items_out = []
     for item in order.items:
+        qty = float(item.quantity) if item.quantity is not None else 1.0
+        price = float(item.unit_price) if item.unit_price is not None else 0.0
+        l_total = float(item.line_total) if item.line_total is not None else (qty * price)
+
+        name_val = item.item_name
+        if not name_val:
+            try:
+                name_val = item.menu_item.name if getattr(item, "menu_item", None) else None
+            except Exception:
+                name_val = None
+        if not name_val:
+            name_val = "Item"
+
         items_out.append(
             {
                 "id": str(item.id),
                 "menu_item_id": str(item.menu_item_id) if item.menu_item_id else None,
                 "variant_id": str(item.variant_id) if item.variant_id else None,
-                "item_name": item.item_name or "Item",
-                "quantity": item.quantity,
-                "unit_price": float(item.unit_price or 0.0),
-                "is_complimentary": item.is_complimentary,
-                "line_total": float(item.line_total or 0.0),
+                "item_name": name_val,
+                "quantity": qty,
+                "unit_price": price,
+                "is_complimentary": getattr(item, "is_complimentary", False),
+                "line_total": l_total,
             }
         )
 
@@ -161,7 +175,13 @@ async def mark_paid_endpoint(
     """Record Cash or UPI payment and mark bill as paid."""
     if not current_user.outlet_id:
         raise HTTPException(status_code=400, detail="outlet_id required")
-    order = await mark_bill_paid(db, bill_id, current_user.outlet_id, data.payment_method)
+    order = await mark_bill_paid(
+        db,
+        bill_id,
+        current_user.outlet_id,
+        data.payment_method,
+        cash_denominations=data.cash_denominations,
+    )
     return _format_bill_response(order)
 
 
@@ -233,7 +253,7 @@ async def list_bills_endpoint(
 
     stmt = (
         select(Order)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
         .where(Order.outlet_id == current_user.outlet_id)
     )
 
@@ -261,7 +281,7 @@ async def get_bill_endpoint(
 
     res = await db.execute(
         select(Order)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
         .where(
             Order.id == bill_id,
             Order.outlet_id == current_user.outlet_id,

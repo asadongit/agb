@@ -14,6 +14,7 @@ import {
   RefreshCw,
   ShoppingBag,
   XCircle,
+  Eye,
 } from "lucide-react";
 import { getApiBaseUrl, parseUTCDate } from "@/lib/api";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
@@ -341,15 +342,25 @@ export default function OrderTrackingPage() {
                         </p>
                       )}
                     </div>
-                    {/* DOWNLOAD BILL BUTTON — STRICTLY ONLY WHEN PAID */}
-                    <button
-                      type="button"
-                      onClick={() => generateReceiptPDF(receiptData || order, storeName)}
-                      title="Download Official Bill PDF"
-                      className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-white text-amber-800 shadow-md transition-transform hover:scale-105 active:scale-95 cursor-pointer"
-                    >
-                      <Download className="h-5 w-5" />
-                    </button>
+                    {/* VIEW & DOWNLOAD BILL BUTTONS — STRICTLY ONLY WHEN PAID */}
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => generateReceiptPDF(receiptData || order, storeName, {}, "view")}
+                        title="View Official Bill PDF"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-cyan-500/20 text-cyan-600 dark:text-cyan-300 border border-cyan-400/40 shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                      >
+                        <Eye className="h-5 w-5" />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => generateReceiptPDF(receiptData || order, storeName, {}, "download")}
+                        title="Download Official Bill PDF"
+                        className="flex h-11 w-11 items-center justify-center rounded-xl bg-emerald-600 text-white shadow-sm transition-transform hover:scale-105 active:scale-95 cursor-pointer"
+                      >
+                        <Download className="h-5 w-5" />
+                      </button>
+                    </div>
                   </div>
                 </div>
 

@@ -18,6 +18,7 @@ from app.database import Base
 if TYPE_CHECKING:
     from app.models.inventory_item import InventoryItem
     from app.models.outlet import Outlet
+    from app.models.user import User
 
 
 class StockIntake(Base):
@@ -43,6 +44,9 @@ class StockIntake(Base):
     )
     quantity: Mapped[Decimal] = mapped_column(
         Numeric(12, 3), nullable=False
+    )
+    initial_quantity: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 3), nullable=True
     )
     remaining_quantity: Mapped[Decimal] = mapped_column(
         Numeric(12, 3), nullable=False, default=Decimal("0.000")

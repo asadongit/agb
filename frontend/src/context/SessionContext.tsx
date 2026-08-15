@@ -37,7 +37,8 @@ interface SessionContextType {
   customerName: string;
   customerPhone: string;
   tableNumber: string;
-  restaurantSlug: string;
+  outletSlug: string;
+  restaurantSlug: string; // alias to outletSlug
   isSessionActive: boolean;
   isSessionLoading: boolean;
   sessionOrders: OrderResponse[];
@@ -59,6 +60,7 @@ interface SessionContextType {
   abandonCart: (cartItems: CartItem[], totalAmount: number) => Promise<void>;
   clearSession: () => void;
   setTableNumber: (table: string) => void;
+  setOutletSlug: (slug: string) => void;
   setRestaurantSlug: (slug: string) => void;
 }
 
@@ -95,7 +97,9 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
   const [tableNumber, setTableNumber] = useState("");
-  const [restaurantSlug, setRestaurantSlug] = useState("apnagreenbasket-jammu");
+  const [outletSlug, setOutletSlug] = useState("apnagreenbasket-jammu");
+  const restaurantSlug = outletSlug;
+  const setRestaurantSlug = setOutletSlug;
   const [isSessionActive, setIsSessionActive] = useState(false);
   const [isSessionLoading, setIsSessionLoading] = useState(true);
   const [sessionOrders, setSessionOrders] = useState<OrderResponse[]>([]);
@@ -283,7 +287,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     async (name: string, phone?: string): Promise<StartSessionResponse> => {
       const apiBase = getApiBaseUrl();
       const activeTable = tableNumber.trim() || "1";
-      const activeSlug = restaurantSlug.trim() || "apnagreenbasket-jammu";
+      const activeSlug = outletSlug.trim() || "apnagreenbasket-jammu";
       const res = await fetch(`${apiBase}/api/sessions/start`, {
         method: "POST",
         headers: {
@@ -291,7 +295,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
           "bypass-tunnel-reminder": "true",
         },
         body: JSON.stringify({
-          restaurant_slug: activeSlug,
+          outlet_slug: activeSlug,
           basket_number: activeTable,
           customer_name: name.trim(),
           customer_phone: phone?.trim() || null,
@@ -442,7 +446,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         customerName,
         customerPhone,
         tableNumber,
-        restaurantSlug,
+        outletSlug,
+        restaurantSlug: outletSlug,
         isSessionActive,
         isSessionLoading,
         sessionOrders,
@@ -457,7 +462,8 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         abandonCart,
         clearSession,
         setTableNumber,
-        setRestaurantSlug,
+        setOutletSlug,
+        setRestaurantSlug: setOutletSlug,
       }}
     >
       {children}

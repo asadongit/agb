@@ -6,6 +6,7 @@ import {
   AlertTriangle,
   Barcode,
   Boxes,
+  Building2,
   Calendar,
   CheckCircle2,
   Clock,
@@ -14,15 +15,21 @@ import {
   Filter,
   History,
   Layers,
+  Mail,
+  MapPin,
   Package,
   PackageCheck,
   PackageX,
+  Phone,
   Plus,
   RefreshCw,
   ScanLine,
   Search,
   Sparkles,
   Tag,
+  RotateCcw,
+  FileText,
+  Printer,
   Trash2,
   TrendingDown,
   TrendingUp,
@@ -32,19 +39,30 @@ import type {
   BatchExpiryAlert,
   InventoryItem,
   InventoryUnit,
+  PurchaseReturn,
   StockChangeType,
   StockLedgerEntry,
+  Supplier,
   WastageReason,
 } from "@/types";
 import { BarcodeRegisterModal } from "../components/BarcodeRegisterModal";
 import { LogWastageModal } from "../modals/LogWastageModal";
+import { BatchHistoryDrawer } from "../components/BatchHistoryDrawer";
+import { AddSupplierModal } from "../components/AddSupplierModal";
+import { AdjustBatchStockModal } from "../components/AdjustBatchStockModal";
+import { ReturnBillModal } from "../components/ReturnBillModal";
 import type { InventoryTabType, ScanFeedItem } from "../hooks/useInventoryManagement";
 
 interface InventoryTabProps {
   activeSubTab: InventoryTabType;
   setActiveSubTab: (tab: InventoryTabType) => void;
+  inventoryViewMode?: "combined" | "batches";
+  setInventoryViewMode?: (mode: "combined" | "batches") => void;
   items: InventoryItem[];
   batches: BatchDetail[];
+  suppliers?: Supplier[];
+  createSupplier?: (data: { name: string; phone?: string; email?: string; address?: string }) => Promise<any>;
+  fetchBatches?: (itemId?: string) => Promise<any>;
   alerts: BatchExpiryAlert[];
   ledgerEntries: StockLedgerEntry[];
   ledgerTotal: number;
@@ -65,6 +83,13 @@ interface InventoryTabProps {
   scanFeed: ScanFeedItem[];
   handleBarcodeScan: (code: string) => Promise<void>;
   onboardScannedItem: (data: any) => Promise<void>;
+  // Batch Drawer & Supplier Modal
+  selectedBatchItem?: InventoryItem | null;
+  isBatchDrawerOpen?: boolean;
+  openBatchDrawer?: (item: InventoryItem) => void;
+  closeBatchDrawer?: () => void;
+  isAddSupplierModalOpen?: boolean;
+  setIsAddSupplierModalOpen?: (open: boolean) => void;
   // Wastage
   isWastageModalOpen: boolean;
   selectedWastageItem: InventoryItem | null;
@@ -78,13 +103,20 @@ interface InventoryTabProps {
     notes?: string;
     batch_number?: string;
   }) => Promise<void>;
+  catalogCategories?: { id: string; name: string }[];
+  authToken?: string;
 }
 
 export function InventoryTab({
   activeSubTab,
   setActiveSubTab,
+  inventoryViewMode = "combined",
+  setInventoryViewMode,
   items,
   batches,
+  suppliers = [],
+  createSupplier,
+  fetchBatches,
   alerts,
   ledgerEntries,
   ledgerTotal,
@@ -105,24 +137,56 @@ export function InventoryTab({
   scanFeed,
   handleBarcodeScan,
   onboardScannedItem,
+  selectedBatchItem,
+  isBatchDrawerOpen = false,
+  openBatchDrawer,
+  closeBatchDrawer,
+  isAddSupplierModalOpen = false,
+  setIsAddSupplierModalOpen,
   isWastageModalOpen,
   selectedWastageItem,
   selectedWastageBatch,
   openWastageModal,
   closeWastageModal,
   logWastage,
+  catalogCategories,
+  authToken,
 }: InventoryTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [manualBarcodeInput, setManualBarcodeInput] = useState("");
 
+  // Batch Stock Adjustment Modal state
+  const [selectedAdjustBatch, setSelectedAdjustBatch] = useState<BatchDetail | null>(null);
+  const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
+
+  // Return Bill Modal state
+  const [selectedReturnBill, setSelectedReturnBill] = useState<PurchaseReturn | null>(null);
+  const [isReturnBillModalOpen, setIsReturnBillModalOpen] = useState(false);
+
   const categories = useMemo(() => {
     const set = new Set<string>();
+    if (catalogCategories && catalogCategories.length > 0) {
+      catalogCategories.forEach((c) => set.add(c.name));
+    }
     items.forEach((i) => {
       if (i.category) set.add(i.category);
     });
     return Array.from(set);
-  }, [items]);
+  }, [items, catalogCategories]);
+
+  const filteredSuppliers = useMemo(() => {
+    if (!supplierSearchQuery.trim()) return suppliers;
+    const q = supplierSearchQuery.toLowerCase().trim();
+    return suppliers.filter(
+      (s) =>
+        s.name.toLowerCase().includes(q) ||
+        (s.phone && s.phone.toLowerCase().includes(q)) ||
+        (s.email && s.email.toLowerCase().includes(q)) ||
+        (s.address && s.address.toLowerCase().includes(q))
+    );
+  }, [suppliers, supplierSearchQuery]);
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
@@ -193,50 +257,84 @@ export function InventoryTab({
       </div>
 
       {/* Sub Tabs Navigation */}
-      <div className="flex flex-wrap items-center gap-2 border-b border-[var(--border-subtle)] pb-3">
-        <button
-          type="button"
-          onClick={() => setActiveSubTab("items")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
-            activeSubTab === "items"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
-              : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
-          }`}
-        >
-          <ScanLine className="h-4 w-4" />
-          Barcode & Item Master
-        </button>
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("items")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              activeSubTab === "items"
+                ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
+                : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
+            }`}
+          >
+            <ScanLine className="h-4 w-4" />
+            Barcode & Item Master
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab("batches")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
-            activeSubTab === "batches"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
-              : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
-          }`}
-        >
-          <Layers className="h-4 w-4" />
-          Batch Lots & FEFO
-          {batches.length > 0 && (
-            <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
-              {batches.length}
-            </span>
-          )}
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("batches")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              activeSubTab === "batches"
+                ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
+                : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
+            }`}
+          >
+            <Layers className="h-4 w-4" />
+            Batch Lots & FEFO
+            {batches.length > 0 && (
+              <span className="rounded-full bg-white/20 px-1.5 py-0.2 text-[10px]">
+                {batches.length}
+              </span>
+            )}
+          </button>
 
-        <button
-          type="button"
-          onClick={() => setActiveSubTab("ledger")}
-          className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
-            activeSubTab === "ledger"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
-              : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
-          }`}
-        >
-          <History className="h-4 w-4" />
-          Movement Ledger
-        </button>
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("suppliers")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              activeSubTab === "suppliers"
+                ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
+                : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
+            }`}
+          >
+            <Building2 className="h-4 w-4 text-purple-400" />
+            Suppliers & Vendors
+            {suppliers.length > 0 && (
+              <span className="rounded-full bg-purple-500/20 text-purple-300 px-1.5 py-0.2 text-[10px] font-mono">
+                {suppliers.length}
+              </span>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveSubTab("ledger")}
+            className={`flex items-center gap-2 rounded-xl px-4 py-2 text-xs font-bold transition ${
+              activeSubTab === "ledger"
+                ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-md"
+                : "bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)]"
+            }`}
+          >
+            <History className="h-4 w-4" />
+            Movement Ledger
+          </button>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setScannedBarcode("");
+              setIsRegisterModalOpen(true);
+            }}
+            className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition active:scale-95 cursor-pointer"
+          >
+            <Plus className="h-4 w-4" />
+            + Add Stock / Register Product
+          </button>
+        </div>
       </div>
 
       {/* Sub-Tab 1: Barcode Scanner Station & Item Master */}
@@ -360,8 +458,24 @@ export function InventoryTab({
                 <tbody className="divide-y divide-[var(--border-subtle)]">
                   {filteredItems.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-8 text-center text-[var(--text-muted)]">
-                        No inventory items found. Scan a barcode or inward stock.
+                      <td colSpan={6} className="py-12 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <Package className="h-10 w-10 text-[var(--text-muted)] opacity-50" />
+                          <p className="text-sm font-medium text-[var(--text-muted)]">
+                            No inventory items found. Scan a barcode or inward stock.
+                          </p>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setScannedBarcode("");
+                              setIsRegisterModalOpen(true);
+                            }}
+                            className="inline-flex items-center gap-1.5 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition active:scale-95"
+                          >
+                            <Plus className="h-4 w-4" />
+                            + Add First Stock / Register Product
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ) : (
@@ -414,16 +528,43 @@ export function InventoryTab({
                           </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {/* View Batches Button */}
+                              {openBatchDrawer && (
+                                <button
+                                  type="button"
+                                  onClick={() => openBatchDrawer(item)}
+                                  className="inline-flex items-center gap-1 rounded-lg border border-cyan-500/30 bg-cyan-500/10 px-2.5 py-1 text-[11px] font-bold text-cyan-400 hover:bg-cyan-500/20 transition cursor-pointer"
+                                  title="View all arrival batches for this item"
+                                >
+                                  <Layers className="h-3.5 w-3.5" />
+                                  View Batches
+                                </button>
+                              )}
+
                               {/* Log Wastage Button */}
-                              <button
-                                type="button"
-                                onClick={() => openWastageModal(item)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-500/20 transition"
-                                title="Log spoilage, damage, or loss write-off"
-                              >
-                                <PackageX className="h-3.5 w-3.5" />
-                                Log Wastage
-                              </button>
+                              {(() => {
+                                const isOutOfStock = parseFloat(item.current_stock) <= 0;
+                                return (
+                                  <button
+                                    type="button"
+                                    disabled={isOutOfStock}
+                                    onClick={() => openWastageModal(item)}
+                                    className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                                      isOutOfStock
+                                        ? "border-gray-500/20 bg-gray-500/10 text-gray-500 cursor-not-allowed opacity-50"
+                                        : "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 cursor-pointer"
+                                    }`}
+                                    title={
+                                      isOutOfStock
+                                        ? "Cannot log wastage for item with 0 stock"
+                                        : "Log spoilage, damage, or loss write-off"
+                                    }
+                                  >
+                                    <PackageX className="h-3.5 w-3.5" />
+                                    Log Wastage
+                                  </button>
+                                );
+                              })()}
                             </div>
                           </td>
                         </tr>
@@ -458,7 +599,8 @@ export function InventoryTab({
                   <tr>
                     <th className="py-3 px-4">Batch Number</th>
                     <th className="py-3 px-4">Product Name</th>
-                    <th className="py-3 px-4">Arrival Qty</th>
+                    <th className="py-3 px-4">Initial Gross Qty</th>
+                    <th className="py-3 px-4">Sorted Usable Qty</th>
                     <th className="py-3 px-4">Remaining</th>
                     <th className="py-3 px-4">Expiry Date</th>
                     <th className="py-3 px-4">Status</th>
@@ -468,7 +610,7 @@ export function InventoryTab({
                 <tbody className="divide-y divide-[var(--border-subtle)]">
                   {batches.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={8} className="py-8 text-center text-[var(--text-muted)]">
                         No batch records found yet.
                       </td>
                     </tr>
@@ -487,7 +629,10 @@ export function InventoryTab({
                             {b.item_name}
                           </td>
                           <td className="py-3 px-4 font-mono text-[var(--text-secondary)]">
-                            {b.quantity} {b.unit}
+                            {Number(b.initial_quantity ?? b.quantity).toFixed(2)} {b.unit}
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold text-cyan-400">
+                            {Number(b.quantity).toFixed(2)} {b.unit}
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-emerald-400">
                             {b.remaining_quantity} {b.unit}
@@ -511,20 +656,175 @@ export function InventoryTab({
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
-                            {matchedItem && (
+                            <div className="flex items-center justify-end gap-1.5">
                               <button
                                 type="button"
-                                onClick={() => openWastageModal(matchedItem, b)}
-                                className="inline-flex items-center gap-1 rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[11px] font-semibold text-red-400 hover:bg-red-500/20 transition"
+                                onClick={() => {
+                                  setSelectedAdjustBatch(b);
+                                  setIsAdjustModalOpen(true);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
+                                title="Adjust stock, return to supplier (issue bill), or void batch"
                               >
-                                <PackageX className="h-3.5 w-3.5" />
-                                Write Off Batch
+                                <RotateCcw className="h-3.5 w-3.5" />
+                                Adjust / Return Stock
                               </button>
-                            )}
+
+                              {matchedItem && (
+                                (() => {
+                                  const isBatchEmpty = parseFloat(b.remaining_quantity) <= 0;
+                                  return (
+                                    <button
+                                      type="button"
+                                      disabled={isBatchEmpty}
+                                      onClick={() => openWastageModal(matchedItem, b)}
+                                      className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-semibold transition ${
+                                        isBatchEmpty
+                                          ? "border-gray-500/20 bg-gray-500/10 text-gray-500 cursor-not-allowed opacity-50"
+                                          : "border-red-500/30 bg-red-500/10 text-red-400 hover:bg-red-500/20 cursor-pointer"
+                                      }`}
+                                      title={isBatchEmpty ? "Batch has 0 remaining stock" : "Log wastage write-off"}
+                                    >
+                                      <PackageX className="h-3.5 w-3.5" />
+                                      Write Off
+                                    </button>
+                                  );
+                                })()
+                              )}
+                            </div>
                           </td>
                         </tr>
                       );
                     })
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Sub-Tab: Suppliers & Vendors Directory */}
+      {activeSubTab === "suppliers" && (
+        <div className="space-y-4">
+          {/* Header Toolbar */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+            <div className="relative flex-1 max-w-md w-full">
+              <Search className="absolute left-3 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
+              <input
+                type="text"
+                placeholder="Search vendor name, phone, email, location..."
+                value={supplierSearchQuery}
+                onChange={(e) => setSupplierSearchQuery(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-2 pl-9 pr-3 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+
+            {setIsAddSupplierModalOpen && (
+              <button
+                type="button"
+                onClick={() => setIsAddSupplierModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
+              >
+                <Plus className="h-4 w-4" />
+                + Add New Supplier
+              </button>
+            )}
+          </div>
+
+          {/* Suppliers List Table */}
+          <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] overflow-hidden shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] font-bold uppercase tracking-wider">
+                  <tr>
+                    <th className="py-3 px-4">Supplier / Company Name</th>
+                    <th className="py-3 px-4">Phone Number</th>
+                    <th className="py-3 px-4">Email Address</th>
+                    <th className="py-3 px-4">Location / Address</th>
+                    <th className="py-3 px-4">Registered Date</th>
+                    <th className="py-3 px-4 text-center">Status</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[var(--border-subtle)]">
+                  {filteredSuppliers.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="py-12 text-center">
+                        <div className="flex flex-col items-center justify-center gap-3">
+                          <Building2 className="h-10 w-10 text-purple-400/50" />
+                          <p className="text-sm font-medium text-[var(--text-muted)]">
+                            {supplierSearchQuery.trim()
+                              ? "No suppliers match your search query."
+                              : "No registered suppliers found. Add vendors to track inward stock arrivals."}
+                          </p>
+                          {setIsAddSupplierModalOpen && (
+                            <button
+                              type="button"
+                              onClick={() => setIsAddSupplierModalOpen(true)}
+                              className="inline-flex items-center gap-1.5 rounded-xl bg-purple-600 px-4 py-2 text-xs font-bold text-white hover:bg-purple-700 shadow-md transition active:scale-95 cursor-pointer"
+                            >
+                              <Plus className="h-4 w-4" />
+                              + Add First Supplier
+                            </button>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  ) : (
+                    filteredSuppliers.map((s) => (
+                      <tr key={s.id} className="hover:bg-[var(--bg-surface-elevated)] transition">
+                        <td className="py-3 px-4 font-bold text-[var(--text-primary)]">
+                          <span className="flex items-center gap-2">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20">
+                              <Building2 className="h-3.5 w-3.5" />
+                            </span>
+                            {s.name}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[var(--text-secondary)]">
+                          {s.phone ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Phone className="h-3 w-3 text-[var(--text-muted)]" />
+                              {s.phone}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-muted)]">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-[var(--text-secondary)]">
+                          {s.email ? (
+                            <span className="inline-flex items-center gap-1">
+                              <Mail className="h-3 w-3 text-[var(--text-muted)]" />
+                              {s.email}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-muted)]">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 text-[var(--text-secondary)] max-w-xs truncate">
+                          {s.address ? (
+                            <span className="inline-flex items-center gap-1">
+                              <MapPin className="h-3 w-3 text-[var(--text-muted)] flex-shrink-0" />
+                              {s.address}
+                            </span>
+                          ) : (
+                            <span className="text-[var(--text-muted)]">—</span>
+                          )}
+                        </td>
+                        <td className="py-3 px-4 font-mono text-[11px] text-[var(--text-muted)]">
+                          {new Date(s.created_at).toLocaleDateString("en-IN", {
+                            day: "2-digit",
+                            month: "short",
+                            year: "numeric",
+                          })}
+                        </td>
+                        <td className="py-3 px-4 text-center">
+                          <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/20">
+                            <CheckCircle2 className="h-3 w-3" /> Active
+                          </span>
+                        </td>
+                      </tr>
+                    ))
                   )}
                 </tbody>
               </table>
@@ -628,17 +928,48 @@ export function InventoryTab({
         </div>
       )}
 
-      {/* Barcode Register Modal (First-time scan onboarding) */}
+      {/* Barcode Register Modal (First-time scan onboarding & Inward Stock) */}
       <BarcodeRegisterModal
         isOpen={isRegisterModalOpen}
         onClose={() => setIsRegisterModalOpen(false)}
         barcode={unregisteredBarcode}
         categories={categories}
+        items={items}
+        suppliers={suppliers}
+        onOpenAddSupplierModal={() => setIsAddSupplierModalOpen?.(true)}
         onSuccess={(name, stock) => {
           console.log(`Registered ${name} with initial stock ${stock}`);
         }}
         onboardItem={onboardScannedItem}
       />
+
+      {/* Batch History Slide-over Drawer */}
+      {fetchBatches && (
+        <BatchHistoryDrawer
+          isOpen={isBatchDrawerOpen}
+          onClose={() => closeBatchDrawer?.()}
+          item={selectedBatchItem || null}
+          fetchBatches={fetchBatches}
+          onLogWastageClick={(itm) => openWastageModal(itm)}
+          onAddStockClick={(itm) => {
+            setScannedBarcode("");
+            setIsRegisterModalOpen(true);
+          }}
+          onAdjustBatchClick={(b) => {
+            setSelectedAdjustBatch(b);
+            setIsAdjustModalOpen(true);
+          }}
+        />
+      )}
+
+      {/* Add New Supplier Modal */}
+      {createSupplier && (
+        <AddSupplierModal
+          isOpen={isAddSupplierModalOpen}
+          onClose={() => setIsAddSupplierModalOpen?.(false)}
+          createSupplier={createSupplier}
+        />
+      )}
 
       {/* Log Wastage / Write-Off Modal */}
       <LogWastageModal
@@ -647,6 +978,45 @@ export function InventoryTab({
         item={selectedWastageItem}
         batch={selectedWastageBatch}
         onLogWastage={logWastage}
+      />
+
+      {/* Adjust Batch Stock Modal */}
+      <AdjustBatchStockModal
+        isOpen={isAdjustModalOpen}
+        onClose={() => {
+          setIsAdjustModalOpen(false);
+          setSelectedAdjustBatch(null);
+        }}
+        batch={selectedAdjustBatch}
+        suppliers={suppliers}
+        authToken={authToken}
+        onSuccess={async (res) => {
+          if (fetchBatches) await fetchBatches();
+          // If return bill generated, fetch details and open ReturnBillModal
+          if (res.return_id) {
+            try {
+              const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+              const r = await fetch(`${apiBase}/api/admin/inventory/purchase-returns/${res.return_id}`);
+              if (r.ok) {
+                const returnData = await r.json();
+                setSelectedReturnBill(returnData);
+                setIsReturnBillModalOpen(true);
+              }
+            } catch (err) {
+              console.error("Failed to load return bill details:", err);
+            }
+          }
+        }}
+      />
+
+      {/* Return Bill Modal */}
+      <ReturnBillModal
+        isOpen={isReturnBillModalOpen}
+        onClose={() => {
+          setIsReturnBillModalOpen(false);
+          setSelectedReturnBill(null);
+        }}
+        purchaseReturn={selectedReturnBill}
       />
     </div>
   );

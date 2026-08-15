@@ -245,7 +245,7 @@ export function useSuperadminData() {
     setError(null);
 
     try {
-      const data = await apiRequest<RestaurantWithUsers[]>("/api/admin/restaurants");
+      const data = await apiRequest<RestaurantWithUsers[]>("/api/admin/outlets");
       setRestaurants(data);
       // Auto-expand all restaurant team sections by default
       setExpandedIds(new Set(data.map((r) => r.id)));
@@ -346,7 +346,7 @@ export function useSuperadminData() {
       };
 
       const created = await apiRequest<RestaurantWithUsers>(
-        "/api/admin/restaurants",
+        "/api/admin/outlets",
         {
           method: "POST",
           body: JSON.stringify(payload),
@@ -425,8 +425,8 @@ export function useSuperadminData() {
         verification_amount_cutoff: settingsForm.verification_amount_cutoff ? Number(settingsForm.verification_amount_cutoff) : null,
       };
 
-      await apiRequest(`/api/admin/restaurants/${settingsOutlet.id}`, {
-        method: "PATCH",
+      await apiRequest(`/api/admin/outlets/${settingsOutlet.id}`, {
+        method: "PUT",
         body: JSON.stringify(payload),
       });
 
@@ -490,7 +490,7 @@ export function useSuperadminData() {
 
     setError(null);
     try {
-      await apiRequest<void>(`/api/admin/restaurants/${restaurantId}`, {
+      await apiRequest<void>(`/api/admin/outlets/${restaurantId}`, {
         method: "DELETE",
       });
       setNotice(`Outlet "${restaurantName}" deleted successfully.`);

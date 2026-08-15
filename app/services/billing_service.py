@@ -44,6 +44,16 @@ async def create_manual_bill(
     data: CreateManualBillRequest,
 ) -> Order:
     """Create a draft manual bill with line items and snapshot pricing."""
+    # Auto-register / link Customer account if phone number provided
+    if data.customer_phone and data.customer_phone.strip():
+        from app.services.customer_service import create_customer
+        await create_customer(
+            db,
+            outlet_id,
+            name=data.customer_name or "POS Customer",
+            phone=data.customer_phone,
+        )
+
     order = Order(
         id=uuid.uuid4(),
         outlet_id=outlet_id,
@@ -67,7 +77,14 @@ async def create_manual_bill(
         if not menu_item or menu_item.outlet_id != outlet_id:
             raise HTTPException(status_code=404, detail=f"Menu item {item_in.menu_item_id} not found.")
 
-        price = Decimal(str(menu_item.price))
+        # Determine price based on custom unit_price, WHOLESALE pricing_type, or standard RETAIL price
+        if item_in.unit_price is not None:
+            price = Decimal(str(item_in.unit_price))
+        elif getattr(item_in, "pricing_type", "RETAIL") == "WHOLESALE" and menu_item.wholesale_price is not None:
+            price = Decimal(str(menu_item.wholesale_price))
+        else:
+            price = Decimal(str(menu_item.price))
+
         variant_uuid = uuid.UUID(str(item_in.variant_id)) if item_in.variant_id else None
         if variant_uuid:
             variant = await db.get(MenuItemVariant, variant_uuid)
@@ -77,11 +94,13 @@ async def create_manual_bill(
         item_subtotal = price * Decimal(str(item_in.quantity))
         subtotal += item_subtotal
 
+        final_item_name = item_in.item_name or (menu_item.name if menu_item else "Item")
         order_item = OrderItem(
             id=uuid.uuid4(),
             order_id=order.id,
-            menu_item_id=menu_item.id,
+            menu_item_id=menu_item.id if menu_item else None,
             variant_id=variant_uuid,
+            item_name=final_item_name,
             quantity=item_in.quantity,
             unit_price=price,
         )
@@ -98,8 +117,10 @@ async def create_manual_bill(
         order.is_auto_verified = True
 
     await db.flush()
-    await db.refresh(order)
-    return order
+    res_final = await db.execute(
+        select(Order).where(Order.id == order.id).options(selectinload(Order.items))
+    )
+    return res_final.scalar_one()
 
 
 async def update_manual_bill(
@@ -337,6 +358,7 @@ async def mark_bill_paid(
     order_id: uuid.UUID,
     outlet_id: uuid.UUID,
     payment_method: str,
+    cash_denominations: dict[str, int] | None = None,
 ) -> Order:
     """Record cash/UPI payment method, set order status to PAID, and trigger inventory auto-deduction."""
     res = await db.execute(
@@ -352,6 +374,15 @@ async def mark_bill_paid(
         raise HTTPException(status_code=404, detail="Bill not found.")
 
     order.payment_method = payment_method
+    if cash_denominations and payment_method == "CASH":
+        denom_strs = [f"₹{k}x{v}" for k, v in cash_denominations.items() if v > 0]
+        if denom_strs:
+            order.payment_reference = f"CASH [{', '.join(denom_strs)}]"
+        else:
+            order.payment_reference = "CASH"
+    elif not order.payment_reference:
+        order.payment_reference = payment_method
+
     order.status = OrderStatusEnum.PAID
     order.paid_at = datetime.utcnow()
     if not order.finalized_at:

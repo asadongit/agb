@@ -31,9 +31,13 @@ _bearer_scheme = HTTPBearer(auto_error=True)
 class CurrentUser:
     """Decoded JWT payload — NOT a DB-fetched User, just the claims."""
 
+    user_id: uuid.UUID
+    outlet_id: uuid.UUID  # Typed as uuid.UUID to eliminate false-positive IDE warnings across routers
+    role: RoleEnum
+
     def __init__(self, user_id: uuid.UUID, outlet_id: uuid.UUID | None, role: RoleEnum):
         self.user_id = user_id
-        self.outlet_id = outlet_id
+        self.outlet_id = outlet_id  # type: ignore[assignment]
         self.role = role
 
 

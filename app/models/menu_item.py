@@ -17,6 +17,7 @@ from app.models.enums import PricingModeEnum
 
 if TYPE_CHECKING:
     from app.models.category import Category
+    from app.models.inventory_item import InventoryItem
     from app.models.menu_item_variant import MenuItemVariant
     from app.models.outlet import Outlet
 
@@ -37,6 +38,12 @@ class MenuItem(Base, TimestampMixin):
         UUID(as_uuid=True),
         ForeignKey("categories.id", ondelete="CASCADE"),
         nullable=False,
+        index=True,
+    )
+    inventory_item_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("inventory_items.id", ondelete="SET NULL"),
+        nullable=True,
         index=True,
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -64,6 +71,18 @@ class MenuItem(Base, TimestampMixin):
     offer_label: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )
+    mrp: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    wholesale_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    tax_category: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default="GST 0%"
+    )
+    tax_rate: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True, default=Decimal("0.00")
+    )
 
     # ── Dual pricing fields ──────────────────────────────────────────
     # WEIGHT_BASED: price is ₹ per kg/g, quantity entered as weight
@@ -85,6 +104,9 @@ class MenuItem(Base, TimestampMixin):
     )
     category: Mapped[Category] = relationship(
         "Category", back_populates="menu_items"
+    )
+    inventory_item: Mapped[InventoryItem | None] = relationship(
+        "InventoryItem"
     )
     variants: Mapped[list[MenuItemVariant]] = relationship(
         "MenuItemVariant", back_populates="menu_item", cascade="all, delete-orphan"

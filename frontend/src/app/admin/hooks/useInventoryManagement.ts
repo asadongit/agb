@@ -11,6 +11,7 @@ import type {
   StockChangeType,
   StockIntake,
   StockLedgerEntry,
+  Supplier,
   WastageReason,
 } from "@/types";
 
@@ -20,7 +21,8 @@ export type InventoryTabType =
   | "batches"
   | "recipes"
   | "ledger"
-  | "alerts";
+  | "alerts"
+  | "suppliers";
 
 export interface ScanFeedItem {
   id: string;
@@ -37,9 +39,29 @@ export function useInventoryManagement(
   apiRequest: <T>(url: string, options?: RequestInit) => Promise<T>,
   playBeep?: (freq?: number) => void
 ) {
-  const [activeSubTab, setActiveSubTab] = useState<InventoryTabType>("items");
+  const [activeSubTab, setActiveSubTabState] = useState<InventoryTabType>("items");
+  const [inventoryViewMode, setInventoryViewMode] = useState<"combined" | "batches">("combined");
+
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const saved = localStorage.getItem("admin_inventory_subtab") as InventoryTabType;
+      if (saved && ["items", "intake", "batches", "recipes", "ledger", "alerts", "suppliers"].includes(saved)) {
+        setActiveSubTabState(saved);
+      }
+    }
+  }, []);
+
+  const setActiveSubTab = useCallback((subtab: InventoryTabType) => {
+    setActiveSubTabState(subtab);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("admin_inventory_subtab", subtab);
+    }
+  }, []);
+
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [batches, setBatches] = useState<BatchDetail[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [purchaseReturns, setPurchaseReturns] = useState<any[]>([]);
   const [alerts, setAlerts] = useState<BatchExpiryAlert[]>([]);
   const [ledgerEntries, setLedgerEntries] = useState<StockLedgerEntry[]>([]);
   const [ledgerTotal, setLedgerTotal] = useState(0);
@@ -50,6 +72,13 @@ export function useInventoryManagement(
 
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  // Batch History Drawer state
+  const [selectedBatchItem, setSelectedBatchItem] = useState<InventoryItem | null>(null);
+  const [isBatchDrawerOpen, setIsBatchDrawerOpen] = useState(false);
+
+  // Supplier Modal state
+  const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
 
   // Barcode Scanner Station state
   const [scannedBarcode, setScannedBarcode] = useState("");
@@ -69,21 +98,57 @@ export function useInventoryManagement(
       const data = await apiRequest<InventoryItem[]>("/api/admin/inventory/items");
       setItems(data);
     } catch (err: any) {
+      if (err?.message === "Please sign in first.") return;
       setError(err?.message || "Failed to load inventory items");
     } finally {
       setIsLoading(false);
     }
   }, [apiRequest]);
 
-  // Load batches with FEFO status
-  const fetchBatches = useCallback(async () => {
+  // Load suppliers list
+  const fetchSuppliers = useCallback(async () => {
     try {
-      const data = await apiRequest<BatchDetail[]>("/api/admin/inventory/batches");
-      setBatches(data);
+      const data = await apiRequest<Supplier[]>("/api/admin/inventory/suppliers");
+      setSuppliers(data || []);
     } catch (err: any) {
-      console.error("Failed to load batches:", err);
+      if (err?.message === "Please sign in first.") return;
+      console.error("Failed to load suppliers:", err);
     }
   }, [apiRequest]);
+
+  const createSupplier = useCallback(
+    async (data: { name: string; phone?: string; email?: string; address?: string }) => {
+      const created = await apiRequest<Supplier>("/api/admin/inventory/suppliers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(data),
+      });
+      setSuppliers((prev) => [created, ...prev.filter((s) => s.id !== created.id)]);
+      return created;
+    },
+    [apiRequest]
+  );
+
+  // Load batches with FEFO status (optionally filter by itemId)
+  const fetchBatches = useCallback(
+    async (itemId?: string): Promise<BatchDetail[]> => {
+      try {
+        const url = itemId
+          ? `/api/admin/inventory/batches?item_id=${encodeURIComponent(itemId)}`
+          : "/api/admin/inventory/batches";
+        const data = await apiRequest<BatchDetail[]>(url);
+        if (!itemId) {
+          setBatches(data || []);
+        }
+        return data || [];
+      } catch (err: any) {
+        if (err?.message === "Please sign in first.") return [];
+        console.error("Failed to load batches:", err);
+        return [];
+      }
+    },
+    [apiRequest]
+  );
 
   // Load expiry alerts
   const fetchAlerts = useCallback(async () => {
@@ -93,6 +158,7 @@ export function useInventoryManagement(
       );
       setAlerts(data);
     } catch (err: any) {
+      if (err?.message === "Please sign in first.") return;
       console.error("Failed to load expiry alerts:", err);
     }
   }, [apiRequest]);
@@ -113,6 +179,7 @@ export function useInventoryManagement(
       setLedgerEntries(data.items);
       setLedgerTotal(data.total);
     } catch (err: any) {
+      if (err?.message === "Please sign in first.") return;
       console.error("Failed to load ledger:", err);
     }
   }, [apiRequest, ledgerPage, ledgerPageSize, ledgerFilterItem, ledgerFilterType]);
@@ -121,7 +188,18 @@ export function useInventoryManagement(
     fetchItems();
     fetchBatches();
     fetchAlerts();
-  }, [fetchItems, fetchBatches, fetchAlerts]);
+    fetchSuppliers();
+  }, [fetchItems, fetchBatches, fetchAlerts, fetchSuppliers]);
+
+  const openBatchDrawer = (item: InventoryItem) => {
+    setSelectedBatchItem(item);
+    setIsBatchDrawerOpen(true);
+  };
+
+  const closeBatchDrawer = () => {
+    setIsBatchDrawerOpen(false);
+    setSelectedBatchItem(null);
+  };
 
   useEffect(() => {
     if (activeSubTab === "ledger") {
@@ -191,6 +269,7 @@ export function useInventoryManagement(
   // First-time scan onboarding submission
   const onboardScannedItem = useCallback(
     async (data: {
+      item_id?: string;
       barcode: string;
       name: string;
       category: string;
@@ -212,7 +291,7 @@ export function useInventoryManagement(
         }
       );
 
-      setItems((prev) => [newItem, ...prev]);
+      setItems((prev) => [newItem, ...prev.filter((it) => it.id !== newItem.id)]);
       setScanFeed((prev) => [
         {
           id: Math.random().toString(36).substring(2, 9),
@@ -283,11 +362,24 @@ export function useInventoryManagement(
     setSelectedWastageBatch(null);
   };
 
+  const fetchPurchaseReturns = useCallback(async () => {
+    try {
+      const data = await apiRequest<any[]>("/api/admin/inventory/purchase-returns");
+      setPurchaseReturns(data);
+    } catch (err: any) {
+      console.error("Failed to fetch purchase returns:", err);
+    }
+  }, [apiRequest]);
+
   return {
     activeSubTab,
     setActiveSubTab,
+    inventoryViewMode,
+    setInventoryViewMode,
     items,
     batches,
+    suppliers,
+    purchaseReturns,
     alerts,
     ledgerEntries,
     ledgerTotal,
@@ -303,8 +395,19 @@ export function useInventoryManagement(
     setError,
     fetchItems,
     fetchBatches,
+    fetchSuppliers,
+    fetchPurchaseReturns,
+    createSupplier,
     fetchAlerts,
     fetchLedger,
+    // Batch Drawer
+    selectedBatchItem,
+    isBatchDrawerOpen,
+    openBatchDrawer,
+    closeBatchDrawer,
+    // Supplier Modal
+    isAddSupplierModalOpen,
+    setIsAddSupplierModalOpen,
     // Scanner
     scannedBarcode,
     setScannedBarcode,

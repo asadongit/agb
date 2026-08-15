@@ -31,7 +31,7 @@ export function WelcomeRestaurantSelector({
       setError(null);
       try {
         const apiBase = getApiBaseUrl();
-        const res = await fetch(`${apiBase}/api/public/restaurants`, {
+        const res = await fetch(`${apiBase}/api/public/outlets`, {
           headers: { "bypass-tunnel-reminder": "true" },
         });
 

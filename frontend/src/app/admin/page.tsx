@@ -22,6 +22,7 @@ import { StaffTab } from "./tabs/StaffTab";
 import { AnalyticsTab } from "./tabs/AnalyticsTab";
 import { BillingTab } from "./tabs/BillingTab";
 import { InventoryTab } from "./tabs/InventoryTab";
+import { CustomerServicesTab } from "./tabs/CustomerServicesTab";
 import { QrCodesTab } from "./tabs/QrCodesTab";
 import { SettingsTab } from "./tabs/SettingsTab";
 
@@ -40,13 +41,64 @@ import type { AdminTab, RestaurantProfile } from "./adminTypes";
 import type { ActiveSession, StaffMember } from "@/types";
 import { RESTAURANT_DATA_KEY } from "./adminTypes";
 
+const VALID_TABS: AdminTab[] = [
+  "orders",
+  "billing",
+  "menu",
+  "staff",
+  "analytics",
+  "inventory",
+  "customerservices",
+  "qrcodes",
+  "settings",
+  "sessions",
+];
+
 export default function AdminDashboardPage() {
   const { theme, toggleTheme } = useAdminTheme();
-  const [activeTab, setActiveTab] = useState<AdminTab>("orders");
+  const [activeTab, setActiveTabState] = useState<AdminTab>("orders");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [assistTargetSession, setAssistTargetSession] = useState<ActiveSession | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  // Restore tab on client mount from URL hash or localStorage
+  useEffect(() => {
+    if (typeof window !== "undefined") {
+      const hash = window.location.hash.replace("#", "").toLowerCase() as AdminTab;
+      if (hash && VALID_TABS.includes(hash)) {
+        setActiveTabState(hash);
+        localStorage.setItem("admin_active_tab", hash);
+        return;
+      }
+      const saved = localStorage.getItem("admin_active_tab") as AdminTab;
+      if (saved && VALID_TABS.includes(saved)) {
+        setActiveTabState(saved);
+        window.history.replaceState(null, "", `#${saved}`);
+      }
+    }
+  }, []);
+
+  // Listen for hashchange events
+  useEffect(() => {
+    const handleHashChange = () => {
+      const hash = window.location.hash.replace("#", "").toLowerCase() as AdminTab;
+      if (hash && VALID_TABS.includes(hash)) {
+        setActiveTabState(hash);
+        localStorage.setItem("admin_active_tab", hash);
+      }
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const setActiveTab = useCallback((tab: AdminTab) => {
+    setActiveTabState(tab);
+    if (typeof window !== "undefined") {
+      localStorage.setItem("admin_active_tab", tab);
+      window.history.replaceState(null, "", `#${tab}`);
+    }
+  }, []);
 
   // Authentication
   const {
@@ -82,7 +134,7 @@ export default function AdminDashboardPage() {
   const loadDashboard = useCallback(async () => {
     if (!accessToken) return;
     try {
-      const data = await apiRequest<RestaurantProfile>("/api/admin/restaurants/me");
+      const data = await apiRequest<RestaurantProfile>("/api/admin/outlets/me");
       setRestaurant(data);
       if (typeof window !== "undefined") {
         window.localStorage.setItem(RESTAURANT_DATA_KEY, JSON.stringify(data));
@@ -260,6 +312,7 @@ export default function AdminDashboardPage() {
             billingSearchQuery={billingState.billingSearchQuery}
             setBillingSearchQuery={billingState.setBillingSearchQuery}
             onOpenCreateBill={() => billingState.setCreateBillModalOpen(true)}
+            onResumeDraft={billingState.handleResumeDraft}
             onOpenDiscountModal={billingState.openDiscountModal}
             onOpenPaymentModal={billingState.openPaymentModal}
           />
@@ -280,6 +333,8 @@ export default function AdminDashboardPage() {
             onToggleAvailability={menuState.handleToggleAvailability}
             onOpenVariantModal={menuState.openVariantModal}
             onOpenOfferModal={menuState.openOfferModal}
+            onCreateCategory={menuState.handleCreateCategory}
+            inventoryItems={inventoryState.items}
           />
         )}
 
@@ -359,8 +414,13 @@ export default function AdminDashboardPage() {
           <InventoryTab
             activeSubTab={inventoryState.activeSubTab}
             setActiveSubTab={inventoryState.setActiveSubTab}
+            inventoryViewMode={inventoryState.inventoryViewMode}
+            setInventoryViewMode={inventoryState.setInventoryViewMode}
             items={inventoryState.items}
             batches={inventoryState.batches}
+            suppliers={inventoryState.suppliers}
+            createSupplier={inventoryState.createSupplier}
+            fetchBatches={inventoryState.fetchBatches}
             alerts={inventoryState.alerts}
             ledgerEntries={inventoryState.ledgerEntries}
             ledgerTotal={inventoryState.ledgerTotal}
@@ -381,17 +441,31 @@ export default function AdminDashboardPage() {
             scanFeed={inventoryState.scanFeed}
             handleBarcodeScan={inventoryState.handleBarcodeScan}
             onboardScannedItem={inventoryState.onboardScannedItem}
+            selectedBatchItem={inventoryState.selectedBatchItem}
+            isBatchDrawerOpen={inventoryState.isBatchDrawerOpen}
+            openBatchDrawer={inventoryState.openBatchDrawer}
+            closeBatchDrawer={inventoryState.closeBatchDrawer}
+            isAddSupplierModalOpen={inventoryState.isAddSupplierModalOpen}
+            setIsAddSupplierModalOpen={inventoryState.setIsAddSupplierModalOpen}
             isWastageModalOpen={inventoryState.isWastageModalOpen}
             selectedWastageItem={inventoryState.selectedWastageItem}
             selectedWastageBatch={inventoryState.selectedWastageBatch}
             openWastageModal={inventoryState.openWastageModal}
             closeWastageModal={inventoryState.closeWastageModal}
             logWastage={inventoryState.logWastage}
+            catalogCategories={menuState.categories}
+            authToken={accessToken || undefined}
           />
         )}
 
-        {/* Tab 7: QR Code Generator */}
-        {activeTab === "qrcodes" && <QrCodesTab restaurant={restaurant} />}
+        {/* Tab 7: Customer Services (Customer Directory & QR Codes) */}
+        {activeTab === "customerservices" && (
+          <CustomerServicesTab
+            restaurant={restaurant}
+            authToken={accessToken || undefined}
+            outletId={restaurant?.id}
+          />
+        )}
 
         {/* Tab 8: Restaurant Settings */}
         {activeTab === "settings" && (
@@ -427,6 +501,7 @@ export default function AdminDashboardPage() {
         onClose={() => setAssistTargetSession(null)}
         session={assistTargetSession}
         menuItems={menuState.menuItems}
+        authToken={accessToken || undefined}
         onSuccess={() => {
           setNotice(`Added items to Basket #${assistTargetSession?.basket_number} (${assistTargetSession?.customer_name})`);
           void sessionsState.fetchActiveSessions();
@@ -445,6 +520,8 @@ export default function AdminDashboardPage() {
         setSelectedTable={billingState.setSelectedTable}
         customerName={billingState.customerName}
         setCustomerName={billingState.setCustomerName}
+        customerPhone={billingState.customerPhone}
+        setCustomerPhone={billingState.setCustomerPhone}
         handleCreateBill={billingState.handleCreateBill}
       />
 
@@ -457,6 +534,7 @@ export default function AdminDashboardPage() {
         cashTendered={billingState.cashTendered}
         setCashTendered={billingState.setCashTendered}
         handleMarkPaid={billingState.handleMarkPaid}
+        onOpenDiscountModal={billingState.openDiscountModal}
       />
 
       <DiscountModal
@@ -498,16 +576,10 @@ export default function AdminDashboardPage() {
         onClose={menuState.closeOfferModal}
         selectedOfferItemId={menuState.selectedItemForOffer?.id || null}
         menuItems={menuState.menuItems}
-        offerForm={{
-          is_on_offer: true,
-          offer_price: menuState.selectedItemForOffer?.offer_price || "",
-          offer_label: menuState.selectedItemForOffer?.offer_label || "",
-        }}
-        setOfferForm={() => {}}
-        isSavingOffer={false}
-        onSubmitOffer={async (e) => {
-          e.preventDefault();
-        }}
+        offerForm={menuState.offerForm}
+        setOfferForm={menuState.setOfferForm}
+        isSavingOffer={menuState.isSavingOffer}
+        onSubmitOffer={menuState.handleSaveOffer}
       />
 
       <StaffModal

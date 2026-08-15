@@ -58,7 +58,7 @@ export function CheckoutDrawer({ restaurantSlug, restaurantName, allowedPaymentM
     setErrorMessage(null);
 
     const payload = {
-      restaurant_slug: restaurantSlug,
+      outlet_slug: restaurantSlug,
       basket_number: tableNumber,
       customer_name: customerName || undefined,
       customer_phone: customerPhone || undefined,

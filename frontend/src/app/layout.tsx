@@ -31,11 +31,11 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className={`${sora.variable} ${ibmPlexSans.variable}`}>
+    <html lang="en" className={`${sora.variable} ${ibmPlexSans.variable}`} suppressHydrationWarning>
       <head>
         <script src="https://checkout.razorpay.com/v1/checkout.js" async></script>
       </head>
-      <body className="antialiased font-body">{children}</body>
+      <body className="antialiased font-body" suppressHydrationWarning>{children}</body>
     </html>
   );
 }

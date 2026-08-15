@@ -14,7 +14,10 @@ from app.schemas.common import BaseResponse, StrictSchema
 class BillItemInput(StrictSchema):
     menu_item_id: str | None = None
     variant_id: str | None = None
+    item_name: str | None = None
     quantity: Decimal = Field(..., gt=0)
+    unit_price: Decimal | None = Field(None, ge=0)
+    pricing_type: str = Field(default="RETAIL", pattern="^(RETAIL|WHOLESALE)$")
     is_complimentary: bool = False
 
 
@@ -44,6 +47,7 @@ class ApproveDiscountRequest(StrictSchema):
 
 class MarkPaidRequest(StrictSchema):
     payment_method: str = Field(..., pattern="^(CASH|UPI)$")
+    cash_denominations: dict[str, int] | None = None
 
 
 class BillItemResponse(StrictSchema):

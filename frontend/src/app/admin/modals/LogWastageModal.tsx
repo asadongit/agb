@@ -76,14 +76,23 @@ export function LogWastageModal({
   if (!isOpen || !item) return null;
 
   const currentStockNum = parseFloat(item.current_stock) || 0;
+  const maxAvailable = batch ? (parseFloat(batch.remaining_quantity) || 0) : currentStockNum;
   const costNum = parseFloat(item.cost_per_unit) || 0;
   const wasteQtyNum = parseFloat(quantity) || 0;
   const estimatedLoss = wasteQtyNum * costNum;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (maxAvailable <= 0) {
+      setError("Cannot write off stock: Available stock is 0.");
+      return;
+    }
     if (wasteQtyNum <= 0) {
       setError("Please enter a valid quantity greater than 0");
+      return;
+    }
+    if (wasteQtyNum > maxAvailable) {
+      setError(`Quantity to write off (${wasteQtyNum} ${item.unit}) exceeds available stock (${maxAvailable} ${item.unit})`);
       return;
     }
 
@@ -150,15 +159,25 @@ export function LogWastageModal({
             </div>
           </div>
           <div className="text-right">
-            <span className="text-[11px] text-[var(--text-muted)] block">Current Stock</span>
-            <span className="font-mono text-sm font-bold text-emerald-400">
-              {currentStockNum} {item.unit}
+            <span className="text-[11px] text-[var(--text-muted)] block">Available Stock</span>
+            <span className={`font-mono text-sm font-bold ${maxAvailable <= 0 ? "text-red-400" : "text-emerald-400"}`}>
+              {maxAvailable} {item.unit}
             </span>
           </div>
         </div>
 
+        {maxAvailable <= 0 && (
+          <div className="rounded-xl bg-amber-500/10 border border-amber-500/30 p-3 text-xs text-amber-400 font-medium flex items-center gap-2">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-amber-400" />
+            <div>
+              <span className="font-bold block">Out of Stock</span>
+              <span>This item/batch currently has 0 available stock. Add stock before logging wastage.</span>
+            </div>
+          </div>
+        )}
+
         {error && (
-          <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-400">
+          <div className="rounded-xl bg-red-500/10 border border-red-500/30 p-3 text-xs text-red-400 font-medium">
             {error}
           </div>
         )}
@@ -261,11 +280,11 @@ export function LogWastageModal({
             </button>
             <button
               type="submit"
-              disabled={isSubmitting || wasteQtyNum <= 0}
-              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-red-700 transition disabled:opacity-50"
+              disabled={isSubmitting || wasteQtyNum <= 0 || wasteQtyNum > maxAvailable || maxAvailable <= 0}
+              className="inline-flex items-center gap-2 rounded-xl bg-red-600 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-red-700 transition disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Trash2 className="h-4 w-4" />
-              {isSubmitting ? "Writing Off..." : "Confirm & Write Off Stock"}
+              {isSubmitting ? "Writing Off..." : maxAvailable <= 0 ? "Out of Stock" : "Confirm & Write Off Stock"}
             </button>
           </div>
         </form>

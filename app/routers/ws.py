@@ -64,6 +64,59 @@ async def _handle_ws_connection(websocket: WebSocket, target_id: uuid.UUID):
 
 
 @router.websocket("/ws/mart/{outlet_id}")
+@router.websocket("/ws/kitchen/{outlet_id}")
 async def mart_websocket(websocket: WebSocket, outlet_id: uuid.UUID):
     """WebSocket endpoint for mart & grocery dashboard."""
     await _handle_ws_connection(websocket, outlet_id)
+
+
+@router.websocket("/ws/session/{session_id}")
+async def customer_session_websocket(websocket: WebSocket, session_id: uuid.UUID):
+    """
+    WebSocket endpoint for real-time customer session updates (live draft cart sync).
+    Subscribes to Redis channel `session:{session_id}`.
+    """
+    from app.core.redis import get_redis
+    import asyncio
+
+    await websocket.accept()
+
+    r = await get_redis()
+    pubsub = r.pubsub()
+    channel = f"session:{session_id}"
+
+    try:
+        await pubsub.subscribe(channel)
+
+        async def _listen_redis():
+            async for message in pubsub.listen():
+                if message["type"] != "message":
+                    continue
+                data = message["data"]
+                if isinstance(data, bytes):
+                    data = data.decode("utf-8")
+                await websocket.send_text(data)
+
+        async def _listen_client():
+            while True:
+                client_msg = await websocket.receive_text()
+                if client_msg == "ping":
+                    await websocket.send_text("pong")
+
+        listen_redis_task = asyncio.create_task(_listen_redis())
+        listen_client_task = asyncio.create_task(_listen_client())
+
+        done, pending = await asyncio.wait(
+            [listen_redis_task, listen_client_task],
+            return_when=asyncio.FIRST_COMPLETED,
+        )
+
+        for task in pending:
+            task.cancel()
+
+    except (WebSocketDisconnect, Exception):
+        pass
+    finally:
+        await pubsub.unsubscribe(channel)
+        await pubsub.close()
+

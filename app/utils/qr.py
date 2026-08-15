@@ -11,7 +11,7 @@ from qrcode.image.pil import PilImage
 
 
 def generate_menu_qr(
-    restaurant_slug: str,
+    outlet_slug: str,
     table_number: str,
     base_url: str = "https://menu.app",
 ) -> bytes:
@@ -19,9 +19,9 @@ def generate_menu_qr(
     Generate a QR code PNG pointing to the public menu URL.
     Returns raw PNG bytes — caller handles upload to S3/R2.
 
-    URL format: {base_url}/r/{restaurant_slug}?basket={table_number}
+    URL format: {base_url}/menu?slug={outlet_slug}&basket={table_number}
     """
-    url = f"{base_url}/r/{restaurant_slug}?basket={table_number}"
+    url = f"{base_url}/menu?slug={outlet_slug}&basket={table_number}"
 
     qr = qrcode.QRCode(
         version=1,

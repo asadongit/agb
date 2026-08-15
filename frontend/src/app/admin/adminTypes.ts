@@ -20,6 +20,7 @@ export type AdminTab =
   | "staff"
   | "analytics"
   | "inventory"
+  | "customerservices"
   | "qrcodes"
   | "settings";
 
@@ -105,6 +106,7 @@ export interface AdminMenuItem {
   restaurant_id?: string;
   outlet_id?: string;
   category_id: string;
+  inventory_item_id?: string | null;
   name: string;
   barcode?: string | null;
   description?: string | null;
@@ -115,6 +117,10 @@ export interface AdminMenuItem {
   is_verification_required?: boolean;
   offer_price?: string | null;
   offer_label?: string | null;
+  mrp?: string | null;
+  wholesale_price?: string | null;
+  tax_category?: string | null;
+  tax_rate?: number | string | null;
   pricing_mode?: PricingMode;
   unit_label?: string | null;
   variants?: AdminVariant[];
@@ -169,15 +175,20 @@ export const LANE_NAMES: Record<OrderStatus, string> = {
 
 export interface MenuItemFormState {
   category_id: string;
+  inventory_item_id?: string | null;
   name: string;
   barcode: string;
   price: string;
+  wholesale_price: string;
   description: string;
   is_available: boolean;
   is_on_offer: boolean;
   is_verification_required: boolean;
   offer_price: string;
   offer_label: string;
+  mrp: string;
+  tax_category: string;
+  tax_rate: string;
   pricing_mode: PricingMode;
   unit_label: string;
 }

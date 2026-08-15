@@ -26,6 +26,7 @@ import {
   Store,
   Sun,
   TrendingUp,
+  UserCheck,
   Users,
   Wifi,
   WifiOff,
@@ -42,6 +43,7 @@ export type AdminTab =
   | "staff"
   | "analytics"
   | "inventory"
+  | "customerservices"
   | "qrcodes"
   | "settings";
 
@@ -310,14 +312,14 @@ export function AdminSidebar({
 
         <button
           type="button"
-          onClick={() => handleTabClick("qrcodes")}
-          className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "qrcodes"
+          onClick={() => handleTabClick("customerservices")}
+          className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "customerservices"
             ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
             : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
             }`}
         >
-          <QrCode className="h-4 w-4" />
-          <span>QR Code Generator</span>
+          <UserCheck className="h-4 w-4" />
+          <span>Customer Services</span>
         </button>
 
         <button

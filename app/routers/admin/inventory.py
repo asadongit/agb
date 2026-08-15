@@ -18,6 +18,7 @@ from app.models.inventory_item import InventoryItem
 from app.models.menu_item_recipe import MenuItemRecipe
 from app.models.stock_intake import StockIntake
 from app.models.stock_ledger import StockLedger
+from app.schemas.purchase_return import BatchAdjustmentRequest, PurchaseReturnResponse
 from app.schemas.inventory import (
     BatchDetailResponse,
     BatchExpiryAlertResponse,
@@ -35,12 +36,16 @@ from app.schemas.inventory import (
     StockLedgerResponse,
     StockWastageRequest,
     StockWastageResponse,
+    SupplierCreate,
+    SupplierResponse,
 )
 from app.services.audit_service import log_action
 from app.services.inventory_service import (
     create_inventory_item,
+    create_supplier,
     get_all_batches,
     get_near_expiry_alerts,
+    list_suppliers,
     log_stock_intake,
     log_stock_wastage,
     onboard_scanned_item,
@@ -401,6 +406,13 @@ async def scan_onboard_item(
         batch_number=data.batch_number,
         expiry_date=data.expiry_date,
         supplier_name=data.supplier_name,
+        mrp=data.mrp,
+        tax_category=data.tax_category,
+        tax_rate=data.tax_rate,
+        sorted_quantity=data.sorted_quantity,
+        total_billed_amount=data.total_billed_amount,
+        item_id=data.item_id,
+        wholesale_price=data.wholesale_price,
     )
 
     await log_action(
@@ -416,9 +428,37 @@ async def scan_onboard_item(
 async def list_all_batches_route(
     current_user: RequireAdmin,
     db: DBSession,
+    item_id: uuid.UUID | None = Query(None),
 ):
-    """List all stock arrival batches for this outlet with FEFO / remaining status."""
-    return await get_all_batches(db, current_user.outlet_id)
+    """List all stock arrival batches for this outlet with FEFO / remaining status, optionally filtered by item_id."""
+    return await get_all_batches(db, current_user.outlet_id, item_id=item_id)
+
+
+@router.get("/suppliers", response_model=list[SupplierResponse])
+async def list_suppliers_route(
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """List all active vendors/suppliers for current outlet."""
+    return await list_suppliers(db, current_user.outlet_id)
+
+
+@router.post("/suppliers", response_model=SupplierResponse, status_code=status.HTTP_201_CREATED)
+async def create_supplier_route(
+    data: SupplierCreate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Create a new vendor/supplier record for current outlet."""
+    supplier = await create_supplier(db, current_user.outlet_id, data)
+
+    await log_action(
+        db, current_user.outlet_id, current_user.user_id,
+        "CREATE", "Supplier", str(supplier.id),
+        details={"name": supplier.name, "phone": supplier.phone},
+    )
+
+    return supplier
 
 
 @router.post("/wastage", response_model=StockWastageResponse)
@@ -449,3 +489,58 @@ async def log_inventory_wastage(
     )
 
     return res
+
+
+@router.post("/batches/{intake_id}/adjust")
+async def adjust_batch_stock_endpoint(
+    intake_id: uuid.UUID,
+    data: BatchAdjustmentRequest,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """
+    Adjust batch stock: return to supplier, audit adjustment, or void batch.
+    Returns return_number if purchase return bill was generated.
+    """
+    from app.services.inventory_service import adjust_batch_stock
+
+    res = await adjust_batch_stock(
+        db,
+        current_user.outlet_id,
+        intake_id,
+        current_user,
+        data,
+    )
+
+    await log_action(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "ADJUST_BATCH",
+        "StockIntake",
+        str(intake_id),
+        details=data.model_dump(mode="json"),
+    )
+
+    return res
+
+
+@router.get("/purchase-returns")
+async def list_purchase_returns_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """List all purchase return bills for current outlet."""
+    from app.services.inventory_service import list_purchase_returns
+    return await list_purchase_returns(db, current_user.outlet_id)
+
+
+@router.get("/purchase-returns/{return_id}")
+async def get_purchase_return_endpoint(
+    return_id: uuid.UUID,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Get purchase return bill details by ID."""
+    from app.services.inventory_service import get_purchase_return_by_id
+    return await get_purchase_return_by_id(db, current_user.outlet_id, return_id)

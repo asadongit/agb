@@ -74,7 +74,7 @@ async def create_order(
     has_flagged_item = False
 
     for item_req in data.items:
-        unit_price, is_verif = await _compute_unit_price(
+        unit_price, is_verif, item_name, tax_rate, tax_category = await _compute_unit_price(
             db, outlet.id, item_req
         )
         if is_verif:
@@ -84,8 +84,12 @@ async def create_order(
             id=uuid.uuid4(),
             menu_item_id=item_req.menu_item_id,
             variant_id=item_req.variant_id,
+            added_by_staff_id=getattr(item_req, "added_by_staff_id", None),
             quantity=item_req.quantity,
             unit_price=unit_price,
+            item_name=item_name,
+            tax_rate=tax_rate,
+            tax_category=tax_category,
         )
         order_items.append(order_item)
         total += unit_price * item_req.quantity
@@ -111,10 +115,12 @@ async def create_order(
     db.add(order)
     await db.flush()
 
-    # If linked to a session, refresh its expiry
+    # If linked to a session, refresh its expiry and clear its draft cart
     if data.session_id:
         from app.services.session_service import refresh_session_expiry
+        from app.services.cart_service import clear_cart
         await refresh_session_expiry(db, data.session_id)
+        await clear_cart(data.session_id)
 
     # Re-load with items relationship
     await db.refresh(order, ["items"])
@@ -125,9 +131,9 @@ async def _compute_unit_price(
     db: AsyncSession,
     outlet_id: uuid.UUID,
     item_req: OrderItemRequest,
-) -> tuple[Decimal, bool]:
+) -> tuple[Decimal, bool, str, Decimal | None, str | None]:
     """
-    Compute the unit price and check verification flag for an order item.
+    Compute unit price, verification flag, item name, tax rate & category.
     unit_price = MenuItem.price + MenuItemVariant.price_delta (if variant selected)
     """
     result = await db.execute(
@@ -146,6 +152,9 @@ async def _compute_unit_price(
 
     price = menu_item.price
     is_verif = getattr(menu_item, "is_verification_required", False)
+    item_name = menu_item.name
+    tax_rate = getattr(menu_item, "tax_rate", Decimal("0.00"))
+    tax_category = getattr(menu_item, "tax_category", "GST 0%")
 
     if item_req.variant_id:
         var_result = await db.execute(
@@ -162,8 +171,9 @@ async def _compute_unit_price(
                 detail=f"Variant {item_req.variant_id} not found or unavailable",
             )
         price += variant.price_delta
+        item_name = f"{menu_item.name} ({variant.name})"
 
-    return price, is_verif
+    return price, is_verif, item_name, tax_rate, tax_category
 
 
 async def transition_order_status(

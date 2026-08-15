@@ -26,6 +26,28 @@ export function useOrdersManagement({
   const wsPingRef = useRef<NodeJS.Timeout | null>(null);
   const wsReconnectRef = useRef<NodeJS.Timeout | null>(null);
 
+  // Fetch Orders from Backend API
+  const fetchOrders = useCallback(async () => {
+    if (!accessToken) return;
+    try {
+      const data = await apiRequest<AdminOrder[]>("/api/admin/orders");
+      setOrders(data);
+    } catch {
+      // Ignore initial/poll fetch errors
+    }
+  }, [accessToken, apiRequest]);
+
+  // Initial fetch and 10s fallback polling loop
+  useEffect(() => {
+    if (accessToken) {
+      void fetchOrders();
+      const interval = setInterval(() => {
+        void fetchOrders();
+      }, 10000);
+      return () => clearInterval(interval);
+    }
+  }, [accessToken, fetchOrders]);
+
   // WebSocket Live Feed
   const connectWebSocket = useCallback(async () => {
     if (!accessToken || !restaurant) return;
@@ -64,7 +86,7 @@ export function useOrdersManagement({
       }
 
       const ws = new WebSocket(
-        `${wsBaseUrl}/ws/kitchen/${restaurant.id}?ticket=${ticket}`
+        `${wsBaseUrl}/ws/mart/${restaurant.id}?ticket=${ticket}`
       );
       wsRef.current = ws;
 
@@ -88,13 +110,9 @@ export function useOrdersManagement({
         if (event.data === "pong") return;
         try {
           const message = JSON.parse(event.data);
-          if (
-            message.event === "NEW_ORDER_PAID" ||
-            message.event === "VERIFICATION_NEEDED" ||
-            message.event === "SESSION_CHANGED"
-          ) {
-            void loadDashboard();
-          } else if (message.event === "ORDER_STATUS_CHANGED" && message.data) {
+          void fetchOrders();
+          void loadDashboard();
+          if (message.event === "ORDER_STATUS_CHANGED" && message.data) {
             setOrders((current) =>
               current.map((order) =>
                 order.id === message.data.order_id
@@ -128,7 +146,7 @@ export function useOrdersManagement({
     } catch {
       setWsStatus("disconnected");
     }
-  }, [accessToken, restaurant, loadDashboard]);
+  }, [accessToken, restaurant, loadDashboard, fetchOrders]);
 
   useEffect(() => {
     if (restaurant && accessToken) {

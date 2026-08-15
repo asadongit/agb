@@ -1,4 +1,5 @@
 export type PaymentMode = "RAZORPAY_GATEWAY" | "PAY_AT_COUNTER" | "BOTH";
+
 export type OrderStatus =
   | "PENDING"
   | "PENDING_VERIFICATION"
@@ -23,6 +24,10 @@ export interface MenuItem {
   barcode?: string | null;
   description?: string | null;
   price: string;
+  mrp?: string | number | null;
+  wholesale_price?: string | number | null;
+  tax_category?: string | null;
+  tax_rate?: string | number | null;
   image_url?: string | null;
   is_available: boolean;
   is_on_offer?: boolean;
@@ -219,9 +224,24 @@ export interface InventoryItem {
   current_stock: string;
   reorder_threshold: string;
   cost_per_unit: string;
+  mrp?: string | number | null;
+  wholesale_price?: string | number | null;
+  tax_category?: string | null;
+  tax_rate?: string | number | null;
   is_active: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface Customer {
+  id: string;
+  outlet_id: string;
+  name: string;
+  phone: string;
+  total_orders?: number;
+  total_spent?: number;
+  created_at: string;
+  updated_at?: string;
 }
 
 export interface StockIntake {
@@ -249,12 +269,33 @@ export interface BatchDetail {
   unit: InventoryUnit;
   batch_number: string;
   quantity: string | number;
+  initial_quantity?: string | number | null;
   remaining_quantity: string | number;
   unit_cost: string | number;
+  purchase_unit_cost?: string | number | null;
   supplier_name?: string | null;
   intake_date: string;
   expiry_date?: string | null;
-  status: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED" | "DEPLETED";
+  status: "ACTIVE" | "EXPIRING_SOON" | "EXPIRED" | "DEPLETED" | "VOIDED";
+}
+
+export interface PurchaseReturn {
+  id: string;
+  return_number: string;
+  outlet_id: string;
+  intake_id?: string | null;
+  item_id: string;
+  item_name?: string | null;
+  supplier_name: string;
+  batch_number?: string | null;
+  quantity: number | string;
+  unit_cost: number | string;
+  total_refund_amount: number | string;
+  reason: string;
+  notes?: string | null;
+  created_by?: string | null;
+  created_by_name?: string | null;
+  created_at: string;
 }
 
 export interface ScanLookupResponse {
@@ -522,4 +563,15 @@ export interface StaffAddItemsResponse {
   status: string;
   added_items_count: number;
   added_by_staff_id?: string | null;
+}
+
+export interface Supplier {
+  id: string;
+  outlet_id: string;
+  name: string;
+  phone?: string | null;
+  email?: string | null;
+  address?: string | null;
+  is_active: boolean;
+  created_at: string;
 }

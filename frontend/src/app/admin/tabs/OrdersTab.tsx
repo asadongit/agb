@@ -9,7 +9,7 @@
 "use client";
 
 import { useMemo } from "react";
-import { Activity, FileText } from "lucide-react";
+import { Activity, FileText, Eye, Download } from "lucide-react";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
 import type { OrderStatus } from "@/types";
 import type { AdminMenuItem, AdminOrder, RestaurantProfile } from "../adminTypes";
@@ -154,21 +154,38 @@ export function OrdersTab({
                             <p className="font-bold text-sm text-[var(--text-primary)]">
                               Basket #{order.basket_number}
                             </p>
-                            <button
-                              type="button"
-                              onClick={() => {
-                                const itemsMap: Record<string, { name: string }> = {};
-                                menuItems.forEach((m) => {
-                                  itemsMap[m.id] = { name: m.name };
-                                });
-                                generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap);
-                              }}
-                              className="flex items-center gap-1 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition cursor-pointer"
-                              title="Download Official Bill PDF"
-                            >
-                              <FileText className="h-3 w-3 text-[var(--accent-brand)]" />
-                              <span>PDF Bill</span>
-                            </button>
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const itemsMap: Record<string, { name: string; tax_rate?: number | string | null; tax_category?: string | null }> = {};
+                                  menuItems.forEach((m) => {
+                                    itemsMap[m.id] = { name: m.name, tax_rate: m.tax_rate, tax_category: m.tax_category };
+                                  });
+                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, {}, "view");
+                                }}
+                                className="flex items-center gap-0.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-cyan-500 hover:border-cyan-400 transition cursor-pointer"
+                                title="View Official Bill PDF"
+                              >
+                                <Eye className="h-3 w-3 text-cyan-400" />
+                                <span>View</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const itemsMap: Record<string, { name: string; tax_rate?: number | string | null; tax_category?: string | null }> = {};
+                                  menuItems.forEach((m) => {
+                                    itemsMap[m.id] = { name: m.name, tax_rate: m.tax_rate, tax_category: m.tax_category };
+                                  });
+                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, {}, "download");
+                                }}
+                                className="flex items-center gap-0.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition cursor-pointer"
+                                title="Download Official Bill PDF"
+                              >
+                                <Download className="h-3 w-3 text-[var(--accent-brand)]" />
+                                <span>PDF</span>
+                              </button>
+                            </div>
                           </div>
                           <p className="font-mono text-xs font-bold text-[var(--accent-brand)]">
                             {formatRupees(order.total_amount)}

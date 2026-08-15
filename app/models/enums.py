@@ -45,6 +45,8 @@ class StockChangeTypeEnum(str, enum.Enum):
     AUTO_DEDUCTION = "AUTO_DEDUCTION"
     MANUAL_ADJUSTMENT = "MANUAL_ADJUSTMENT"
     RESTOCK = "RESTOCK"
+    PURCHASE_RETURN = "PURCHASE_RETURN"
+    VOID_BATCH = "VOID_BATCH"
 
 
 class PricingModeEnum(str, enum.Enum):

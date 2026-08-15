@@ -190,7 +190,7 @@ async def abandon_cart_endpoint(
 @router.get("/customer/history", response_model=CustomerHistoryResponse)
 async def customer_history(
     phone: str = Query(min_length=1, max_length=20),
-    outlet_slug: str = Query(min_length=1),
+    outlet_slug: str = Query(min_length=1, max_length=100),
     days: int = Query(default=30, ge=1, le=365),
     db: DBSession = None,
 ):

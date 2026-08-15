@@ -67,7 +67,7 @@ export function useSettingsManagement({
       };
 
       const updated = await apiRequest<RestaurantProfile>(
-        "/api/admin/restaurants/me",
+        "/api/admin/outlets/me",
         {
           method: "PATCH",
           body: JSON.stringify(payload),

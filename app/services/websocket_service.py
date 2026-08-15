@@ -181,3 +181,36 @@ async def broadcast_session_changed(
         "SESSION_CHANGED",
         {"session_id": str(session_id), "action": action},
     )
+
+
+async def broadcast_cart_updated(
+    session_id: uuid.UUID,
+    outlet_id: uuid.UUID,
+    cart_data: dict,
+) -> None:
+    """
+    Broadcast CART_UPDATED event to customer's session channel (session:{session_id})
+    and store outlet channel (outlet:{outlet_id}).
+    """
+    r = await get_redis()
+    message = json.dumps({
+        "event": "CART_UPDATED",
+        "data": cart_data,
+    }, default=str)
+
+    # Publish to customer session WS channel
+    await r.publish(f"session:{session_id}", message)
+
+    # Also publish summary event to outlet WS channel
+    await r.publish(
+        f"outlet:{outlet_id}",
+        json.dumps({
+            "event": "SESSION_CART_UPDATED",
+            "data": {
+                "session_id": str(session_id),
+                "item_count": cart_data.get("item_count", 0),
+                "subtotal": cart_data.get("subtotal", 0.0),
+            },
+        }, default=str)
+    )
+

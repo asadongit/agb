@@ -21,6 +21,7 @@ class OrderItemRequest(StrictSchema):
     menu_item_id: uuid.UUID
     variant_id: uuid.UUID | None = None
     quantity: Decimal = Field(gt=0, le=1000)
+    added_by_staff_id: uuid.UUID | None = None
 
 
 class CheckoutRequest(StrictSchema):
@@ -52,11 +53,14 @@ class OrderItemResponse(BaseResponse):
     id: uuid.UUID
     menu_item_id: uuid.UUID | None = None
     variant_id: uuid.UUID | None = None
+    added_by_staff_id: uuid.UUID | None = None
     item_name: str | None = None
     quantity: Decimal
     unit_price: Decimal
     line_total: Decimal | None = None
     is_complimentary: bool = False
+    tax_rate: Decimal | None = Decimal("0.00")
+    tax_category: str | None = "GST 0%"
 
 
 class OrderResponse(BaseResponse):
