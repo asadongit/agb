@@ -150,7 +150,12 @@ async def _compute_unit_price(
             detail=f"Menu item {item_req.menu_item_id} not found or unavailable",
         )
 
-    price = menu_item.price
+    # Check outlet's evening price toggle
+    from app.models.outlet import Outlet
+    outlet_result = await db.execute(select(Outlet.evening_price_active).where(Outlet.id == outlet_id))
+    evening_active = outlet_result.scalar_one_or_none() or False
+
+    price = menu_item.resolve_price(evening_active)
     is_verif = getattr(menu_item, "is_verification_required", False)
     item_name = menu_item.name
     tax_rate = getattr(menu_item, "tax_rate", Decimal("0.00"))

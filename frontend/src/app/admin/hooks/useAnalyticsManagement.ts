@@ -8,6 +8,8 @@ import type {
   TopItemsAnalytics,
 } from "@/types";
 
+import { isAuthError } from "../adminUtils";
+
 type UseAnalyticsManagementProps = {
   accessToken: string | null;
   authHeaders: Record<string, string> | null;

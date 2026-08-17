@@ -69,6 +69,36 @@ class Outlet(Base, TimestampMixin):
     flagged_item_ids: Mapped[list[str] | None] = mapped_column(
         JSON, nullable=True, default=list
     )
+    evening_price_active: Mapped[bool] = mapped_column(
+        "evening_price_active", nullable=False, server_default="false", default=False
+    )
+    evening_pricing_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="OFF", default="OFF"
+    )  # "OFF", "MANUAL", "AUTO"
+    evening_auto_enabled: Mapped[bool] = mapped_column(
+        "evening_auto_enabled", nullable=False, server_default="false", default=False
+    )
+    evening_auto_start_time: Mapped[str | None] = mapped_column(
+        String(5), nullable=True, default=None  # HH:MM in IST e.g. "16:00"
+    )
+    evening_auto_end_time: Mapped[str | None] = mapped_column(
+        String(5), nullable=True, default=None  # HH:MM in IST e.g. "22:00"
+    )
+
+    @property
+    def is_evening_active(self) -> bool:
+        """Dynamic evaluation of whether evening rates are currently active for this outlet."""
+        if self.evening_pricing_mode == "MANUAL":
+            return True
+        if self.evening_pricing_mode == "AUTO" and self.evening_auto_start_time and self.evening_auto_end_time:
+            from datetime import datetime
+            from app.services.evening_scheduler import IST, _parse_hhmm, _is_in_window
+            now_ist = datetime.now(IST).time()
+            start_t = _parse_hhmm(self.evening_auto_start_time)
+            end_t = _parse_hhmm(self.evening_auto_end_time)
+            if start_t and end_t:
+                return _is_in_window(now_ist, start_t, end_t)
+        return False
 
     # Relationships
     staff: Mapped[list[Staff]] = relationship(

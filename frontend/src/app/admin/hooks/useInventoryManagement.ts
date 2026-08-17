@@ -14,6 +14,7 @@ import type {
   Supplier,
   WastageReason,
 } from "@/types";
+import { isAuthError } from "../adminUtils";
 
 export type InventoryTabType =
   | "items"
@@ -98,7 +99,7 @@ export function useInventoryManagement(
       const data = await apiRequest<InventoryItem[]>("/api/admin/inventory/items");
       setItems(data);
     } catch (err: any) {
-      if (err?.message === "Please sign in first.") return;
+      if (isAuthError(err)) return;
       setError(err?.message || "Failed to load inventory items");
     } finally {
       setIsLoading(false);
@@ -111,7 +112,7 @@ export function useInventoryManagement(
       const data = await apiRequest<Supplier[]>("/api/admin/inventory/suppliers");
       setSuppliers(data || []);
     } catch (err: any) {
-      if (err?.message === "Please sign in first.") return;
+      if (isAuthError(err)) return;
       console.error("Failed to load suppliers:", err);
     }
   }, [apiRequest]);
@@ -142,7 +143,7 @@ export function useInventoryManagement(
         }
         return data || [];
       } catch (err: any) {
-        if (err?.message === "Please sign in first.") return [];
+        if (isAuthError(err)) return [];
         console.error("Failed to load batches:", err);
         return [];
       }
@@ -158,7 +159,7 @@ export function useInventoryManagement(
       );
       setAlerts(data);
     } catch (err: any) {
-      if (err?.message === "Please sign in first.") return;
+      if (isAuthError(err)) return;
       console.error("Failed to load expiry alerts:", err);
     }
   }, [apiRequest]);
@@ -179,7 +180,7 @@ export function useInventoryManagement(
       setLedgerEntries(data.items);
       setLedgerTotal(data.total);
     } catch (err: any) {
-      if (err?.message === "Please sign in first.") return;
+      if (isAuthError(err)) return;
       console.error("Failed to load ledger:", err);
     }
   }, [apiRequest, ledgerPage, ledgerPageSize, ledgerFilterItem, ledgerFilterType]);
@@ -367,6 +368,7 @@ export function useInventoryManagement(
       const data = await apiRequest<any[]>("/api/admin/inventory/purchase-returns");
       setPurchaseReturns(data);
     } catch (err: any) {
+      if (isAuthError(err)) return;
       console.error("Failed to fetch purchase returns:", err);
     }
   }, [apiRequest]);

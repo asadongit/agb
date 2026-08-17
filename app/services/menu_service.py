@@ -88,11 +88,14 @@ async def _build_menu_tree(db: AsyncSession, slug: str) -> dict:
     )
     categories = categories_result.scalars().all()
 
+    evening_active = getattr(outlet, "evening_price_active", False)
+
     return {
         "outlet_name": outlet.name,
         "outlet_slug": outlet.slug,
         "payment_mode": outlet.payment_mode,
         "logo_url": getattr(outlet, "logo_url", None),
+        "evening_price_active": evening_active,
         "categories": [
             {
                 "id": str(cat.id),
@@ -103,7 +106,8 @@ async def _build_menu_tree(db: AsyncSession, slug: str) -> dict:
                         "id": str(item.id),
                         "name": item.name,
                         "description": item.description,
-                        "price": str(item.price),
+                        "price": str(item.resolve_price(evening_active)),
+                        "evening_price": str(item.evening_price) if (evening_active and getattr(item, "evening_price", None) is not None) else None,
                         "mrp": str(item.mrp) if getattr(item, "mrp", None) is not None else None,
                         "image_url": item.image_url,
                         "is_available": item.is_available,

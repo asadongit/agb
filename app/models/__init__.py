@@ -37,6 +37,8 @@ from app.models.stock_ledger import StockLedger
 from app.models.purchase_return import PurchaseReturn
 from app.models.supplier import Supplier
 from app.models.basket_session import BasketSession
+from app.models.qr_token import BasketQrToken
+from app.models.catalogue_batch import CatalogueBatch
 from app.models.user import User
 from app.models.webhook_event import WebhookEvent
 from app.models.enums import (
@@ -54,8 +56,10 @@ from app.models.enums import (
 __all__ = [
     "AbandonedCart",
     "AuditLog",
+    "BasketQrToken",
     "BasketSession",
     "BillDiscountApproval",
+    "CatalogueBatch",
     "Category",
     "Customer",
     "InventoryItem",

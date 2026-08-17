@@ -93,7 +93,8 @@ export function StaffAssistBasketModal({
       const token =
         authToken ||
         (typeof window !== "undefined"
-          ? localStorage.getItem("admin_access_token") ||
+          ? localStorage.getItem("agb_access_token") ||
+            localStorage.getItem("admin_access_token") ||
             localStorage.getItem("admin_token") ||
             localStorage.getItem("access_token") ||
             localStorage.getItem("token")

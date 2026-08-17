@@ -30,10 +30,40 @@ from app.services.session_service import (
     save_abandoned_cart,
     start_or_resume_session,
 )
-from app.services.websocket_service import broadcast_session_changed
 from sqlalchemy import select as sa_select
+from app.services.websocket_service import broadcast_session_changed
+from app.services.qr_service import get_or_create_qr_token, resolve_qr_token
 
 router = APIRouter(prefix="/api/sessions", tags=["sessions"])
+
+
+@router.get("/resolve-token")
+async def resolve_token_endpoint(
+    token: str = Query(..., min_length=1),
+    db: DBSession = None,
+):
+    """
+    Resolve cryptographically random QR token -> { outlet_slug, outlet_name, basket_number }.
+    Prevents basket numbers from being exposed or controlled in client URLs.
+    """
+    return await resolve_qr_token(db, token)
+
+
+@router.get("/qr-token")
+async def get_qr_token_endpoint(
+    outlet_slug: str = Query(...),
+    basket_number: str = Query(...),
+    db: DBSession = None,
+):
+    """
+    Get or create cryptographically random QR token for outlet + basket.
+    """
+    res = await db.execute(sa_select(Outlet).where(Outlet.slug == outlet_slug))
+    outlet = res.scalar_one_or_none()
+    if not outlet:
+        raise HTTPException(status_code=404, detail="Outlet not found")
+    token = await get_or_create_qr_token(db, outlet.id, basket_number)
+    return {"token": token, "outlet_slug": outlet.slug, "basket_number": basket_number}
 
 
 @router.post("/start", response_model=StartSessionResponse, status_code=status.HTTP_200_OK)

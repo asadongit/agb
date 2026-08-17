@@ -32,12 +32,13 @@ class MenuItemCreate(StrictSchema):
     offer_label: str | None = None
     mrp: Decimal | None = Field(None, ge=0, decimal_places=2)
     wholesale_price: Decimal | None = Field(None, ge=0, decimal_places=2)
+    evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = Field(default="piece", min_length=1, max_length=50)
 
-    @field_validator("offer_price", "mrp", "wholesale_price", mode="before")
+    @field_validator("offer_price", "mrp", "wholesale_price", "evening_price", mode="before")
     @classmethod
     def empty_offer_price_to_none(cls, v):
         if v == "" or v is None:
@@ -67,12 +68,13 @@ class MenuItemUpdate(StrictSchema):
     offer_label: str | None = None
     mrp: Decimal | None = Field(None, ge=0, decimal_places=2)
     wholesale_price: Decimal | None = Field(None, ge=0, decimal_places=2)
+    evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     tax_category: str | None = Field(None, max_length=100)
     tax_rate: Decimal | None = Field(None, ge=0, decimal_places=2)
     pricing_mode: PricingModeEnum | None = None
     unit_label: str | None = Field(None, min_length=1, max_length=50)
 
-    @field_validator("offer_price", "mrp", "wholesale_price", mode="before")
+    @field_validator("offer_price", "mrp", "wholesale_price", "evening_price", mode="before")
     @classmethod
     def empty_offer_price_to_none(cls, v):
         if v == "" or v is None:
@@ -104,6 +106,7 @@ class MenuItemResponse(BaseResponse):
     offer_label: str | None = None
     mrp: Decimal | None = None
     wholesale_price: Decimal | None = None
+    evening_price: Decimal | None = None
     tax_category: str | None = "GST 0%"
     tax_rate: Decimal | None = Decimal("0.00")
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
@@ -152,6 +155,7 @@ class PublicMenuItem(BaseResponse):
     description: str | None
     price: Decimal
     mrp: Decimal | None = None
+    evening_price: Decimal | None = None
     image_url: str | None
     is_available: bool
     is_on_offer: bool = False

@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, JSON, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -69,6 +69,9 @@ class Order(Base, TimestampMixin):
     subtotal_amount: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
     )
+    tax_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True, default=Decimal("0.00")
+    )
     discount_type: Mapped[str | None] = mapped_column(
         String(30), nullable=True
     )
@@ -83,6 +86,9 @@ class Order(Base, TimestampMixin):
     )
     payment_method: Mapped[str | None] = mapped_column(
         String(30), nullable=True
+    )
+    cash_denominations: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
     )
     finalized_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True

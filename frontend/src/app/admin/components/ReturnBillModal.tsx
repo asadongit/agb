@@ -2,7 +2,8 @@
 
 import React, { useRef } from "react";
 import { X, Printer, Download, Building2, CheckCircle2, RotateCcw, ArrowLeft } from "lucide-react";
-import type { PurchaseReturn, RestaurantProfile } from "@/types";
+import type { PurchaseReturn } from "@/types";
+import type { RestaurantProfile } from "../adminTypes";
 
 interface ReturnBillModalProps {
   isOpen: boolean;

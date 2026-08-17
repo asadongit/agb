@@ -77,12 +77,32 @@ class MenuItem(Base, TimestampMixin):
     wholesale_price: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
     )
+    evening_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     tax_category: Mapped[str | None] = mapped_column(
         String(100), nullable=True, default="GST 0%"
     )
     tax_rate: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 2), nullable=True, default=Decimal("0.00")
     )
+
+    @property
+    def effective_price(self) -> Decimal:
+        """Base effective price — does NOT include evening override.
+        Evening price priority is controlled at the outlet level via evening_price_active.
+        """
+        if self.is_on_offer and self.offer_price is not None and self.offer_price > Decimal("0.00"):
+            return self.offer_price
+        return self.price
+
+    def resolve_price(self, evening_active: bool = False) -> Decimal:
+        """Compute the final price considering the outlet's evening toggle.
+        Use this in services/routers where you have access to the outlet.
+        """
+        if evening_active and self.evening_price is not None and self.evening_price > Decimal("0.00"):
+            return self.evening_price
+        return self.effective_price
 
     # ── Dual pricing fields ──────────────────────────────────────────
     # WEIGHT_BASED: price is ₹ per kg/g, quantity entered as weight

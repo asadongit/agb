@@ -28,6 +28,7 @@ from app.schemas.billing import (
     ApproveDiscountRequest,
     BillResponse,
     CreateManualBillRequest,
+    CustomerReturnRequest,
     DiscountApprovalResponse,
     MarkPaidRequest,
     UpdateManualBillRequest,
@@ -37,8 +38,10 @@ from app.services.billing_service import (
     approve_discount,
     create_manual_bill,
     finalize_bill,
+    get_daily_cash_denominations,
     get_pending_approvals_count,
     mark_bill_paid,
+    process_customer_return,
     update_manual_bill,
 )
 
@@ -50,6 +53,8 @@ def _format_bill_response(order: Order) -> BillResponse:
     for item in order.items:
         qty = float(item.quantity) if item.quantity is not None else 1.0
         price = float(item.unit_price) if item.unit_price is not None else 0.0
+        mrp_val = float(item.mrp) if getattr(item, "mrp", None) is not None else price
+        tax_rate_val = float(item.tax_rate) if getattr(item, "tax_rate", None) is not None else 0.0
         l_total = float(item.line_total) if item.line_total is not None else (qty * price)
 
         name_val = item.item_name
@@ -69,6 +74,8 @@ def _format_bill_response(order: Order) -> BillResponse:
                 "item_name": name_val,
                 "quantity": qty,
                 "unit_price": price,
+                "mrp": mrp_val,
+                "tax_rate": tax_rate_val,
                 "is_complimentary": getattr(item, "is_complimentary", False),
                 "line_total": l_total,
             }
@@ -83,12 +90,14 @@ def _format_bill_response(order: Order) -> BillResponse:
         status=order.status.value if hasattr(order.status, "value") else str(order.status),
         source=order.source or "manual",
         subtotal_amount=float(order.subtotal_amount or order.total_amount or 0.0),
+        tax_amount=float(order.tax_amount or 0.0),
         total_amount=float(order.total_amount or 0.0),
         discount_type=order.discount_type,
         discount_value=float(order.discount_value) if order.discount_value is not None else None,
         discount_reason=order.discount_reason,
         discount_status=order.discount_status,
         payment_method=order.payment_method,
+        cash_denominations=order.cash_denominations,
         created_by_staff_id=str(order.created_by_staff_id) if order.created_by_staff_id else None,
         created_at=order.created_at.isoformat() if hasattr(order.created_at, "isoformat") else str(order.created_at),
         finalized_at=order.finalized_at.isoformat() if order.finalized_at and hasattr(order.finalized_at, "isoformat") else None,
@@ -262,11 +271,35 @@ async def list_bills_endpoint(
     if status:
         stmt = stmt.where(Order.status == status)
 
-    stmt = stmt.order_by(Order.created_at.desc()).limit(100)
+    stmt = stmt.order_by(Order.updated_at.desc(), Order.created_at.desc()).limit(100)
     res = await db.execute(stmt)
     orders = res.scalars().all()
 
     return [_format_bill_response(o) for o in orders]
+
+
+@router.get("/daily-cash-denominations")
+async def daily_cash_denominations_endpoint(
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+    date: str | None = Query(None, description="Date in YYYY-MM-DD format"),
+):
+    """Fetch daily cash currency denomination breakdown collected at billing POS."""
+    if not current_user.outlet_id:
+        return {"date": date, "total_cash_collected": 0.0, "denominations": {}}
+    return await get_daily_cash_denominations(db, current_user.outlet_id, date_str=date)
+
+
+@router.post("/returns")
+async def customer_return_endpoint(
+    data: CustomerReturnRequest,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """Process customer return or exchange against an existing bill with inventory restocking."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    return await process_customer_return(db, current_user.outlet_id, current_user, data)
 
 
 @router.get("/bills/{bill_id}", response_model=BillResponse)
@@ -292,3 +325,16 @@ async def get_bill_endpoint(
         raise HTTPException(status_code=404, detail="Bill not found.")
 
     return _format_bill_response(order)
+
+
+@router.delete("/bills/{bill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_draft_bill_endpoint(
+    bill_id: uuid.UUID,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """Discard/delete a draft or pending bill when canceled without explicitly saving as draft."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from app.services.billing_service import discard_draft_bill
+    await discard_draft_bill(db, bill_id, current_user.outlet_id)

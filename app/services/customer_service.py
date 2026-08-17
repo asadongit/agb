@@ -120,3 +120,131 @@ async def delete_customer(
     await db.delete(cust)
     await db.flush()
     return True
+
+
+async def get_customer_analytics(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    phone: str,
+    period: str = "all_time",
+    start_date: str | None = None,
+    end_date: str | None = None,
+) -> dict[str, Any]:
+    """
+    Get customer purchase volume, category interest, and item interest over a selected timeframe.
+    """
+    from datetime import datetime, timedelta
+    from app.models.order_item import OrderItem
+    from app.models.category import Category
+    from app.models.menu_item import MenuItem
+
+    clean_phone = phone.strip()
+    cust_res = await db.execute(
+        select(Customer).where(
+            Customer.outlet_id == outlet_id,
+            Customer.phone == clean_phone,
+        )
+    )
+    cust = cust_res.scalar_one_or_none()
+    cust_name = cust.name if cust else "Walk-In Customer"
+
+    # Base query for paid or completed orders
+    order_stmt = select(Order.id, Order.total_amount, Order.created_at).where(
+        Order.outlet_id == outlet_id,
+        Order.customer_phone == clean_phone,
+        Order.status.in_([OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]),
+    )
+
+    now = datetime.utcnow()
+    if period == "this_week":
+        # Monday of current week
+        start = now - timedelta(days=now.weekday())
+        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "last_1_week":
+        start = now - timedelta(days=7)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "last_month":
+        start = now - timedelta(days=30)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "last_6_months":
+        start = now - timedelta(days=180)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "last_year":
+        start = now - timedelta(days=365)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "custom" and start_date:
+        try:
+            s_dt = datetime.fromisoformat(start_date)
+            order_stmt = order_stmt.where(Order.created_at >= s_dt)
+        except Exception:
+            pass
+        if end_date:
+            try:
+                e_dt = datetime.fromisoformat(end_date)
+                order_stmt = order_stmt.where(Order.created_at <= e_dt)
+            except Exception:
+                pass
+
+    orders_res = await db.execute(order_stmt)
+    matching_orders = orders_res.all()
+    order_ids = [r.id for r in matching_orders]
+    total_volume = sum(float(r.total_amount or 0.0) for r in matching_orders)
+    total_orders = len(matching_orders)
+
+    best_categories = []
+    best_items = []
+
+    if order_ids:
+        # Category Interest
+        cat_stmt = (
+            select(
+                func.coalesce(Category.name, "Uncategorized").label("category_name"),
+                func.sum(OrderItem.quantity).label("total_qty"),
+                func.sum(OrderItem.line_total).label("total_amount"),
+            )
+            .select_from(OrderItem)
+            .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
+            .outerjoin(Category, MenuItem.category_id == Category.id)
+            .where(OrderItem.order_id.in_(order_ids))
+            .group_by(func.coalesce(Category.name, "Uncategorized"))
+            .order_by(func.sum(OrderItem.line_total).desc())
+            .limit(10)
+        )
+        cat_res = await db.execute(cat_stmt)
+        for r in cat_res.all():
+            best_categories.append({
+                "category_name": r.category_name,
+                "total_quantity": float(r.total_qty or 0),
+                "total_amount": float(r.total_amount or 0.0),
+            })
+
+        # Item Interest
+        item_stmt = (
+            select(
+                OrderItem.item_name,
+                func.sum(OrderItem.quantity).label("total_qty"),
+                func.sum(OrderItem.line_total).label("total_amount"),
+            )
+            .where(OrderItem.order_id.in_(order_ids))
+            .group_by(OrderItem.item_name)
+            .order_by(func.sum(OrderItem.quantity).desc())
+            .limit(10)
+        )
+        item_res = await db.execute(item_stmt)
+        for r in item_res.all():
+            best_items.append({
+                "item_name": r.item_name or "Item",
+                "total_quantity": float(r.total_qty or 0),
+                "total_amount": float(r.total_amount or 0.0),
+            })
+
+    return {
+        "customer_name": cust_name,
+        "customer_phone": clean_phone,
+        "period": period,
+        "total_volume": total_volume,
+        "total_orders": total_orders,
+        "best_categories": best_categories,
+        "best_items": best_items,
+    }

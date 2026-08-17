@@ -672,7 +672,7 @@ export function InventoryTab({
 
                               {matchedItem && (
                                 (() => {
-                                  const isBatchEmpty = parseFloat(b.remaining_quantity) <= 0;
+                                  const isBatchEmpty = parseFloat(String(b.remaining_quantity)) <= 0;
                                   return (
                                     <button
                                       type="button"
@@ -996,7 +996,9 @@ export function InventoryTab({
           if (res.return_id) {
             try {
               const apiBase = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-              const r = await fetch(`${apiBase}/api/admin/inventory/purchase-returns/${res.return_id}`);
+              const r = await fetch(`${apiBase}/api/admin/inventory/purchase-returns/${res.return_id}`, {
+                headers: authToken ? { Authorization: `Bearer ${authToken}` } : {},
+              });
               if (r.ok) {
                 const returnData = await r.json();
                 setSelectedReturnBill(returnData);

@@ -57,6 +57,9 @@ class OrderItem(Base):
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False
     )
+    mrp: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_complimentary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     line_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)

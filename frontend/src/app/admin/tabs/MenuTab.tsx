@@ -4,21 +4,30 @@ import React, { useState } from "react";
 import {
   Barcode,
   Edit,
+  Image as ImageIcon,
   Layers,
+  Moon,
   Percent,
   Plus,
   Search,
+  Settings2,
   ShieldAlert,
   Sparkles,
   Tag,
   Trash2,
+  Upload,
+  X,
 } from "lucide-react";
 import type {
   AdminCategory,
   AdminMenuItem,
   AdminVariant,
   MenuItemFormState,
+  RestaurantProfile,
 } from "../adminTypes";
+import { MenuSettingsDrawer } from "../modals/MenuSettingsDrawer";
+import { resolveImageUrl } from "@/lib/api";
+import { uploadImageFile } from "../adminUtils";
 
 interface MenuTabProps {
   categories: AdminCategory[];
@@ -29,12 +38,15 @@ interface MenuTabProps {
   searchQuery: string;
   setSearchQuery: (query: string) => void;
   onSaveItem: (itemId: string | null, data: MenuItemFormState) => Promise<void>;
+  onSaveBatchItems?: (updates: { id: string; name: string; mrp: string; price: string; evening_price: string }[]) => Promise<void>;
   onDeleteItem: (itemId: string) => Promise<void>;
   onToggleAvailability: (itemId: string, isAvailable: boolean) => Promise<void>;
   onOpenVariantModal: (item: AdminMenuItem) => void;
   onOpenOfferModal: (item: AdminMenuItem) => void;
   onCreateCategory?: (name: string) => Promise<any>;
   inventoryItems?: { id: string; name: string; barcode?: string | null }[];
+  restaurant?: RestaurantProfile | null;
+  onRestaurantUpdate?: (r: RestaurantProfile) => void;
 }
 
 export function MenuTab({
@@ -46,15 +58,19 @@ export function MenuTab({
   searchQuery,
   setSearchQuery,
   onSaveItem,
+  onSaveBatchItems,
   onDeleteItem,
   onToggleAvailability,
   onOpenVariantModal,
   onOpenOfferModal,
   onCreateCategory,
   inventoryItems,
+  restaurant,
+  onRestaurantUpdate,
 }: MenuTabProps) {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AdminMenuItem | null>(null);
+  const [isSettingsDrawerOpen, setIsSettingsDrawerOpen] = useState(false);
 
   // Category Modal State
   const [isCategoryModalOpen, setIsCategoryModalOpen] = useState(false);
@@ -95,14 +111,36 @@ export function MenuTab({
     unit_label: "piece",
   });
 
+  const [modalError, setModalError] = useState<string | null>(null);
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+
+  const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    try {
+      setIsUploadingImage(true);
+      setModalError(null);
+      const url = await uploadImageFile(file);
+      setFormData((prev) => ({ ...prev, image_url: url }));
+    } catch (err: any) {
+      setModalError(err.message || "Failed to upload image photo.");
+    } finally {
+      setIsUploadingImage(false);
+    }
+  };
+
   const openCreateModal = () => {
     setEditingItem(null);
+    setModalError(null);
     setFormData({
       category_id: selectedCategory !== "ALL" ? selectedCategory : (categories[0]?.id || ""),
       inventory_item_id: null,
       name: "",
       barcode: "",
+      image_url: "",
       price: "",
+      wholesale_price: "",
+      evening_price: "",
       description: "",
       is_available: true,
       is_on_offer: false,
@@ -120,12 +158,16 @@ export function MenuTab({
 
   const openEditModal = (item: AdminMenuItem) => {
     setEditingItem(item);
+    setModalError(null);
     setFormData({
       category_id: item.category_id,
       inventory_item_id: item.inventory_item_id || null,
       name: item.name,
       barcode: item.barcode || "",
+      image_url: item.image_url || "",
       price: item.price,
+      wholesale_price: item.wholesale_price ? String(item.wholesale_price) : "",
+      evening_price: item.evening_price ? String(item.evening_price) : "",
       description: item.description || "",
       is_available: item.is_available,
       is_on_offer: !!item.is_on_offer,
@@ -143,8 +185,27 @@ export function MenuTab({
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    await onSaveItem(editingItem ? editingItem.id : null, formData);
-    setIsItemModalOpen(false);
+    setModalError(null);
+
+    const priceNum = parseFloat(formData.price) || 0;
+    const eveningPriceNum = formData.evening_price ? parseFloat(formData.evening_price) : null;
+    const isEveningActive = restaurant?.evening_price_active ?? false;
+    const effectivePriceNum = (isEveningActive && eveningPriceNum !== null && !isNaN(eveningPriceNum) && eveningPriceNum > 0)
+      ? eveningPriceNum
+      : priceNum;
+    const mrpNum = formData.mrp ? parseFloat(formData.mrp) : null;
+
+    if (mrpNum !== null && !isNaN(mrpNum) && mrpNum > 0 && mrpNum < effectivePriceNum) {
+      setModalError(`MRP (₹${mrpNum.toFixed(2)}) cannot be smaller than effective Selling Price (₹${effectivePriceNum.toFixed(2)}). MRP must be greater than or equal to Selling Price.`);
+      return;
+    }
+
+    try {
+      await onSaveItem(editingItem ? editingItem.id : null, formData);
+      setIsItemModalOpen(false);
+    } catch (err: any) {
+      setModalError(err.message || "Failed to save menu item.");
+    }
   };
 
   const filteredItems = menuItems.filter((item) => {
@@ -186,14 +247,6 @@ export function MenuTab({
               {c.name}
             </button>
           ))}
-          <button
-            type="button"
-            onClick={() => setIsCategoryModalOpen(true)}
-            className="flex-shrink-0 rounded-xl border border-dashed border-[var(--border-strong)] px-3 py-1.5 text-xs font-bold text-[var(--accent-brand)] hover:bg-[var(--accent-brand)]/10 transition flex items-center gap-1"
-          >
-            <Plus className="h-3.5 w-3.5" />
-            Category
-          </button>
         </div>
 
         <div className="flex items-center gap-2 w-full sm:w-auto">
@@ -225,6 +278,15 @@ export function MenuTab({
             <Plus className="h-4 w-4" />
             Add Item
           </button>
+
+          <button
+            type="button"
+            onClick={() => setIsSettingsDrawerOpen(true)}
+            className="p-2 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-secondary)] hover:border-[var(--accent-brand)] hover:text-[var(--accent-brand)] transition"
+            title="Menu Settings"
+          >
+            <Settings2 className="h-4 w-4" />
+          </button>
         </div>
       </div>
 
@@ -252,7 +314,10 @@ export function MenuTab({
           {filteredItems.map((item) => {
             const variants = variantsByItem[item.id] || [];
             const mrpVal = item.mrp ? parseFloat(item.mrp) : 0;
-            const priceVal = parseFloat(item.price) || 0;
+            const rawPriceVal = parseFloat(item.price) || 0;
+            const eveningPriceVal = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
+            const isEveningActive = restaurant?.evening_price_active ?? false;
+            const priceVal = (isEveningActive && eveningPriceVal > 0) ? eveningPriceVal : rawPriceVal;
             const hasDiscount = mrpVal > priceVal;
             const discPercent = hasDiscount ? Math.round(((mrpVal - priceVal) / mrpVal) * 100) : 0;
 
@@ -261,28 +326,51 @@ export function MenuTab({
                 key={item.id}
                 className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 space-y-3 hover:border-[var(--accent-brand)] transition"
               >
-                <div className="flex items-start justify-between gap-2">
-                  <div>
-                    <h4 className="font-bold text-sm text-[var(--text-primary)]">{item.name}</h4>
+                <div className="flex items-start gap-3">
+                  {/* Thumbnail Image */}
+                  <div className="h-12 w-12 rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] overflow-hidden shrink-0 flex items-center justify-center">
+                    {item.image_url ? (
+                      <img
+                        src={resolveImageUrl(item.image_url)}
+                        alt={item.name}
+                        className="h-full w-full object-cover"
+                      />
+                    ) : (
+                      <ImageIcon className="h-5 w-5 text-[var(--text-muted)] opacity-50" />
+                    )}
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-start justify-between gap-1">
+                      <h4 className="font-bold text-sm text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                        <span className="truncate">{item.name}</span>
+                        {isEveningActive && eveningPriceVal > 0 && (
+                          <span title={`Evening Price Active: ₹${eveningPriceVal.toFixed(2)}`}>
+                            <Moon className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0 cursor-pointer" />
+                          </span>
+                        )}
+                      </h4>
+                      <div className="text-right shrink-0">
+                        {hasDiscount && (
+                          <span className="line-through text-xs text-[var(--text-muted)] font-mono block">
+                            ₹{mrpVal.toFixed(2)}
+                          </span>
+                        )}
+                        <span className="font-mono text-sm font-bold text-[var(--text-primary)]">
+                          ₹{priceVal.toFixed(2)}
+                        </span>
+                        {item.pricing_mode === "WEIGHT_BASED" && (
+                          <span className="text-[10px] text-[var(--text-muted)] block">
+                            per {item.unit_label || "kg"}
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
                     {item.barcode && (
                       <span className="inline-flex items-center gap-1 text-[11px] font-mono text-[var(--accent-brand)] mt-0.5">
                         <Barcode className="h-3 w-3" />
                         {item.barcode}
-                      </span>
-                    )}
-                  </div>
-                  <div className="text-right">
-                    {hasDiscount && (
-                      <span className="line-through text-xs text-[var(--text-muted)] font-mono block">
-                        ₹{mrpVal.toFixed(2)}
-                      </span>
-                    )}
-                    <span className="font-mono text-sm font-bold text-emerald-400">
-                      ₹{priceVal.toFixed(2)}
-                    </span>
-                    {item.pricing_mode === "WEIGHT_BASED" && (
-                      <span className="text-[10px] text-[var(--text-muted)] block">
-                        per {item.unit_label || "kg"}
                       </span>
                     )}
                   </div>
@@ -293,9 +381,9 @@ export function MenuTab({
                   <button
                     type="button"
                     onClick={() => onToggleAvailability(item.id, !item.is_available)}
-                    className={`rounded-full px-2 py-0.5 text-[10px] font-bold transition ${
+                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold transition ${
                       item.is_available
-                        ? "bg-emerald-500/10 text-emerald-400 border border-emerald-500/30"
+                        ? "bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)]"
                         : "bg-red-500/10 text-red-400 border border-red-500/30"
                     }`}
                   >
@@ -303,7 +391,7 @@ export function MenuTab({
                   </button>
 
                   {hasDiscount && (
-                    <span className="inline-flex items-center gap-1 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-bold text-emerald-400 border border-emerald-500/30">
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
                       🏷️ {discPercent}% OFF
                     </span>
                   )}
@@ -391,6 +479,12 @@ export function MenuTab({
               {editingItem ? "Edit Menu Item" : "Create New Menu Item"}
             </h3>
 
+            {modalError && (
+              <div className="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-xs font-semibold text-rose-400">
+                ⚠️ {modalError}
+              </div>
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-3 text-xs">
               <div>
                 <label className="block font-semibold mb-1">Product Name *</label>
@@ -412,6 +506,53 @@ export function MenuTab({
                   onChange={(e) => setFormData({ ...formData, barcode: e.target.value })}
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-xs text-[var(--text-primary)]"
                 />
+              </div>
+
+              <div>
+                <label className="block font-semibold mb-1">Product Photo / Image (Optional)</label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      placeholder="https://... or upload photo"
+                      value={formData.image_url || ""}
+                      onChange={(e) => setFormData({ ...formData, image_url: e.target.value })}
+                      className="flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)]"
+                    />
+                    <label className="flex items-center gap-1.5 cursor-pointer rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs font-semibold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition shrink-0">
+                      <Upload className="h-3.5 w-3.5 text-[var(--accent-brand)]" />
+                      <span>{isUploadingImage ? "Uploading..." : "Upload File"}</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        disabled={isUploadingImage}
+                        onChange={handleImageFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+                  </div>
+
+                  {formData.image_url && (
+                    <div className="relative flex items-center gap-3 p-2 rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]">
+                      <img
+                        src={resolveImageUrl(formData.image_url)}
+                        alt="Preview"
+                        className="h-10 w-10 rounded-lg object-cover bg-black/20 shrink-0"
+                      />
+                      <span className="text-[11px] text-[var(--text-muted)] truncate flex-1 font-mono">
+                        {formData.image_url}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setFormData({ ...formData, image_url: "" })}
+                        className="p-1 text-rose-400 hover:text-rose-300 transition shrink-0"
+                        title="Remove photo"
+                      >
+                        <X className="h-4 w-4" />
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               {inventoryItems && inventoryItems.length > 0 && (
@@ -501,6 +642,22 @@ export function MenuTab({
                 </div>
               </div>
 
+              <div>
+                <label className="block font-semibold mb-1 flex items-center justify-between">
+                  <span>Evening Price (₹) <span className="text-[10px] text-[var(--text-muted)] font-normal">(Optional)</span></span>
+                  <span className="text-[10px] font-bold text-amber-500 bg-amber-500/10 px-1.5 py-0.5 rounded border border-amber-500/30">Priority Override</span>
+                </label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0"
+                  placeholder="Evening override price (replaces selling price)"
+                  value={formData.evening_price || ""}
+                  onChange={(e) => setFormData({ ...formData, evening_price: e.target.value })}
+                  className="w-full rounded-xl border border-amber-500/30 bg-amber-500/5 px-3 py-2 font-mono text-xs text-[var(--text-primary)] focus:border-amber-500 outline-none"
+                />
+              </div>
+
               <div className="flex items-center gap-4 pt-2">
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input
@@ -588,6 +745,17 @@ export function MenuTab({
           </div>
         </div>
       )}
+
+      {/* Menu Settings Drawer (Bulk Price + Catalogue Print) */}
+      <MenuSettingsDrawer
+        isOpen={isSettingsDrawerOpen}
+        onClose={() => setIsSettingsDrawerOpen(false)}
+        menuItems={menuItems}
+        categories={categories}
+        restaurant={restaurant || null}
+        onSaveBatchItems={onSaveBatchItems || (async () => {})}
+        onRestaurantUpdate={onRestaurantUpdate}
+      />
     </div>
   );
 }

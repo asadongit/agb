@@ -6,6 +6,7 @@ import type {
 } from "@/types";
 import type { RestaurantProfile } from "../adminTypes";
 import type { StaffModalFormState } from "../modals/StaffModal";
+import { isAuthError } from "../adminUtils";
 
 type UseStaffManagementProps = {
   accessToken: string | null;
@@ -65,6 +66,7 @@ export function useStaffManagement({
         setPinSwitchStaffId(data[0].id);
       }
     } catch (err) {
+      if (isAuthError(err)) return;
       console.error("Staff fetch error:", err);
     } finally {
       setIsLoadingStaff(false);
@@ -77,6 +79,7 @@ export function useStaffManagement({
       const perms = await apiRequest<RolePermissions>("/api/staff/permissions");
       setStaffPermissions(perms);
     } catch (err) {
+      if (isAuthError(err)) return;
       console.error("Permissions fetch error:", err);
     }
   }, [apiRequest, authHeaders]);
@@ -87,6 +90,7 @@ export function useStaffManagement({
       const logRes = await apiRequest<{ items: StaffAuditEntry[] }>("/api/staff/audit-log");
       setStaffAuditLogs(logRes.items || []);
     } catch (err) {
+      if (isAuthError(err)) return;
       console.error("Staff audit log fetch error:", err);
     }
   }, [apiRequest, authHeaders]);

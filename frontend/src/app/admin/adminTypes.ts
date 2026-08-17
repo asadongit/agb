@@ -21,6 +21,7 @@ export type AdminTab =
   | "analytics"
   | "inventory"
   | "customerservices"
+  | "sessions"
   | "qrcodes"
   | "settings";
 
@@ -62,6 +63,11 @@ export interface RestaurantProfile {
   basket_locking_enabled?: boolean;
   verification_cutoff_amount?: string | number | null;
   flagged_item_ids?: string[] | null;
+  evening_price_active?: boolean;
+  evening_pricing_mode?: "OFF" | "MANUAL" | "AUTO";
+  evening_auto_enabled?: boolean;
+  evening_auto_start_time?: string | null;  // "HH:MM" IST
+  evening_auto_end_time?: string | null;    // "HH:MM" IST
   created_at?: string;
   updated_at?: string;
 }
@@ -119,6 +125,7 @@ export interface AdminMenuItem {
   offer_label?: string | null;
   mrp?: string | null;
   wholesale_price?: string | null;
+  evening_price?: string | null;
   tax_category?: string | null;
   tax_rate?: number | string | null;
   pricing_mode?: PricingMode;
@@ -178,8 +185,10 @@ export interface MenuItemFormState {
   inventory_item_id?: string | null;
   name: string;
   barcode: string;
+  image_url?: string;
   price: string;
-  wholesale_price: string;
+  wholesale_price?: string;
+  evening_price?: string;
   description: string;
   is_available: boolean;
   is_on_offer: boolean;
@@ -200,6 +209,7 @@ export interface VariantFormState {
 }
 
 export interface OfferFormState {
+  is_on_offer: boolean;
   offer_price: string;
   offer_label: string;
 }

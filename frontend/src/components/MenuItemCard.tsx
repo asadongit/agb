@@ -2,7 +2,7 @@
 
 import React, { useState } from "react";
 import Image from "next/image";
-import { Plus, Check, AlertCircle } from "lucide-react";
+import { Plus, Check, AlertCircle, Moon } from "lucide-react";
 import { MenuItem, Variant } from "@/types";
 import { useCart } from "@/context/CartContext";
 
@@ -16,6 +16,7 @@ interface MenuItemCardProps {
 export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
   const { addToCart, cart } = useCart();
   const [justAdded, setJustAdded] = useState(false);
+  const [showEveningTooltip, setShowEveningTooltip] = useState(false);
 
   // Calculate total quantity of this item currently in cart
   const cartQuantity = cart
@@ -24,6 +25,12 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
 
   const hasVariants = item.variants && item.variants.length > 0;
   const isAvailable = item.is_available;
+
+  const rawPrice = parseFloat(item.price) || 0;
+  const eveningPrice = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
+  // Backend already resolves effective price based on evening_price_active toggle,
+  // so item.price is the correct display price. Don't re-override here.
+  const effectivePrice = rawPrice;
 
   const handleAdd = () => {
     if (!isAvailable) return;
@@ -89,8 +96,31 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
         <div className="flex flex-1 flex-col justify-between">
           <div>
             <div className="flex items-start justify-between gap-1">
-              <h3 className="font-sans text-sm font-bold leading-tight text-[var(--text-primary)]">
-                {item.name}
+              <h3 className="font-sans text-sm font-bold leading-tight text-[var(--text-primary)] flex items-center gap-1.5">
+                <span>{item.name}</span>
+                {eveningPrice > 0 && (
+                  <div className="relative inline-block">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setShowEveningTooltip((prev) => !prev);
+                      }}
+                      onMouseEnter={() => setShowEveningTooltip(true)}
+                      onMouseLeave={() => setShowEveningTooltip(false)}
+                      className="p-0.5 rounded hover:bg-amber-500/20 text-amber-400 transition cursor-pointer"
+                      title={`Evening Price Active: ₹${effectivePrice.toFixed(2)}`}
+                    >
+                      <Moon className="h-3.5 w-3.5 fill-amber-400/20 text-amber-400" />
+                    </button>
+                    {showEveningTooltip && (
+                      <div className="absolute left-0 bottom-full mb-1 z-30 w-44 rounded-xl border border-amber-500/30 bg-gray-900/95 p-2 text-[10px] text-amber-300 shadow-xl backdrop-blur-xs font-sans">
+                        🌙 <strong>Evening Special Rate!</strong>
+                        <div className="text-gray-300 mt-0.5">Active Rate: ₹{effectivePrice.toFixed(2)}</div>
+                      </div>
+                    )}
+                  </div>
+                )}
               </h3>
             </div>
             {item.description && (
@@ -124,7 +154,7 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
                 ) : (
                   <>
                     <span className="font-sans text-sm font-black tracking-tight text-[var(--text-primary)]">
-                      ₹{parseFloat(item.price).toFixed(2)}
+                      ₹{effectivePrice.toFixed(2)}
                     </span>
                     {item.mrp && parseFloat(String(item.mrp)) > 0 && (
                       <span className="font-sans text-[10px] text-[var(--text-muted)] font-medium">

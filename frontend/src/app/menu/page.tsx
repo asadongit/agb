@@ -83,6 +83,7 @@ function DigitalMenuApp() {
   const [isSearchOpen, setIsSearchOpen] = useState(false);
   const [selectedItemForVariant, setSelectedItemForVariant] =
     useState<MenuItem | null>(null);
+  const [tokenError, setTokenError] = useState<string | null>(null);
 
   const loadMenuForSlug = useCallback(
     async (slug: string) => {
@@ -121,57 +122,98 @@ function DigitalMenuApp() {
   );
 
   useEffect(() => {
-    let currentSlug = "";
-    let currentTable = "";
+    async function initMenuAndSession() {
+      if (typeof window === "undefined") {
+        setIsLoading(false);
+        return;
+      }
 
-    if (typeof window !== "undefined") {
       const urlParams = new URLSearchParams(window.location.search);
-      const tableParam = urlParams.get("basket");
+      const tokenParam = urlParams.get("token");
       const slugParam = urlParams.get("slug");
       const savedSlug = localStorage.getItem("last_active_slug");
       const savedTable = localStorage.getItem("last_active_table");
 
-      if (tableParam) {
-        currentTable = tableParam;
-        setTableNumber(tableParam);
-        setSessionTable(tableParam);
-        localStorage.setItem("last_active_table", tableParam);
-      } else if (savedTable) {
+      let currentSlug = slugParam || "";
+      let currentTable = "";
+
+      // 1. If tokenParam is present in URL, resolve token from backend first
+      if (tokenParam) {
+        setIsLoading(true);
+        setTokenError(null);
+        try {
+          const apiBase = getApiBaseUrl();
+          const res = await fetch(
+            `${apiBase}/api/sessions/resolve-token?token=${encodeURIComponent(tokenParam)}`,
+            { headers: { "bypass-tunnel-reminder": "true" } }
+          );
+
+          if (res.ok) {
+            const resolved = await res.json();
+            currentSlug = resolved.outlet_slug;
+            currentTable = resolved.basket_number;
+
+            setTableNumber(currentTable);
+            setSessionTable(currentTable);
+            setRestaurantSlug(currentSlug);
+            localStorage.setItem("last_active_slug", currentSlug);
+            localStorage.setItem("last_active_table", currentTable);
+
+            // Maintain slug and token in URL bar (do not expose basket number)
+            window.history.replaceState(
+              {},
+              "",
+              `/menu?slug=${encodeURIComponent(currentSlug)}&token=${encodeURIComponent(tokenParam)}`
+            );
+
+            await loadMenuForSlug(currentSlug);
+            return;
+          } else {
+            setTokenError(
+              "Invalid or expired QR code token. Please scan a valid QR code or select a restaurant."
+            );
+            setIsLoading(false);
+            return;
+          }
+        } catch (err) {
+          console.error("Failed to resolve QR token:", err);
+          setTokenError(
+            "Failed to resolve QR token. Please check your connection and try again."
+          );
+          setIsLoading(false);
+          return;
+        }
+      }
+
+      // 2. Resume active session if saved in localStorage
+      if (savedTable && (savedSlug || slugParam)) {
+        currentSlug = slugParam || savedSlug || "";
         currentTable = savedTable;
         setTableNumber(savedTable);
         setSessionTable(savedTable);
-      } else {
-        currentTable = "1";
-        setTableNumber("1");
-        setSessionTable("1");
+        setRestaurantSlug(currentSlug);
+        localStorage.setItem("last_active_slug", currentSlug);
+
+        window.history.replaceState({}, "", `/menu?slug=${encodeURIComponent(currentSlug)}`);
+        await loadMenuForSlug(currentSlug);
+        return;
       }
 
+      // 3. No token and no active session — block direct basket URL manipulation
       if (slugParam) {
-        currentSlug = slugParam;
         setRestaurantSlug(slugParam);
-        localStorage.setItem("last_active_slug", slugParam);
-      } else if (savedSlug) {
-        currentSlug = savedSlug;
-        setRestaurantSlug(savedSlug);
-      }
-
-      // Sync browser URL bar with slug and table so page refreshes retain exact URL params
-      if (currentSlug) {
-        window.history.replaceState(
-          {},
-          "",
-          `/menu?slug=${currentSlug}&basket=${currentTable || "1"}`
+        setTokenError(
+          "No valid QR token found in URL. Please scan the QR code on your table to view the menu and start ordering."
         );
+        setIsLoading(false);
+        return;
       }
-    }
 
-    if (!currentSlug) {
       setShowWelcomeSelector(true);
       setIsLoading(false);
-      return;
     }
 
-    loadMenuForSlug(currentSlug);
+    void initMenuAndSession();
   }, [setTableNumber, setSessionTable, setRestaurantSlug, loadMenuForSlug]);
 
   const handleSelectRestaurant = (slug: string, table: string) => {
@@ -181,7 +223,7 @@ function DigitalMenuApp() {
     if (typeof window !== "undefined") {
       localStorage.setItem("last_active_slug", slug);
       localStorage.setItem("last_active_table", table);
-      window.history.replaceState({}, "", `/menu?slug=${slug}&basket=${table}`);
+      window.history.replaceState({}, "", `/menu?slug=${slug}`);
     }
     loadMenuForSlug(slug);
   };
@@ -211,6 +253,32 @@ function DigitalMenuApp() {
         item.description?.toLowerCase().includes(searchQuery.toLowerCase())
     );
   };
+
+  // Render token error state if QR token is invalid or expired
+  if (tokenError) {
+    return (
+      <div className="flex min-h-screen flex-col items-center justify-center bg-[var(--bg-base)] px-4 py-8 text-center text-[var(--text-primary)]">
+        <div className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl bg-amber-500/10 text-amber-500">
+          <Store className="h-7 w-7" />
+        </div>
+        <h2 className="font-sans text-lg font-bold">Invalid or Expired QR Code</h2>
+        <p className="mt-1 max-w-xs text-xs text-[var(--text-secondary)]">
+          {tokenError}
+        </p>
+        <button
+          type="button"
+          onClick={() => {
+            setTokenError(null);
+            setShowWelcomeSelector(true);
+          }}
+          className="mt-4 inline-flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-4 py-2 text-xs font-bold text-white shadow-md hover:bg-[var(--accent-brand-hover)]"
+        >
+          <Store className="h-4 w-4" />
+          Select Restaurant
+        </button>
+      </div>
+    );
+  }
 
   // 1. Render Welcome Restaurant Selector if no active slug chosen
   if (showWelcomeSelector) {

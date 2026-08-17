@@ -85,7 +85,12 @@ async def add_or_update_item(
             detail=f"Menu item {menu_item_id} not found in this outlet.",
         )
 
-    price = Decimal(str(menu_item.price))
+    # Check outlet's evening price toggle
+    from app.models.outlet import Outlet
+    outlet_result = await db.execute(select(Outlet.evening_price_active).where(Outlet.id == outlet_id))
+    evening_active = outlet_result.scalar_one_or_none() or False
+
+    price = Decimal(str(menu_item.resolve_price(evening_active)))
     item_name = menu_item.name
 
     if variant_id:

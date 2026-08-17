@@ -103,6 +103,12 @@ async def create_menu_item(
             detail="Category not found",
         )
 
+    if data.mrp is not None and float(data.mrp) > 0 and data.price is not None and float(data.mrp) < float(data.price):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"MRP (₹{float(data.mrp):.2f}) cannot be smaller than Selling Price (₹{float(data.price):.2f}).",
+        )
+
     item = MenuItem(
         id=uuid.uuid4(),
         outlet_id=current_user.outlet_id,
@@ -119,6 +125,8 @@ async def create_menu_item(
         offer_price=data.offer_price,
         offer_label=data.offer_label,
         mrp=data.mrp,
+        wholesale_price=data.wholesale_price,
+        evening_price=data.evening_price,
         tax_category=data.tax_category,
         tax_rate=data.tax_rate,
         pricing_mode=data.pricing_mode,
@@ -248,6 +256,10 @@ async def update_menu_item(
         item.offer_label = data.offer_label
     if "mrp" in fields_set:
         item.mrp = data.mrp
+    if "wholesale_price" in fields_set:
+        item.wholesale_price = data.wholesale_price
+    if "evening_price" in fields_set:
+        item.evening_price = data.evening_price
     if "tax_category" in fields_set:
         item.tax_category = data.tax_category
     if "tax_rate" in fields_set:
@@ -256,6 +268,14 @@ async def update_menu_item(
         item.pricing_mode = data.pricing_mode
     if "unit_label" in fields_set and data.unit_label is not None:
         item.unit_label = data.unit_label
+
+    effective_mrp = data.mrp if "mrp" in fields_set else item.mrp
+    effective_price = item.effective_price
+    if effective_mrp is not None and float(effective_mrp) > 0 and effective_price is not None and float(effective_mrp) < float(effective_price):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"MRP (₹{float(effective_mrp):.2f}) cannot be smaller than Selling Price (₹{float(effective_price):.2f}).",
+        )
 
     await db.flush()
     await db.refresh(item)

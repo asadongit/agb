@@ -17,6 +17,8 @@ class BillItemInput(StrictSchema):
     item_name: str | None = None
     quantity: Decimal = Field(..., gt=0)
     unit_price: Decimal | None = Field(None, ge=0)
+    mrp: Decimal | None = Field(None, ge=0)
+    tax_rate: Decimal | None = Field(None, ge=0)
     pricing_type: str = Field(default="RETAIL", pattern="^(RETAIL|WHOLESALE)$")
     is_complimentary: bool = False
 
@@ -50,6 +52,20 @@ class MarkPaidRequest(StrictSchema):
     cash_denominations: dict[str, int] | None = None
 
 
+class CustomerReturnItemInput(StrictSchema):
+    order_item_id: str
+    quantity: float = Field(..., gt=0)
+    reason: str = Field(default="CUSTOMER_RETURN")
+
+
+class CustomerReturnRequest(StrictSchema):
+    order_id: str
+    return_items: list[CustomerReturnItemInput]
+    exchange_items: list[BillItemInput] = Field(default_factory=list)
+    refund_payment_method: str = Field(default="CASH", pattern="^(CASH|UPI|STORE_CREDIT)$")
+    notes: str | None = None
+
+
 class BillItemResponse(StrictSchema):
     id: str
     menu_item_id: str | None = None
@@ -57,6 +73,8 @@ class BillItemResponse(StrictSchema):
     item_name: str
     quantity: float
     unit_price: float
+    mrp: float | None = None
+    tax_rate: float | None = None
     is_complimentary: bool
     line_total: float
 
@@ -70,12 +88,14 @@ class BillResponse(BaseResponse):
     status: str
     source: str
     subtotal_amount: float
+    tax_amount: float = 0.0
     total_amount: float
     discount_type: str | None = None
     discount_value: float | None = None
     discount_reason: str | None = None
     discount_status: str | None = None
     payment_method: str | None = None
+    cash_denominations: dict[str, int] | None = None
     created_by_staff_id: str | None = None
     created_at: str
     finalized_at: str | None = None
@@ -96,3 +116,4 @@ class DiscountApprovalResponse(BaseResponse):
     created_at: str
     order_basket_number: str
     order_total_amount: float
+

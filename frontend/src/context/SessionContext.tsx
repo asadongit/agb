@@ -193,7 +193,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
   );
 
   /**
-   * On mount: check localStorage for an existing session and verify it.
+   * On mount: resolve URL token if present, then check localStorage for an existing session.
    */
   useEffect(() => {
     async function checkExistingSession() {
@@ -202,14 +202,47 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         return;
       }
 
+      let activeSlug = outletSlug;
+      let activeTable = tableNumber;
+
+      // Check for token query param in URL
+      const urlParams = new URLSearchParams(window.location.search);
+      const urlToken = urlParams.get("token");
+      if (urlToken) {
+        try {
+          const apiBase = getApiBaseUrl();
+          const res = await fetch(`${apiBase}/api/sessions/resolve-token?token=${encodeURIComponent(urlToken)}`, {
+            headers: { "bypass-tunnel-reminder": "true" },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            if (data.basket_number) {
+              setTableNumber(data.basket_number);
+              activeTable = data.basket_number;
+            }
+            if (data.outlet_slug) {
+              setOutletSlug(data.outlet_slug);
+              activeSlug = data.outlet_slug;
+            }
+          }
+        } catch {
+          /* ignore token resolution errors */
+        }
+      } else {
+        const slugParam = urlParams.get("slug");
+        const basketParam = urlParams.get("basket");
+        if (slugParam) activeSlug = slugParam;
+        if (basketParam) activeTable = basketParam;
+      }
+
       const storedId = localStorage.getItem(
-        storageKey(restaurantSlug, tableNumber, "id")
+        storageKey(activeSlug, activeTable, "id")
       );
       const storedName = localStorage.getItem(
-        storageKey(restaurantSlug, tableNumber, "name")
+        storageKey(activeSlug, activeTable, "name")
       );
       const storedPhone = localStorage.getItem(
-        storageKey(restaurantSlug, tableNumber, "phone")
+        storageKey(activeSlug, activeTable, "phone")
       );
 
       if (storedName) setCustomerName(storedName);
@@ -220,10 +253,10 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
         if (!valid) {
           // Session expired — clear storage but keep name for auto-fill
           localStorage.removeItem(
-            storageKey(restaurantSlug, tableNumber, "id")
+            storageKey(activeSlug, activeTable, "id")
           );
           localStorage.removeItem(
-            storageKey(restaurantSlug, tableNumber, "expires")
+            storageKey(activeSlug, activeTable, "expires")
           );
           setIsSessionActive(false);
           setSessionId(null);
@@ -234,7 +267,7 @@ export function SessionProvider({ children }: { children: React.ReactNode }) {
     }
 
     checkExistingSession();
-  }, [restaurantSlug, tableNumber, verifySession]);
+  }, [verifySession]);
 
   /**
    * Countdown timer — updates every second when session is active.

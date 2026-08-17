@@ -23,6 +23,7 @@ from app.schemas.outlet import (
     OutletWithUsersResponse,
 )
 from app.services.audit_service import log_action
+from app.services.cache_service import invalidate_menu_cache
 
 router = APIRouter(prefix="/api/admin/outlets", tags=["admin-outlets"])
 
@@ -165,6 +166,10 @@ async def update_my_outlet(
     for key, value in update_data.items():
         setattr(outlet, key, value)
 
+    # Sync auto_enabled flag and re-evaluate active state synchronously
+    outlet.evening_auto_enabled = (outlet.evening_pricing_mode == "AUTO")
+    outlet.evening_price_active = outlet.is_evening_active
+
     await db.flush()
     await db.refresh(outlet)
 
@@ -173,6 +178,8 @@ async def update_my_outlet(
         "UPDATE", "Outlet", str(outlet.id),
         details=data.model_dump(exclude_unset=True, mode="json"),
     )
+
+    await invalidate_menu_cache(outlet.slug)
 
     return await _build_outlet_response(db, outlet)
 
@@ -231,6 +238,10 @@ async def update_outlet_by_id(
     for key, value in update_data.items():
         setattr(outlet, key, value)
 
+    # Sync auto_enabled flag and re-evaluate active state synchronously
+    outlet.evening_auto_enabled = (outlet.evening_pricing_mode == "AUTO")
+    outlet.evening_price_active = outlet.is_evening_active
+
     await db.flush()
     await db.refresh(outlet)
 
@@ -239,6 +250,8 @@ async def update_outlet_by_id(
         "UPDATE", "Outlet", str(outlet.id),
         details=data.model_dump(exclude_unset=True, mode="json"),
     )
+
+    await invalidate_menu_cache(outlet.slug)
 
     return await _build_outlet_response(db, outlet)
 

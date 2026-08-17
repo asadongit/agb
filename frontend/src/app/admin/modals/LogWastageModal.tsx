@@ -75,9 +75,9 @@ export function LogWastageModal({
 
   if (!isOpen || !item) return null;
 
-  const currentStockNum = parseFloat(item.current_stock) || 0;
-  const maxAvailable = batch ? (parseFloat(batch.remaining_quantity) || 0) : currentStockNum;
-  const costNum = parseFloat(item.cost_per_unit) || 0;
+  const currentStockNum = parseFloat(String(item.current_stock)) || 0;
+  const maxAvailable = batch ? (parseFloat(String(batch.remaining_quantity)) || 0) : currentStockNum;
+  const costNum = parseFloat(String(item.cost_per_unit)) || 0;
   const wasteQtyNum = parseFloat(quantity) || 0;
   const estimatedLoss = wasteQtyNum * costNum;
 

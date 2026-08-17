@@ -6,7 +6,8 @@
 
 "use client";
 
-import { Percent, X } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { AlertCircle, Percent, X } from "lucide-react";
 import type { ManualBill, RolePermissions } from "@/types";
 
 type DiscountModalProps = {
@@ -36,14 +37,40 @@ export function DiscountModal({
   staffPermissions,
   handleApplyDiscount,
 }: DiscountModalProps) {
+  const discountInputRef = useRef<HTMLInputElement>(null);
+  const [localError, setLocalError] = useState("");
+
+  useEffect(() => {
+    if (isOpen) {
+      setLocalError("");
+      setTimeout(() => {
+        discountInputRef.current?.focus();
+        discountInputRef.current?.select();
+      }, 50);
+    }
+  }, [isOpen, discountType]);
+
   if (!isOpen || !discountTargetBill) return null;
+
+  const onSubmitDiscount = async () => {
+    if (discountType !== "COMPLIMENTARY" && (!discountReason || discountReason.trim().length < 2)) {
+      setLocalError("Please provide a reason note for the discount.");
+      return;
+    }
+    setLocalError("");
+    try {
+      await handleApplyDiscount();
+    } catch (err) {
+      setLocalError(err instanceof Error ? err.message : "Failed to apply discount.");
+    }
+  };
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-xs">
       <div className="w-full max-w-md space-y-4 rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl">
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
           <div className="flex items-center gap-2">
-            <Percent className="h-5 w-5 text-emerald-500" />
+            <Percent className="h-5 w-5 text-sky-400" />
             <h3 className="font-display text-lg font-bold">Apply Discount</h3>
           </div>
           <button
@@ -87,19 +114,25 @@ export function DiscountModal({
             </div>
           </div>
 
-          {/* Discount Value Input */}
+          {/* Discount Value Input (Auto-focused with zero-replacement) */}
           {discountType !== "COMPLIMENTARY" && (
             <label className="block space-y-1 text-xs font-bold">
               <span className="text-[var(--text-muted)] uppercase tracking-wider">
                 {discountType === "PERCENT" ? "Percentage Discount (%)" : "Flat Discount Amount (₹)"}
               </span>
               <input
+                ref={discountInputRef}
                 type="number"
                 min={0}
                 max={discountType === "PERCENT" ? 100 : discountTargetBill.subtotal_amount}
-                value={discountValue}
-                onChange={(e) => setDiscountValue(parseFloat(e.target.value) || 0)}
-                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2.5 text-sm font-mono font-bold"
+                value={discountValue === 0 ? "" : discountValue}
+                placeholder="0"
+                onChange={(e) => {
+                  setLocalError("");
+                  setDiscountValue(e.target.value === "" ? 0 : parseFloat(e.target.value) || 0);
+                }}
+                onFocus={(e) => e.target.select()}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2.5 text-sm font-mono font-bold focus:border-sky-500 outline-none"
               />
             </label>
           )}
@@ -112,12 +145,23 @@ export function DiscountModal({
             <textarea
               rows={2}
               value={discountReason}
-              onChange={(e) => setDiscountReason(e.target.value)}
+              onChange={(e) => {
+                setLocalError("");
+                setDiscountReason(e.target.value);
+              }}
               required
               placeholder="e.g. VIP Customer / Promo Coupon / Manager Courtesy"
-              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2.5 text-xs font-normal"
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2.5 text-xs font-normal focus:border-sky-500 outline-none"
             />
           </label>
+
+          {/* Inline Validation Error Popup inside Modal Window */}
+          {localError && (
+            <div className="rounded-xl bg-rose-500/10 border border-rose-500/30 p-2.5 text-xs text-rose-400 font-bold flex items-center gap-2">
+              <AlertCircle className="h-4 w-4 flex-shrink-0 text-rose-400" />
+              <span>{localError}</span>
+            </div>
+          )}
 
           {/* Role approval notification note */}
           <p className="text-[11px] text-[var(--text-muted)] italic rounded-xl bg-[var(--bg-surface-elevated)] p-2.5">
@@ -130,14 +174,14 @@ export function DiscountModal({
             <button
               type="button"
               onClick={onClose}
-              className="flex-1 rounded-xl border border-[var(--border-strong)] px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)]"
+              className="flex-1 rounded-xl border border-[var(--border-strong)] px-4 py-2.5 text-xs font-bold text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] transition"
             >
               Cancel
             </button>
             <button
               type="button"
-              onClick={() => void handleApplyDiscount()}
-              className="flex-1 rounded-xl bg-[var(--accent-brand)] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
+              onClick={() => void onSubmitDiscount()}
+              className="flex-1 rounded-xl bg-[var(--accent-brand)] px-4 py-2.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition cursor-pointer"
             >
               Submit Discount
             </button>

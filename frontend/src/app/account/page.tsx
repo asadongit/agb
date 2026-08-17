@@ -199,7 +199,7 @@ function AccountContent() {
       <header className="sticky top-0 z-30 border-b border-[var(--border-subtle)] bg-[var(--bg-base)]/95 backdrop-blur">
         <div className="flex items-center justify-between px-4 py-3">
           <Link
-            href={`/menu?slug=${slug}&basket=${table}`}
+            href="/menu"
             className="inline-flex items-center gap-2 text-sm font-semibold text-[var(--text-secondary)] hover:text-[var(--accent-brand)]"
           >
             <ArrowLeft className="h-4 w-4" />

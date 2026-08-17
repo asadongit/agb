@@ -26,6 +26,7 @@ export interface MenuItem {
   price: string;
   mrp?: string | number | null;
   wholesale_price?: string | number | null;
+  evening_price?: string | number | null;
   tax_category?: string | null;
   tax_rate?: string | number | null;
   image_url?: string | null;
@@ -507,6 +508,8 @@ export interface ManualBillItem {
   item_name: string;
   quantity: number;
   unit_price: number;
+  mrp?: number | null;
+  tax_rate?: number | null;
   is_complimentary: boolean;
   line_total: number;
 }
@@ -520,6 +523,7 @@ export interface ManualBill {
   status: string;
   source: string;
   subtotal_amount: number;
+  tax_amount?: number;
   total_amount: number;
   discount_type?: "PERCENT" | "FLAT" | "COMPLIMENTARY" | null;
   discount_value?: number | null;

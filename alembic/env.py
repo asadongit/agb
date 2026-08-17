@@ -52,6 +52,22 @@ if config.config_file_name is not None:
 target_metadata = Base.metadata
 
 
+def include_object(object, name, type_, reflected, compare_to):
+    """Exclude temporary tables created by SQLite batch operations."""
+    if type_ == "table" and name and name.startswith("_alembic_tmp"):
+        return False
+    return True
+
+
+def compare_type(context, inspected_column, metadata_column, inspected_type, metadata_type):
+    """Handle dialect-specific type comparisons, e.g., SQLite UUID reflection."""
+    if context.dialect.name == "sqlite":
+        meta_type_str = str(metadata_type).upper()
+        if "UUID" in meta_type_str or "JSON" in meta_type_str:
+            return False
+    return None
+
+
 def run_migrations_offline() -> None:
     """Run migrations in 'offline' mode (SQL generation only)."""
     url = config.get_main_option("sqlalchemy.url")
@@ -61,6 +77,8 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         render_as_batch=True,
+        include_object=include_object,
+        compare_type=compare_type,
     )
 
     with context.begin_transaction():
@@ -73,6 +91,8 @@ def do_run_migrations(connection) -> None:
         connection=connection,
         target_metadata=target_metadata,
         render_as_batch=True,
+        include_object=include_object,
+        compare_type=compare_type,
     )
 
     with context.begin_transaction():

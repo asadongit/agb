@@ -14,10 +14,31 @@ from app.services.audit_service import log_action
 from app.services.customer_service import (
     create_customer,
     delete_customer,
+    get_customer_analytics,
     list_customers,
 )
 
 router = APIRouter(prefix="/api/admin/customers", tags=["admin-customers"])
+
+
+@router.get("/analytics")
+async def customer_analytics_route(
+    current_user: RequireAdmin,
+    db: DBSession,
+    phone: str = Query(..., min_length=1),
+    period: str = Query("all_time"),
+    start_date: str | None = Query(None),
+    end_date: str | None = Query(None),
+):
+    """Fetch customer purchase volume, order count, best category & item interest."""
+    return await get_customer_analytics(
+        db,
+        current_user.outlet_id,
+        phone=phone,
+        period=period,
+        start_date=start_date,
+        end_date=end_date,
+    )
 
 
 @router.get("", response_model=list[CustomerResponse])

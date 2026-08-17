@@ -107,6 +107,13 @@ export function useAdminAuth() {
               ...(options?.headers || {}),
             },
           });
+        } else {
+          setAccessToken(null);
+          if (typeof window !== "undefined") {
+            window.localStorage.removeItem(ACCESS_TOKEN_KEY);
+            window.localStorage.removeItem(REFRESH_TOKEN_KEY);
+          }
+          throw new Error("Please sign in first.");
         }
       }
 

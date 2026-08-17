@@ -63,11 +63,14 @@ async def upload_image(
 
     if has_cloudinary_keys:
         try:
+            if settings.CLOUDINARY_URL:
+                os.environ["CLOUDINARY_URL"] = settings.CLOUDINARY_URL
+
             import cloudinary
             import cloudinary.uploader
 
             if settings.CLOUDINARY_URL:
-                os.environ["CLOUDINARY_URL"] = settings.CLOUDINARY_URL
+                cloudinary.reset_config()
             else:
                 cloudinary.config(
                     cloud_name=settings.CLOUDINARY_CLOUD_NAME,

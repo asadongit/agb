@@ -32,13 +32,33 @@ export function formatDateTime(value: string): string {
   });
 }
 
-// ── API response parser ─────────────────────────────────────────────────
+// ── API response parser & Auth Error Helper ─────────────────────────────────────────
+
+export function isAuthError(err: any): boolean {
+  if (!err) return false;
+  const msg = typeof err === "string" ? err : err.message;
+  return (
+    msg === "Please sign in first." ||
+    msg?.includes("Invalid or expired token") ||
+    msg?.includes("Unauthorized") ||
+    msg?.includes("Invalid token")
+  );
+}
 
 export async function parseApiResponse<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
+    if (response.status === 401) {
+      if (typeof window !== "undefined") {
+        window.localStorage.removeItem("agb_access_token");
+        window.localStorage.removeItem("agb_refresh_token");
+        window.localStorage.removeItem("agb_restaurant_data");
+      }
+      throw new Error("Please sign in first.");
+    }
+
     let detail = "Request failed. Please try again.";
     if (typeof payload?.detail === "string") {
       detail = payload.detail;
@@ -53,4 +73,37 @@ export async function parseApiResponse<T>(response: Response): Promise<T> {
   }
 
   return payload as T;
+}
+
+export async function apiRequest<T>(url: string, options: RequestInit = {}): Promise<T> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("agb_access_token") : null;
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+  const response = await fetch(url, { ...options, headers });
+  return parseApiResponse<T>(response);
+}
+
+export async function uploadImageFile(file: File): Promise<string> {
+  const token = typeof window !== "undefined" ? window.localStorage.getItem("agb_access_token") : null;
+  const formData = new FormData();
+  formData.append("file", file);
+
+  const headers: Record<string, string> = {};
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch("/api/upload/image", {
+    method: "POST",
+    headers,
+    body: formData,
+  });
+
+  const data = await parseApiResponse<{ url: string }>(response);
+  return data.url;
 }

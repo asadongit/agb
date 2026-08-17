@@ -12,6 +12,7 @@ import { useAnalyticsManagement } from "./hooks/useAnalyticsManagement";
 import { useSessionsManagement } from "./hooks/useSessionsManagement";
 import { useSettingsManagement } from "./hooks/useSettingsManagement";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
+import { isAuthError } from "./adminUtils";
 
 import { AdminLoginForm } from "./components/AdminLoginForm";
 import { AdminSidebar } from "./components/AdminSidebar";
@@ -140,6 +141,7 @@ export default function AdminDashboardPage() {
         window.localStorage.setItem(RESTAURANT_DATA_KEY, JSON.stringify(data));
       }
     } catch (err: any) {
+      if (isAuthError(err)) return;
       console.error("Dashboard fetch error:", err);
     }
   }, [accessToken, apiRequest]);
@@ -329,12 +331,15 @@ export default function AdminDashboardPage() {
             searchQuery={menuState.searchQuery}
             setSearchQuery={menuState.setSearchQuery}
             onSaveItem={menuState.handleSaveMenuItem}
+            onSaveBatchItems={menuState.handleSaveBatchMenuItems}
             onDeleteItem={menuState.handleDeleteMenuItem}
             onToggleAvailability={menuState.handleToggleAvailability}
             onOpenVariantModal={menuState.openVariantModal}
             onOpenOfferModal={menuState.openOfferModal}
             onCreateCategory={menuState.handleCreateCategory}
             inventoryItems={inventoryState.items}
+            restaurant={restaurant}
+            onRestaurantUpdate={setRestaurant}
           />
         )}
 
@@ -511,7 +516,7 @@ export default function AdminDashboardPage() {
 
       <CreateBillDrawer
         isOpen={billingState.createBillModalOpen}
-        onClose={() => billingState.setCreateBillModalOpen(false)}
+        onClose={billingState.handleCloseCreateBillDrawer}
         menuItems={menuState.menuItems}
         variantsByItem={menuState.variantsByItem}
         draftCartItems={billingState.draftCartItems}
@@ -523,11 +528,15 @@ export default function AdminDashboardPage() {
         customerPhone={billingState.customerPhone}
         setCustomerPhone={billingState.setCustomerPhone}
         handleCreateBill={billingState.handleCreateBill}
+        eveningPriceActive={restaurant?.evening_price_active ?? false}
       />
 
       <PaymentModal
         isOpen={billingState.paymentModalOpen}
-        onClose={() => billingState.setPaymentModalOpen(false)}
+        onClose={() => void billingState.handleDiscardPaymentBill()}
+        onBackToDrawer={billingState.handleBackToDrawer}
+        onKeepAsDraft={() => void billingState.handleKeepAsDraft()}
+        onDiscardBill={() => void billingState.handleDiscardPaymentBill()}
         paymentTargetBill={billingState.paymentTargetBill}
         selectedPaymentMethod={billingState.selectedPaymentMethod}
         setSelectedPaymentMethod={billingState.setSelectedPaymentMethod}

@@ -30,6 +30,11 @@ class OutletCreate(StrictSchema):
     public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = Field(default=None, ge=Decimal("0"))
     flagged_item_ids: list[str] = Field(default_factory=list)
+    evening_price_active: bool = False
+    evening_pricing_mode: str = "OFF"  # "OFF", "MANUAL", "AUTO"
+    evening_auto_enabled: bool = False
+    evening_auto_start_time: str | None = None  # HH:MM IST
+    evening_auto_end_time: str | None = None    # HH:MM IST
 
 
 class OutletUpdate(StrictSchema):
@@ -48,6 +53,11 @@ class OutletUpdate(StrictSchema):
     public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = Field(default=None, ge=Decimal("0"))
     flagged_item_ids: list[str] | None = None
+    evening_price_active: bool | None = None
+    evening_pricing_mode: str | None = None
+    evening_auto_enabled: bool | None = None
+    evening_auto_start_time: str | None = None
+    evening_auto_end_time: str | None = None
 
 
 class OutletResponse(BaseResponse):
@@ -67,6 +77,11 @@ class OutletResponse(BaseResponse):
     public_basket_number: str | None = None
     verification_amount_cutoff: Decimal | None = None
     flagged_item_ids: list[str] = Field(default_factory=list)
+    evening_price_active: bool = False
+    evening_pricing_mode: str = "OFF"
+    evening_auto_enabled: bool = False
+    evening_auto_start_time: str | None = None
+    evening_auto_end_time: str | None = None
     created_at: datetime
     updated_at: datetime
 

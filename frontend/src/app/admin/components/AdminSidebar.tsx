@@ -35,6 +35,7 @@ import {
 import type { AdminTheme } from "../hooks/useAdminTheme";
 import type { RestaurantProfile } from "../adminTypes";
 import type { RolePermissions, StaffMember } from "@/types";
+import { apiRequest } from "../adminUtils";
 
 export type AdminTab =
   | "orders"
@@ -44,6 +45,7 @@ export type AdminTab =
   | "analytics"
   | "inventory"
   | "customerservices"
+  | "sessions"
   | "qrcodes"
   | "settings";
 
@@ -355,17 +357,33 @@ export function AdminSidebar({
       {/* Sidebar Footer */}
       <div className="p-3 border-t border-[var(--border-subtle)] space-y-2">
         {restaurant?.slug && (
-          <Link
-            href={`/menu?slug=${restaurant.slug}`}
-            target="_blank"
-            className="flex items-center justify-between rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2.5 text-xs font-semibold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
+          <button
+            type="button"
+            onClick={async () => {
+              try {
+                const data = await apiRequest<{ token: string }>(
+                  `/api/sessions/qr-token?outlet_slug=${encodeURIComponent(restaurant.slug)}&basket_number=1`
+                );
+                if (data?.token) {
+                  window.open(
+                    `/menu?slug=${encodeURIComponent(restaurant.slug)}&token=${data.token}`,
+                    "_blank"
+                  );
+                  return;
+                }
+              } catch (err) {
+                console.error("Error generating preview QR token:", err);
+              }
+              window.open(`/menu?slug=${encodeURIComponent(restaurant.slug)}`, "_blank");
+            }}
+            className="w-full flex items-center justify-between rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2.5 text-xs font-semibold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition text-left cursor-pointer"
           >
             <span className="flex items-center gap-2">
               <ExternalLink className="h-3.5 w-3.5 text-[var(--accent-brand)]" />
               View Public Menu
             </span>
             <ArrowRight className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-          </Link>
+          </button>
         )}
 
         <button

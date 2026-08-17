@@ -95,6 +95,14 @@ export function useMenuManagement({
             formData.mrp && String(formData.mrp).trim() !== ""
               ? parseFloat(String(formData.mrp))
               : null,
+          wholesale_price:
+            formData.wholesale_price && String(formData.wholesale_price).trim() !== ""
+              ? parseFloat(String(formData.wholesale_price))
+              : null,
+          evening_price:
+            formData.evening_price && String(formData.evening_price).trim() !== ""
+              ? parseFloat(String(formData.evening_price))
+              : null,
           tax_category: formData.tax_category?.trim() || "GST 0%",
           tax_rate:
             formData.tax_rate && String(formData.tax_rate).trim() !== ""
@@ -121,6 +129,38 @@ export function useMenuManagement({
         if (setNotice) setNotice(itemId ? "Item updated" : "Item created");
       } catch (err: any) {
         if (setError) setError(err?.message || "Failed to save item");
+        throw err;
+      }
+    },
+    [apiRequest, setNotice, setError]
+  );
+
+  // Batch update prices
+  const handleSaveBatchMenuItems = useCallback(
+    async (updates: { id: string; name: string; mrp: string; price: string; evening_price: string }[]) => {
+      try {
+        const promises = updates.map((u) => {
+          const payload = {
+            mrp: u.mrp && u.mrp.trim() !== "" ? parseFloat(u.mrp) : null,
+            price: parseFloat(u.price) || 0,
+            evening_price: u.evening_price && u.evening_price.trim() !== "" ? parseFloat(u.evening_price) : null,
+          };
+          return apiRequest<AdminMenuItem>(`/api/admin/menu-items/${u.id}`, {
+            method: "PATCH",
+            body: JSON.stringify(payload),
+          });
+        });
+
+        const updatedItems = await Promise.all(promises);
+
+        setMenuItems((prev) => {
+          const updatedMap = new Map(updatedItems.map((item) => [item.id, item]));
+          return prev.map((item) => updatedMap.get(item.id) || item);
+        });
+
+        if (setNotice) setNotice(`Updated ${updatedItems.length} item(s)`);
+      } catch (err: any) {
+        if (setError) setError(err?.message || "Failed to save batch items");
         throw err;
       }
     },
@@ -314,6 +354,7 @@ export function useMenuManagement({
     isLoadingMenu,
     loadCategoriesAndMenuItems,
     handleSaveMenuItem,
+    handleSaveBatchMenuItems,
     handleDeleteMenuItem,
     handleToggleAvailability,
     handleCreateCategory,

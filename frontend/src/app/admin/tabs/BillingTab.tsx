@@ -8,6 +8,7 @@
 
 "use client";
 
+import { useState, useEffect } from "react";
 import {
   CreditCard,
   Percent,
@@ -20,10 +21,15 @@ import {
   Eye,
   Download,
   FileEdit,
+  RotateCcw,
+  Banknote,
+  Calendar,
 } from "lucide-react";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
 import type { DiscountApproval, ManualBill, RolePermissions } from "@/types";
-import type { RestaurantProfile } from "../adminTypes";
+import type { RestaurantProfile, AdminMenuItem } from "../adminTypes";
+import { apiRequest } from "../adminUtils";
+import { CustomerReturnsModal } from "../modals/CustomerReturnsModal";
 
 type BillingTabProps = {
   restaurant: RestaurantProfile | null;
@@ -31,16 +37,17 @@ type BillingTabProps = {
   isLoadingBilling: boolean;
   loadBillingData: () => Promise<void>;
   pendingApprovals: DiscountApproval[];
-  handleResolveApproval: (approvalId: string, approved: boolean) => Promise<void>;
+  handleResolveApproval: (approvalId: string, approve: boolean) => Promise<void>;
   billsList: ManualBill[];
-  billingStatusFilter: "ALL" | "DRAFT" | "PENDING_APPROVAL" | "FINALIZED" | "PAID" | "CANCELLED";
-  setBillingStatusFilter: (filter: "ALL" | "DRAFT" | "PENDING_APPROVAL" | "FINALIZED" | "PAID" | "CANCELLED") => void;
+  menuItems?: AdminMenuItem[];
+  billingStatusFilter: any;
+  setBillingStatusFilter: (status: any) => void;
   billingSearchQuery: string;
-  setBillingSearchQuery: (q: string) => void;
+  setBillingSearchQuery: (query: string) => void;
 
   // Modal triggers
   onOpenCreateBill: () => void;
-  onResumeDraft?: (bill: ManualBill) => void;
+  onResumeDraft: (bill: ManualBill) => void;
   onOpenDiscountModal: (bill: ManualBill) => void;
   onOpenPaymentModal: (bill: ManualBill) => void;
 };
@@ -53,6 +60,7 @@ export function BillingTab({
   pendingApprovals,
   handleResolveApproval,
   billsList,
+  menuItems = [],
   billingStatusFilter,
   setBillingStatusFilter,
   billingSearchQuery,
@@ -62,6 +70,46 @@ export function BillingTab({
   onOpenDiscountModal,
   onOpenPaymentModal,
 }: BillingTabProps) {
+  const [returnsModalOpen, setReturnsModalOpen] = useState(false);
+  const [denomDate, setDenomDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
+  const [dailyDenomData, setDailyDenomData] = useState<{
+    date: string;
+    total_cash_collected: number;
+    denominations: Record<string, number>;
+  } | null>(null);
+  const [showDenomWidget, setShowDenomWidget] = useState(false);
+
+  useEffect(() => {
+    async function fetchDailyDenoms() {
+      try {
+        const data = await apiRequest<{
+          date: string;
+          total_cash_collected: number;
+          denominations: Record<string, number>;
+        }>(`/api/billing/daily-cash-denominations?date=${denomDate}`);
+        setDailyDenomData(data);
+      } catch (err) {
+        console.error("Error loading daily denoms:", err);
+      }
+    }
+    if (showDenomWidget) {
+      void fetchDailyDenoms();
+    }
+  }, [denomDate, showDenomWidget]);
+
+  const handleProcessCustomerReturn = async (returnData: any) => {
+    try {
+      await apiRequest("/api/billing/returns", {
+        method: "POST",
+        body: JSON.stringify(returnData),
+      });
+      alert("Return processed & inventory restocked successfully!");
+      void loadBillingData();
+    } catch (err: any) {
+      alert(err instanceof Error ? err.message : "Failed to process return.");
+    }
+  };
+
   return (
     <div className="space-y-6">
       {/* Header & Control Bar */}
@@ -77,6 +125,22 @@ export function BillingTab({
         </div>
 
         <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={() => setShowDenomWidget(!showDenomWidget)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition"
+          >
+            <Banknote className="h-4 w-4" />
+            Daily Cash Notes
+          </button>
+          <button
+            type="button"
+            onClick={() => setReturnsModalOpen(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-3 py-2 text-xs font-bold text-sky-400 hover:bg-sky-500/20 transition"
+          >
+            <RotateCcw className="h-4 w-4" />
+            Returns &amp; Exchanges
+          </button>
           <button
             type="button"
             onClick={() => void loadBillingData()}
@@ -97,7 +161,61 @@ export function BillingTab({
         </div>
       </div>
 
-      {/* PENDING DISCOUNT APPROVALS QUEUE (FOR MANAGERS/ADMINS) */}
+      {/* DAILY CASH DENOMINATIONS REPORT WIDGET */}
+      {showDenomWidget && (
+        <article className="rounded-3xl border border-sky-500/30 bg-sky-500/10 p-5 space-y-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-sky-500/20 pb-3">
+            <div className="flex items-center gap-2 font-bold text-sky-300">
+              <Banknote className="h-5 w-5 text-sky-400" />
+              <h2 className="font-display text-base font-bold text-[var(--text-primary)]">Daily Cash Accepted &amp; Denomination Breakdown</h2>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="text-xs text-[var(--text-muted)] font-semibold">Select Date:</span>
+              <input
+                type="date"
+                value={denomDate}
+                onChange={(e) => setDenomDate(e.target.value)}
+                className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1 text-xs font-mono text-[var(--text-primary)]"
+              />
+            </div>
+          </div>
+
+          {!dailyDenomData ? (
+            <p className="text-xs text-[var(--text-muted)] py-4">Loading cash denomination data...</p>
+          ) : (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between text-xs font-bold">
+                <span className="text-[var(--text-secondary)]">Total Cash Collected on {dailyDenomData.date}:</span>
+                <span className="font-mono text-base text-sky-400 font-black">
+                  ₹{dailyDenomData.total_cash_collected.toFixed(2)}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 sm:grid-cols-5 lg:grid-cols-9 gap-2">
+                {[500, 200, 100, 50, 20, 10, 5, 2, 1].map((d) => {
+                  const count = dailyDenomData.denominations[String(d)] || 0;
+                  return (
+                    <div
+                      key={d}
+                      className="rounded-xl border border-sky-500/20 bg-[var(--bg-surface)] p-2 text-center space-y-0.5"
+                    >
+                      <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">
+                        ₹{d} Notes
+                      </span>
+                      <span className="font-mono font-bold text-sm text-[var(--text-primary)] block">
+                        {count}×
+                      </span>
+                      <span className="font-mono text-[10px] text-sky-400 block font-semibold">
+                        ₹{d * count}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+        </article>
+      )}
       {pendingApprovals.length > 0 && (!staffPermissions || staffPermissions.can_manage_billing) && (
         <article className="rounded-3xl border border-amber-500/40 bg-amber-500/10 p-5 space-y-4 shadow-xs">
           <div className="flex items-center justify-between border-b border-amber-500/30 pb-3">
@@ -370,6 +488,15 @@ export function BillingTab({
           </table>
         </div>
       </article>
+
+      {/* Customer Returns & Exchanges Modal */}
+      <CustomerReturnsModal
+        isOpen={returnsModalOpen}
+        onClose={() => setReturnsModalOpen(false)}
+        billsList={billsList.filter((b) => b.status === "PAID" || b.status === "COMPLETED")}
+        menuItems={menuItems}
+        onRequestReturn={handleProcessCustomerReturn}
+      />
     </div>
   );
 }

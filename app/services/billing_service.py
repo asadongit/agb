@@ -5,12 +5,12 @@ Billing Service — manual bill creation, discount application with approval wor
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -71,6 +71,13 @@ async def create_manual_bill(
     await db.flush()
 
     subtotal = Decimal("0.00")
+    total_tax = Decimal("0.00")
+
+    # Fetch outlet's evening price toggle once
+    from app.models.outlet import Outlet as OutletModel
+    _outlet_result = await db.execute(select(OutletModel.evening_price_active).where(OutletModel.id == outlet_id))
+    _evening_active = _outlet_result.scalar_one_or_none() or False
+
     for item_in in data.items:
         menu_item_uuid = uuid.UUID(str(item_in.menu_item_id)) if item_in.menu_item_id else None
         menu_item = await db.get(MenuItem, menu_item_uuid) if menu_item_uuid else None
@@ -83,7 +90,7 @@ async def create_manual_bill(
         elif getattr(item_in, "pricing_type", "RETAIL") == "WHOLESALE" and menu_item.wholesale_price is not None:
             price = Decimal(str(menu_item.wholesale_price))
         else:
-            price = Decimal(str(menu_item.price))
+            price = Decimal(str(menu_item.resolve_price(_evening_active)))
 
         variant_uuid = uuid.UUID(str(item_in.variant_id)) if item_in.variant_id else None
         if variant_uuid:
@@ -91,8 +98,15 @@ async def create_manual_bill(
             if variant and variant.menu_item_id == menu_item.id:
                 price += Decimal(str(variant.price_delta))
 
+        # MRP & Tax rate from product catalog or input
+        item_mrp = Decimal(str(item_in.mrp)) if item_in.mrp is not None else (menu_item.mrp or price)
+        item_tax_rate = Decimal(str(item_in.tax_rate)) if item_in.tax_rate is not None else (menu_item.tax_rate or Decimal("0.00"))
+
         item_subtotal = price * Decimal(str(item_in.quantity))
+        item_tax = item_subtotal * (item_tax_rate / Decimal("100")) if not item_in.is_complimentary else Decimal("0.00")
+
         subtotal += item_subtotal
+        total_tax += item_tax
 
         final_item_name = item_in.item_name or (menu_item.name if menu_item else "Item")
         order_item = OrderItem(
@@ -102,18 +116,24 @@ async def create_manual_bill(
             variant_id=variant_uuid,
             item_name=final_item_name,
             quantity=item_in.quantity,
-            unit_price=price,
+            unit_price=price if not item_in.is_complimentary else Decimal("0.00"),
+            mrp=item_mrp,
+            tax_rate=item_tax_rate,
+            tax_category=menu_item.tax_category or "GST 0%",
+            is_complimentary=item_in.is_complimentary,
+            line_total=item_subtotal if not item_in.is_complimentary else Decimal("0.00"),
         )
         db.add(order_item)
 
     order.subtotal_amount = subtotal
+    order.tax_amount = total_tax.quantize(Decimal("0.01"))
     order.total_amount = subtotal
 
     # Evaluate Verification Rules (Anti-theft)
     res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
     outlet = res_rest.scalar_one_or_none()
     if outlet:
-        # Manual bills created by staff are auto-verified unless flagged items exist
+        # Manual bills created by staff are auto-verified
         order.is_auto_verified = True
 
     await db.flush()
@@ -160,57 +180,102 @@ async def update_manual_bill(
         await db.flush()
 
         subtotal = Decimal("0.00")
+        total_tax = Decimal("0.00")
         for item_in in data.items:
-            item_name = "Custom Item"
-            price = Decimal("0.00")
+            menu_item_uuid = uuid.UUID(str(item_in.menu_item_id)) if item_in.menu_item_id else None
+            menu_item = await db.get(MenuItem, menu_item_uuid) if menu_item_uuid else None
 
-            if item_in.menu_item_id:
-                m_res = await db.execute(
-                    select(MenuItem).where(
-                        MenuItem.id == uuid.UUID(item_in.menu_item_id),
-                        MenuItem.outlet_id == outlet_id,
-                    )
-                )
-                m_item = m_res.scalar_one_or_none()
-                if m_item:
-                    item_name = m_item.name
-                    price = m_item.price
+            if item_in.unit_price is not None:
+                price = Decimal(str(item_in.unit_price))
+            elif menu_item:
+                if getattr(item_in, "pricing_type", "RETAIL") == "WHOLESALE" and menu_item.wholesale_price is not None:
+                    price = Decimal(str(menu_item.wholesale_price))
+                else:
+                    price = Decimal(str(menu_item.price))
+            else:
+                price = Decimal("0.00")
 
-            if item_in.variant_id:
-                v_res = await db.execute(
-                    select(MenuItemVariant).where(
-                        MenuItemVariant.id == uuid.UUID(item_in.variant_id)
-                    )
-                )
-                v_item = v_res.scalar_one_or_none()
-                if v_item:
-                    item_name = f"{item_name} ({v_item.name})"
-                    price = v_item.price
+            variant_uuid = uuid.UUID(str(item_in.variant_id)) if item_in.variant_id else None
+            if variant_uuid and menu_item:
+                variant = await db.get(MenuItemVariant, variant_uuid)
+                if variant and variant.menu_item_id == menu_item.id:
+                    price += Decimal(str(variant.price_delta))
 
-            line_total = Decimal("0.00") if item_in.is_complimentary else price * item_in.quantity
+            item_mrp = Decimal(str(item_in.mrp)) if item_in.mrp is not None else ((menu_item.mrp if menu_item else None) or price)
+            item_tax_rate = Decimal(str(item_in.tax_rate)) if item_in.tax_rate is not None else ((menu_item.tax_rate if menu_item else None) or Decimal("0.00"))
 
+            item_subtotal = price * Decimal(str(item_in.quantity))
+            item_tax = item_subtotal * (item_tax_rate / Decimal("100")) if not item_in.is_complimentary else Decimal("0.00")
+
+            subtotal += item_subtotal
+            total_tax += item_tax
+
+            final_item_name = item_in.item_name or (menu_item.name if menu_item else "Item")
             order_item = OrderItem(
                 id=uuid.uuid4(),
                 order_id=order.id,
-                menu_item_id=uuid.UUID(item_in.menu_item_id) if item_in.menu_item_id else None,
-                variant_id=uuid.UUID(item_in.variant_id) if item_in.variant_id else None,
-                item_name=item_name,
+                menu_item_id=menu_item.id if menu_item else None,
+                variant_id=variant_uuid,
+                item_name=final_item_name,
                 quantity=item_in.quantity,
                 unit_price=price if not item_in.is_complimentary else Decimal("0.00"),
+                mrp=item_mrp,
+                tax_rate=item_tax_rate,
+                tax_category=(menu_item.tax_category if menu_item else None) or "GST 0%",
                 is_complimentary=item_in.is_complimentary,
-                line_total=line_total,
+                line_total=item_subtotal if not item_in.is_complimentary else Decimal("0.00"),
             )
             db.add(order_item)
-            subtotal += line_total
 
         order.subtotal_amount = subtotal
-        order.total_amount = subtotal
+        gross_total = subtotal
+
+        # Re-apply discount if bill has an approved discount
+        if order.discount_status == "APPROVED" and order.discount_type:
+            disc_val = order.discount_value or Decimal("0.00")
+            if order.discount_type == "PERCENT":
+                discount_amount = subtotal * (disc_val / Decimal("100"))
+                order.total_amount = max(Decimal("0.00"), subtotal - discount_amount)
+            elif order.discount_type == "FLAT":
+                order.total_amount = max(Decimal("0.00"), subtotal - disc_val)
+            elif order.discount_type == "COMPLIMENTARY":
+                order.total_amount = Decimal("0.00")
+            else:
+                order.total_amount = subtotal
+        else:
+            order.total_amount = subtotal
+
+        if subtotal > Decimal("0.00") and order.total_amount > Decimal("0.00"):
+            ratio = order.total_amount / subtotal
+            order.tax_amount = (total_tax * ratio).quantize(Decimal("0.01"))
+        else:
+            order.tax_amount = Decimal("0.00")
 
     await db.flush()
     res = await db.execute(
         select(Order).options(selectinload(Order.items)).where(Order.id == order.id)
     )
     return res.scalar_one()
+
+
+def _recalculate_order_tax(order: Order) -> None:
+    subtotal = order.subtotal_amount or Decimal("0.00")
+    total_amount = order.total_amount or Decimal("0.00")
+    if subtotal <= Decimal("0.00") or total_amount <= Decimal("0.00") or not getattr(order, "items", None):
+        order.tax_amount = Decimal("0.00")
+        return
+
+    base_tax = Decimal("0.00")
+    for item in order.items:
+        rate = item.tax_rate or Decimal("0.00")
+        if rate > Decimal("0.00") and not item.is_complimentary:
+            price = item.unit_price or Decimal("0.00")
+            qty = Decimal(str(item.quantity)) if item.quantity is not None else Decimal("1.00")
+            l_total = price * qty
+            base_tax += l_total * (rate / Decimal("100.00"))
+
+    ratio = total_amount / subtotal
+    order.tax_amount = (base_tax * ratio).quantize(Decimal("0.01"))
 
 
 async def apply_discount(
@@ -233,11 +298,9 @@ async def apply_discount(
     if not order:
         raise HTTPException(status_code=404, detail="Bill not found.")
 
-    is_manager_or_admin = staff_user.role in [
-        RoleEnum.SUPERADMIN,
-        RoleEnum.OUTLET_ADMIN,
-        RoleEnum.MANAGER,
-    ]
+    user_role_raw = getattr(staff_user, "role", "")
+    user_role_str = (user_role_raw.value if hasattr(user_role_raw, "value") else str(user_role_raw)).upper()
+    is_manager_or_admin = any(r in user_role_str for r in ["SUPERADMIN", "ADMIN", "MANAGER", "OWNER"])
 
     subtotal = order.subtotal_amount or Decimal("0.00")
     disc_val = Decimal(str(data.discount_value))
@@ -256,6 +319,7 @@ async def apply_discount(
         order.discount_value = disc_val
         order.discount_reason = data.reason_note
         order.discount_status = "APPROVED"
+        _recalculate_order_tax(order)
     else:
         # Requires manager approval
         order.discount_type = data.discount_type
@@ -302,7 +366,9 @@ async def approve_discount(
     if not approval:
         raise HTTPException(status_code=404, detail="Pending discount approval not found.")
 
-    order_res = await db.execute(select(Order).where(Order.id == approval.order_id))
+    order_res = await db.execute(
+        select(Order).options(selectinload(Order.items)).where(Order.id == approval.order_id)
+    )
     order = order_res.scalar_one()
 
     approval.approved_by_id = _get_user_id(manager_user)
@@ -321,10 +387,15 @@ async def approve_discount(
             order.total_amount = max(Decimal("0.00"), subtotal - disc_val)
         elif approval.discount_type == "COMPLIMENTARY":
             order.total_amount = Decimal("0.00")
+        _recalculate_order_tax(order)
     else:
         approval.status = "REJECTED"
         order.discount_status = "REJECTED"
         order.total_amount = order.subtotal_amount
+        _recalculate_order_tax(order)
+
+    await db.flush()
+    return approval
 
     await db.flush()
     return approval
@@ -360,7 +431,7 @@ async def mark_bill_paid(
     payment_method: str,
     cash_denominations: dict[str, int] | None = None,
 ) -> Order:
-    """Record cash/UPI payment method, set order status to PAID, and trigger inventory auto-deduction."""
+    """Record cash/UPI payment method, set order status to COMPLETED for POS bills, and trigger inventory auto-deduction."""
     res = await db.execute(
         select(Order)
         .options(selectinload(Order.items))
@@ -375,6 +446,7 @@ async def mark_bill_paid(
 
     order.payment_method = payment_method
     if cash_denominations and payment_method == "CASH":
+        order.cash_denominations = cash_denominations
         denom_strs = [f"₹{k}x{v}" for k, v in cash_denominations.items() if v > 0]
         if denom_strs:
             order.payment_reference = f"CASH [{', '.join(denom_strs)}]"
@@ -383,7 +455,9 @@ async def mark_bill_paid(
     elif not order.payment_reference:
         order.payment_reference = payment_method
 
-    order.status = OrderStatusEnum.PAID
+    # Walk-in POS bills go straight to COMPLETED status without needing manual verification
+    order.is_auto_verified = True
+    order.status = OrderStatusEnum.COMPLETED
     order.paid_at = datetime.utcnow()
     if not order.finalized_at:
         order.finalized_at = datetime.utcnow()
@@ -410,3 +484,143 @@ async def get_pending_approvals_count(
     )
     res = await db.execute(stmt)
     return int(res.scalar() or 0)
+
+
+async def get_daily_cash_denominations(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    date_str: str | None = None,
+) -> dict[str, Any]:
+    """
+    Get aggregated cash currency denominations collected for a specific date (defaults to today).
+    Optimized with SQL date filtering.
+    """
+    from datetime import datetime, time
+    try:
+        target_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else datetime.now(timezone.utc).date()
+    except Exception:
+        target_date = datetime.now(timezone.utc).date()
+
+    target_date_str = target_date.strftime("%Y-%m-%d")
+    start_dt = datetime.combine(target_date, time.min)
+    end_dt = datetime.combine(target_date, time.max)
+
+    stmt = (
+        select(Order.cash_denominations, Order.total_amount)
+        .where(
+            Order.outlet_id == outlet_id,
+            Order.payment_method == "CASH",
+            func.coalesce(Order.paid_at, Order.created_at) >= start_dt,
+            func.coalesce(Order.paid_at, Order.created_at) <= end_dt,
+        )
+    )
+    res = await db.execute(stmt)
+    orders = res.all()
+
+    denoms_count = {500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0}
+    total_cash_collected = 0.0
+
+    for row in orders:
+        total_cash_collected += float(row.total_amount or 0.0)
+        cd = row.cash_denominations
+        if isinstance(cd, dict):
+            for k, v in cd.items():
+                try:
+                    k_num = int(k)
+                    if k_num in denoms_count:
+                        denoms_count[k_num] += int(v or 0)
+                except (ValueError, TypeError):
+                    pass
+
+    return {
+        "date": target_date_str,
+        "total_cash_collected": total_cash_collected,
+        "denominations": {str(k): v for k, v in denoms_count.items()},
+        "denomination_subtotals": {str(k): k * v for k, v in denoms_count.items()},
+    }
+
+
+async def process_customer_return(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    staff_user: Any,
+    data: Any,
+) -> dict[str, Any]:
+    """
+    Process customer return / exchange for a finalized bill.
+    Restocks returned items and computes net refund or exchange balance.
+    """
+    order_uuid = uuid.UUID(data.order_id)
+    order_res = await db.execute(
+        select(Order).options(selectinload(Order.items)).where(
+            Order.id == order_uuid,
+            Order.outlet_id == outlet_id,
+        )
+    )
+    order = order_res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Original bill not found.")
+
+    if order.status not in [OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]:
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot process return on un-paid or un-finalized bill."
+        )
+
+    total_return_amount = Decimal("0.00")
+    returned_items_summary = []
+
+    for ret_item in data.return_items:
+        item_uuid = uuid.UUID(ret_item.order_item_id)
+        matching = next((i for i in order.items if i.id == item_uuid), None)
+        if not matching:
+            continue
+
+        ret_qty = Decimal(str(ret_item.quantity))
+        item_unit_price = matching.unit_price or Decimal("0.00")
+        line_refund = item_unit_price * ret_qty
+        total_return_amount += line_refund
+
+        returned_items_summary.append({
+            "item_name": matching.item_name,
+            "quantity": float(ret_qty),
+            "unit_price": float(item_unit_price),
+            "line_refund": float(line_refund),
+        })
+
+        # Restock inventory item if linked
+        if matching.menu_item_id:
+            m_item = await db.get(MenuItem, matching.menu_item_id)
+            if m_item and m_item.inventory_item_id:
+                from app.models.inventory_item import InventoryItem
+                inv_item = await db.get(InventoryItem, m_item.inventory_item_id)
+                if inv_item:
+                    inv_item.current_stock += ret_qty
+
+    net_balance = float(total_return_amount)
+
+    return {
+        "status": "PROCESSED",
+        "return_number": f"RET-{uuid.uuid4().hex[:6].upper()}",
+        "order_id": str(order.id),
+        "customer_name": order.customer_name,
+        "total_refund_amount": float(total_return_amount),
+        "net_balance": net_balance,
+        "returned_items": returned_items_summary,
+        "processed_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+
+async def discard_draft_bill(db: AsyncSession, bill_id: uuid.UUID, outlet_id: uuid.UUID) -> None:
+    """Discard/delete a draft or pending bill when canceled without explicitly saving as draft."""
+    res = await db.execute(
+        select(Order).where(Order.id == bill_id, Order.outlet_id == outlet_id)
+    )
+    order = res.scalar_one_or_none()
+    if order and order.status not in [OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED, "PAID", "COMPLETED"]:
+        # Delete any pending discount approvals first to avoid FK constraint error
+        await db.execute(
+            delete(BillDiscountApproval).where(BillDiscountApproval.order_id == order.id)
+        )
+        await db.delete(order)
+        await db.flush()
