@@ -15,9 +15,12 @@ export type LoginResponse = {
 
 export type RestaurantUser = {
   id: string;
+  name?: string;
   email: string;
+  phone?: string;
   role: StaffRole;
   is_active: boolean;
+  has_pin?: boolean;
   created_at: string;
 };
 
@@ -59,8 +62,11 @@ export type RestaurantCreateForm = {
 };
 
 export type AdminUserForm = {
+  name: string;
   email: string;
+  phone: string;
   password: string;
+  pin: string;
   role: StaffRole;
 };
 

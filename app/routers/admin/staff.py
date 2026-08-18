@@ -1,5 +1,6 @@
 """
 Staff management FastAPI router — CRUD, PIN setup, login, PIN quick-switch, permissions, and audit trail.
+Operates on the unified User database model.
 """
 
 from __future__ import annotations
@@ -22,7 +23,7 @@ from app.dependencies import (
     outlet_scoped_query,
 )
 from app.models.enums import RoleEnum
-from app.models.staff import Staff
+from app.models.user import User
 from app.models.staff_audit_log import StaffAuditLog
 from app.schemas.staff import (
     RolePermissions,
@@ -33,6 +34,7 @@ from app.schemas.staff import (
     StaffCreate,
     StaffLoginRequest,
     StaffLoginResponse,
+    StaffPinLoginRequest,
     StaffPinSwitchRequest,
     StaffResponse,
     StaffUpdate,
@@ -40,6 +42,7 @@ from app.schemas.staff import (
 from app.services.staff_service import (
     authenticate_staff_email,
     authenticate_staff_pin,
+    authenticate_staff_pin_standalone,
     create_staff,
     create_staff_audit_log,
     deactivate_staff,
@@ -71,13 +74,25 @@ async def create_staff_endpoint(
     if current_user.role != RoleEnum.SUPERADMIN and target_outlet_id != current_user.outlet_id:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
-            detail="Cannot create staff for another outlet",
+            detail="Forbidden: Cannot create staff for another outlet",
         )
 
     staff = await create_staff(
         db, target_outlet_id, data, created_by_user_id=current_user.user_id
     )
     return to_staff_response(staff)
+
+
+@router.get("/me", response_model=StaffResponse)
+async def get_my_profile_endpoint(
+    current_user: AuthenticatedUser,
+    db: DBSession,
+):
+    """Fetch profile info of currently logged in user/staff member."""
+    user = await db.get(User, current_user.user_id)
+    if not user:
+        raise HTTPException(status_code=404, detail="User profile not found")
+    return to_staff_response(user)
 
 
 @router.get("", response_model=list[StaffResponse])
@@ -89,9 +104,9 @@ async def list_staff_endpoint(
     """List staff for an outlet (Admin: own outlet; Superadmin: filterable)."""
     target_outlet_id = outlet_id or current_user.outlet_id
 
-    stmt = select(Staff)
-    stmt = outlet_scoped_query(stmt, Staff, target_outlet_id, current_user)
-    stmt = stmt.order_by(Staff.name)
+    stmt = select(User).where(User.role != RoleEnum.SUPERADMIN)
+    stmt = outlet_scoped_query(stmt, User, target_outlet_id, current_user)
+    stmt = stmt.order_by(User.name)
 
     result = await db.execute(stmt)
     staff_list = result.scalars().all()
@@ -108,8 +123,7 @@ async def update_staff_endpoint(
     """Update staff details, role, or status."""
     target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
-        # Fetch staff first to get outlet_id
-        res = await db.execute(select(Staff).where(Staff.id == staff_id))
+        res = await db.execute(select(User).where(User.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
@@ -132,7 +146,7 @@ async def deactivate_staff_endpoint(
     """Deactivate or permanently delete a staff member."""
     target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
-        res = await db.execute(select(Staff).where(Staff.id == staff_id))
+        res = await db.execute(select(User).where(User.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
@@ -157,7 +171,7 @@ async def set_staff_pin_endpoint(
     """Admin/Superadmin sets a staff member's 4-digit PIN."""
     target_outlet_id = current_user.outlet_id
     if current_user.role == RoleEnum.SUPERADMIN:
-        res = await db.execute(select(Staff).where(Staff.id == staff_id))
+        res = await db.execute(select(User).where(User.id == staff_id))
         s = res.scalar_one_or_none()
         if not s:
             raise HTTPException(status_code=404, detail="Staff member not found")
@@ -212,9 +226,49 @@ async def staff_login_endpoint(
         outlet_id=staff.outlet_id,
         staff_id=staff.id,
         action_type="staff_logged_in",
-        reference_type="Staff",
+        reference_type="User",
         reference_id=str(staff.id),
         details=f"Staff '{staff.name}' logged in via email/password",
+    )
+
+    return StaffLoginResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        staff=to_staff_response(staff),
+    )
+
+
+@router.post("/pin-login", response_model=StaffLoginResponse)
+async def staff_pin_login_endpoint(
+    data: StaffPinLoginRequest,
+    db: DBSession,
+):
+    """Standalone staff login via outlet_id and 4-digit PIN."""
+    staff = await authenticate_staff_pin_standalone(db, data.outlet_id, data.pin)
+
+    access_token = create_access_token(
+        user_id=staff.id,
+        outlet_id=staff.outlet_id,
+        role=staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+    )
+    refresh_token = create_refresh_token(
+        user_id=staff.id,
+        outlet_id=staff.outlet_id,
+        role=staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+    )
+
+    staff.refresh_token_hash = hash_token(refresh_token)
+    await db.flush()
+    await db.refresh(staff)
+
+    await create_staff_audit_log(
+        db,
+        outlet_id=staff.outlet_id,
+        staff_id=staff.id,
+        action_type="staff_pin_logged_in",
+        reference_type="User",
+        reference_id=str(staff.id),
+        details=f"Staff '{staff.name}' logged in via PIN",
     )
 
     return StaffLoginResponse(
@@ -256,7 +310,7 @@ async def pin_switch_endpoint(
         outlet_id=staff.outlet_id,
         staff_id=staff.id,
         action_type="pin_quick_switch",
-        reference_type="Staff",
+        reference_type="User",
         reference_id=str(staff.id),
         details=f"Switched active staff to '{staff.name}' via PIN",
     )
@@ -373,91 +427,41 @@ async def get_staff_incentives_report(
 
     if end_date:
         try:
-            dt_end = datetime.strptime(end_date + " 23:59:59", "%Y-%m-%d %H:%M:%S")
+            dt_end = datetime.strptime(end_date, "%Y-%m-%d")
             stmt = stmt.where(Order.created_at <= dt_end)
         except ValueError:
             pass
 
-    stmt = stmt.group_by(OrderItem.added_by_staff_id, User.name, User.email)
-    res = await db.execute(stmt)
-    rows = res.all()
+    stmt = stmt.group_by(
+        OrderItem.added_by_staff_id,
+        User.name,
+        User.email,
+    ).order_by(func.sum(OrderItem.unit_price * OrderItem.quantity).desc())
+
+    result = await db.execute(stmt)
+    rows = result.all()
 
     report_items = []
-    grand_total_sales = 0.0
-    grand_total_items = 0
+    total_store_assisted_sales = 0.0
 
     for r in rows:
-        sales = float(r.total_sales or 0.0)
-        items_cnt = int(r.total_quantity or 0)
-        est_incentive = round(sales * 0.05, 2)
-        grand_total_sales += sales
-        grand_total_items += items_cnt
-
-        report_items.append({
-            "staff_id": str(r.added_by_staff_id),
-            "staff_name": r.staff_name or r.staff_email or "Staff",
-            "assisted_items_count": items_cnt,
-            "total_assisted_sales": sales,
-            "estimated_incentive": est_incentive,
-            "commission_rate": "5%",
-        })
+        sales_val = float(r.total_sales or 0.0)
+        total_store_assisted_sales += sales_val
+        report_items.append(
+            {
+                "staff_id": str(r.added_by_staff_id),
+                "staff_name": r.staff_name or "Staff Member",
+                "staff_email": r.staff_email,
+                "item_count": r.item_count,
+                "total_quantity": r.total_quantity,
+                "total_sales": sales_val,
+                "estimated_incentive": round(sales_val * 0.01, 2),
+            }
+        )
 
     return {
         "outlet_id": str(current_user.outlet_id),
-        "start_date": start_date,
-        "end_date": end_date,
-        "grand_total_sales": grand_total_sales,
-        "grand_total_items": grand_total_items,
-        "staff_reports": report_items,
+        "total_assisted_sales": round(total_store_assisted_sales, 2),
+        "total_estimated_incentive_pool": round(total_store_assisted_sales * 0.01, 2),
+        "staff_breakdown": report_items,
     }
-
-
-@router.get("/incentives/my-performance")
-async def get_my_incentive_performance(
-    current_user: AuthenticatedUser,
-    db: DBSession,
-):
-    """
-    Get personal incentive performance metrics for the logged-in staff member.
-    """
-    from app.models.enums import OrderStatusEnum
-    from app.models.order import Order
-    from app.models.order_item import OrderItem
-
-    staff_id = current_user.user_id
-    if not staff_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="User ID not found in current token.",
-        )
-
-    stmt = (
-        select(
-            func.count(OrderItem.id).label("item_count"),
-            func.sum(OrderItem.quantity).label("total_quantity"),
-            func.sum(OrderItem.unit_price * OrderItem.quantity).label("total_sales"),
-        )
-        .join(Order, Order.id == OrderItem.order_id)
-        .where(
-            OrderItem.added_by_staff_id == staff_id,
-            Order.status == OrderStatusEnum.COMPLETED,
-        )
-    )
-
-    res = await db.execute(stmt)
-    row = res.one_or_none()
-
-    total_sales = float(row.total_sales or 0.0) if row else 0.0
-    items_count = int(row.total_quantity or 0) if row else 0
-    est_incentive = round(total_sales * 0.05, 2)
-
-    return {
-        "staff_id": str(staff_id),
-        "user_email": current_user.email,
-        "role": current_user.role,
-        "total_assisted_items": items_count,
-        "total_assisted_sales": total_sales,
-        "estimated_incentive": est_incentive,
-        "commission_rate": "5%",
-    }
-

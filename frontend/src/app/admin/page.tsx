@@ -97,6 +97,7 @@ export default function AdminDashboardPage() {
   }, []);
 
   const setActiveTab = useCallback((tab: AdminTab) => {
+    setError(null);
     setActiveTabState(tab);
     if (typeof window !== "undefined") {
       localStorage.setItem("admin_active_tab", tab);
@@ -111,7 +112,11 @@ export default function AdminDashboardPage() {
     authHeaders,
     apiRequest,
     login,
+    pinLogin,
     logout,
+    userRole,
+    isAdminRole,
+    setSessionToken,
   } = useAdminAuth();
 
   // Restaurant Profile State
@@ -131,7 +136,7 @@ export default function AdminDashboardPage() {
       gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.15);
       osc.start();
       osc.stop(ctx.currentTime + 0.15);
-    } catch {}
+    } catch { }
   }, []);
 
   // Load Dashboard Restaurant Info
@@ -165,23 +170,37 @@ export default function AdminDashboardPage() {
     setError,
   });
 
+  const staffState = useStaffManagement({
+    accessToken,
+    authHeaders,
+    restaurant,
+    apiRequest,
+    setSessionToken,
+    setNotice,
+    setError,
+  });
+
+  // Auto-redirect to first allowed tab if current activeTab is not permitted for active role
+  useEffect(() => {
+    if (staffState.staffPermissions?.allowed_sidebar_tabs) {
+      const allowed = staffState.staffPermissions.allowed_sidebar_tabs as AdminTab[];
+      if (allowed.length > 0 && !allowed.includes(activeTab)) {
+        setActiveTab(allowed[0]);
+      }
+    }
+  }, [staffState.staffPermissions, activeTab, setActiveTab]);
+
+  const canManageMenu = isAdminRole && (!staffState.staffPermissions || staffState.staffPermissions.can_manage_menu);
   const menuState = useMenuManagement({
     accessToken,
     apiRequest,
     setNotice,
     setError,
+    enabled: canManageMenu,
   });
 
-  const staffState = useStaffManagement({
-    accessToken,
-    restaurant,
-    authHeaders,
-    apiRequest,
-    setNotice,
-    setError,
-  });
-
-  const inventoryState = useInventoryManagement(apiRequest, playBeep);
+  const canManageInventory = isAdminRole && (!staffState.staffPermissions || staffState.staffPermissions.can_manage_inventory);
+  const inventoryState = useInventoryManagement(apiRequest, playBeep, canManageInventory);
 
   const billingState = useBillingManagement({
     accessToken,
@@ -214,10 +233,23 @@ export default function AdminDashboardPage() {
     setError,
   });
 
+  const canViewNotifications = isAdminRole && (!staffState.staffPermissions || staffState.staffPermissions.can_manage_staff || staffState.staffPermissions.can_view_analytics);
   const notificationState = useNotificationManagement({
     accessToken,
     apiRequest,
+    enabled: canViewNotifications,
   });
+
+  // Redirect to first allowed tab if current activeTab is restricted for this user's role
+  useEffect(() => {
+    const perms = staffState.staffPermissions;
+    if (perms && perms.allowed_sidebar_tabs && perms.allowed_sidebar_tabs.length > 0) {
+      if (!perms.allowed_sidebar_tabs.includes(activeTab)) {
+        const target = perms.allowed_sidebar_tabs[0] as AdminTab;
+        setActiveTab(target);
+      }
+    }
+  }, [staffState.staffPermissions, activeTab, setActiveTab]);
 
   // Global Barcode Scanner Hook for Inventory Tab
   useBarcodeScanner({
@@ -238,6 +270,10 @@ export default function AdminDashboardPage() {
           await login(email, password);
           await loadDashboard();
         }}
+        onPinLogin={async (outletId, pin) => {
+          await pinLogin(outletId, pin);
+          await loadDashboard();
+        }}
       />
     );
   }
@@ -247,11 +283,12 @@ export default function AdminDashboardPage() {
   ).length;
 
   return (
-    <div className="flex h-screen w-screen overflow-hidden bg-[var(--bg-app)] text-[var(--text-primary)]">
-      {/* Sidebar */}
+    <div className="flex h-screen overflow-hidden bg-[var(--bg-base)] font-sans text-[var(--text-primary)]">
+      {/* Sidebar Component */}
       <AdminSidebar
         restaurant={restaurant}
         activeTab={activeTab}
+        userRole={userRole}
         onTabChange={(tab) => {
           setActiveTab(tab);
           setIsMobileMenuOpen(false);
@@ -604,12 +641,12 @@ export default function AdminDashboardPage() {
         menuItems={menuState.menuItems}
         variantsByItem={menuState.variantsByItem}
         variantForm={{ name: "", price_delta: "0.00", is_available: true }}
-        setVariantForm={() => {}}
+        setVariantForm={() => { }}
         editingVariantId={null}
-        setEditingVariantId={() => {}}
+        setEditingVariantId={() => { }}
         isSavingVariant={false}
         onSubmitVariant={(e) => e.preventDefault()}
-        onToggleVariantAvailable={async () => {}}
+        onToggleVariantAvailable={async () => { }}
         onDeleteVariant={async (id) => {
           if (menuState.selectedItemForVariants) {
             await menuState.handleDeleteVariant(menuState.selectedItemForVariants.id, id);

@@ -136,8 +136,11 @@ export function useSuperadminData() {
 
   // User creation state
   const [adminUserForm, setAdminUserForm] = useState<AdminUserForm>({
+    name: "",
     email: "",
+    phone: "",
     password: "",
+    pin: "",
     role: "OUTLET_ADMIN",
   });
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>("");
@@ -463,17 +466,20 @@ export function useSuperadminData() {
       await apiRequest<{ message: string }>("/api/auth/register", {
         method: "POST",
         body: JSON.stringify({
+          name: adminUserForm.name.trim() || undefined,
           email: adminUserForm.email.trim(),
+          phone: adminUserForm.phone.trim() || undefined,
           password: adminUserForm.password,
+          pin: adminUserForm.pin.trim() || undefined,
           outlet_id: selectedRestaurantId,
           role: adminUserForm.role,
         }),
       });
 
       setNotice(
-        `User "${adminUserForm.email}" (${adminUserForm.role.replace("_", " ")}) created successfully.`
+        `User "${adminUserForm.name || adminUserForm.email}" (${adminUserForm.role.replace("_", " ")}) created successfully.`
       );
-      setAdminUserForm({ email: "", password: "", role: "OUTLET_ADMIN" });
+      setAdminUserForm({ name: "", email: "", phone: "", password: "", pin: "", role: "OUTLET_ADMIN" });
       setStep("done");
       void loadRestaurants();
     } catch (createError) {

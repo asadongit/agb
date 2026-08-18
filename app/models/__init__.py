@@ -15,7 +15,6 @@ from app.models.menu_item_variant import MenuItemVariant
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.outlet import Outlet
-from app.models.staff import Staff
 from app.models.staff_audit_log import StaffAuditLog
 from app.models.stock_intake import StockIntake
 from app.models.stock_ledger import StockLedger
@@ -71,7 +70,6 @@ __all__ = [
     "PurchaseReturn",
     "RoleEnum",
     "SessionStatusEnum",
-    "Staff",
     "StaffAuditLog",
     "StockChangeTypeEnum",
     "StockIntake",

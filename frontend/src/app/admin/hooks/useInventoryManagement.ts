@@ -38,7 +38,8 @@ export interface ScanFeedItem {
 
 export function useInventoryManagement(
   apiRequest: <T>(url: string, options?: RequestInit) => Promise<T>,
-  playBeep?: (freq?: number) => void
+  playBeep?: (freq?: number) => void,
+  enabled: boolean = true
 ) {
   const [activeSubTab, setActiveSubTabState] = useState<InventoryTabType>("items");
   const [inventoryViewMode, setInventoryViewMode] = useState<"combined" | "batches">("combined");
@@ -186,11 +187,13 @@ export function useInventoryManagement(
   }, [apiRequest, ledgerPage, ledgerPageSize, ledgerFilterItem, ledgerFilterType]);
 
   useEffect(() => {
-    fetchItems();
-    fetchBatches();
-    fetchAlerts();
-    fetchSuppliers();
-  }, [fetchItems, fetchBatches, fetchAlerts, fetchSuppliers]);
+    if (enabled) {
+      fetchItems();
+      fetchBatches();
+      fetchAlerts();
+      fetchSuppliers();
+    }
+  }, [enabled, fetchItems, fetchBatches, fetchAlerts, fetchSuppliers]);
 
   const openBatchDrawer = (item: InventoryItem) => {
     setSelectedBatchItem(item);

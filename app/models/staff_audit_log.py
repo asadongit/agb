@@ -16,7 +16,7 @@ from app.database import Base
 
 if TYPE_CHECKING:
     from app.models.outlet import Outlet
-    from app.models.staff import Staff
+    from app.models.user import User
 
 
 class StaffAuditLog(Base):
@@ -27,7 +27,7 @@ class StaffAuditLog(Base):
     )
     staff_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
-        ForeignKey("staff.id", ondelete="SET NULL"),
+        ForeignKey("users.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -46,5 +46,5 @@ class StaffAuditLog(Base):
     )
 
     # Relationships
-    staff: Mapped[Staff | None] = relationship("Staff")
+    staff: Mapped[User | None] = relationship("User")
     outlet: Mapped[Outlet] = relationship("Outlet")

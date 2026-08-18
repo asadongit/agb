@@ -11,7 +11,7 @@ from fastapi import APIRouter, HTTPException, status
 from sqlalchemy import delete, select, update
 from sqlalchemy.orm import selectinload
 
-from app.dependencies import DBSession, RequireAdmin, RequireSuperadmin
+from app.dependencies import DBSession, RequireAdmin, RequireStaffOrAdmin, RequireSuperadmin
 from app.models.audit_log import AuditLog
 from app.models.enums import RoleEnum
 from app.models.outlet import Outlet
@@ -97,7 +97,7 @@ async def create_outlet(
 
 @router.get("/me", response_model=OutletResponse)
 async def get_my_outlet(
-    current_user: RequireAdmin,
+    current_user: RequireStaffOrAdmin,
     db: DBSession,
 ):
     """Get the current user's outlet details."""

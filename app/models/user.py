@@ -1,5 +1,6 @@
 """
-User model — superadmin and admin accounts, scoped to an outlet.
+User model — superadmin, admin, and store staff accounts, scoped to an outlet.
+Unified single-table authentication and POS staff profile model.
 """
 
 from __future__ import annotations
@@ -30,18 +31,27 @@ class User(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
-    role: Mapped[RoleEnum] = mapped_column(
-        Enum(RoleEnum, name="roleenum"), nullable=False
-    )
+    name: Mapped[str] = mapped_column(String(255), nullable=False, default="Team Member")
     email: Mapped[str] = mapped_column(
         String(320), unique=True, nullable=False, index=True
     )
+    phone: Mapped[str | None] = mapped_column(String(50), nullable=True)
+    role: Mapped[RoleEnum] = mapped_column(
+        Enum(RoleEnum, name="roleenum"), nullable=False
+    )
     password_hash: Mapped[str] = mapped_column(String(512), nullable=False)
+    pin_hash: Mapped[str | None] = mapped_column(String(512), nullable=True)
     is_active: Mapped[bool] = mapped_column(default=True, nullable=False)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, default="active")
 
     # Refresh tokens — stored hashed, one active per user
     refresh_token_hash: Mapped[str | None] = mapped_column(
         String(512), nullable=True
+    )
+    created_by: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("users.id", ondelete="SET NULL"),
+        nullable=True,
     )
 
     # Relationships

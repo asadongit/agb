@@ -10,11 +10,14 @@ import type {
   VariantFormState,
 } from "../adminTypes";
 
+import { isAuthError } from "../adminUtils";
+
 type UseMenuManagementProps = {
   accessToken: string | null;
   apiRequest: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
   setNotice?: (msg: string | null) => void;
   setError?: (msg: string | null) => void;
+  enabled?: boolean;
 };
 
 export function useMenuManagement({
@@ -22,6 +25,7 @@ export function useMenuManagement({
   apiRequest,
   setNotice,
   setError,
+  enabled = true,
 }: UseMenuManagementProps) {
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [menuItems, setMenuItems] = useState<AdminMenuItem[]>([]);
@@ -47,7 +51,7 @@ export function useMenuManagement({
 
   // Load categories, items, and variants
   const loadCategoriesAndMenuItems = useCallback(async () => {
-    if (!accessToken) return;
+    if (!accessToken || !enabled) return;
     try {
       setIsLoadingMenu(true);
       const [cats, items] = await Promise.all([
@@ -66,15 +70,18 @@ export function useMenuManagement({
       });
       setVariantsByItem(vMap);
     } catch (err: any) {
+      if (isAuthError(err)) return;
       if (setError) setError(err?.message || "Failed to load menu data");
     } finally {
       setIsLoadingMenu(false);
     }
-  }, [accessToken, apiRequest, setError]);
+  }, [accessToken, apiRequest, enabled, setError]);
 
   useEffect(() => {
-    loadCategoriesAndMenuItems();
-  }, [loadCategoriesAndMenuItems]);
+    if (enabled) {
+      loadCategoriesAndMenuItems();
+    }
+  }, [enabled, loadCategoriesAndMenuItems]);
 
   // Create / Update MenuItem
   const handleSaveMenuItem = useCallback(

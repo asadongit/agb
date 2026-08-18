@@ -209,6 +209,19 @@ export function CreateOutletWizard({
           </label>
 
           <label className="block space-y-1">
+            <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Full Name</span>
+            <input
+              type="text"
+              value={adminUserForm.name}
+              onChange={(e) =>
+                setAdminUserForm((prev) => ({ ...prev, name: e.target.value }))
+              }
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+              placeholder="e.g. Ramesh Kumar"
+            />
+          </label>
+
+          <label className="block space-y-1">
             <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Email Address</span>
             <input
               type="email"
@@ -219,6 +232,34 @@ export function CreateOutletWizard({
               required
               className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
               placeholder="user@outlet.com"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Phone Number</span>
+            <input
+              type="tel"
+              value={adminUserForm.phone}
+              onChange={(e) =>
+                setAdminUserForm((prev) => ({ ...prev, phone: e.target.value }))
+              }
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm font-mono"
+              placeholder="+919876543210"
+            />
+          </label>
+
+          <label className="block space-y-1">
+            <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">4-Digit POS PIN (Optional)</span>
+            <input
+              type="password"
+              maxLength={4}
+              pattern="\d{4}"
+              value={adminUserForm.pin}
+              onChange={(e) =>
+                setAdminUserForm((prev) => ({ ...prev, pin: e.target.value }))
+              }
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm font-mono tracking-widest"
+              placeholder="e.g. 1234"
             />
           </label>
 

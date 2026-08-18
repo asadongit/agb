@@ -17,7 +17,8 @@ from app.models.category import Category
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item import MenuItem
 from app.models.outlet import Outlet
-from app.models.staff import Staff
+from app.models.user import User
+from app.models.enums import RoleEnum
 from app.models.stock_intake import StockIntake
 from app.models.sync_action_log import SyncActionLog
 from app.models.sync_conflict_flag import SyncConflictFlag
@@ -81,13 +82,17 @@ async def generate_outlet_snapshot(
             image_url=mi.image_url, current_stock=cur_stock, updated_at=mi.updated_at,
         ))
 
+    from app.models.enums import RoleEnum
+    from app.models.user import User
+
     # Staff (include pin_hash, NEVER include password_hash or refresh_token_hash)
-    staff_stmt = select(Staff).where(Staff.outlet_id == outlet_id, Staff.status == "active")
+    staff_stmt = select(User).where(User.outlet_id == outlet_id, User.status == "active", User.role != RoleEnum.SUPERADMIN)
     if not is_full and since is not None:
-        staff_stmt = staff_stmt.where(Staff.updated_at > since)
+        staff_stmt = staff_stmt.where(User.updated_at > since)
     staff_rows = (await db.execute(staff_stmt)).scalars().all()
     staff_list = [StaffSnapshot(
-        id=s.id, name=s.name, role=s.role.value if hasattr(s.role, 'value') else s.role,
+        id=s.id, name=s.name or (s.email.split("@")[0].title() if s.email else "Team Member"),
+        role=s.role.value if hasattr(s.role, 'value') else s.role,
         pin_hash=s.pin_hash, status=s.status, updated_at=s.updated_at,
     ) for s in staff_rows]
 

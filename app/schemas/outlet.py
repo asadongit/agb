@@ -94,9 +94,12 @@ class OutletResponse(BaseResponse):
 
 class UserSummaryResponse(BaseResponse):
     id: uuid.UUID
+    name: str | None = None
     email: str
+    phone: str | None = None
     role: str
     is_active: bool
+    has_pin: bool = False
     created_at: datetime
 
 

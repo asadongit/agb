@@ -1,8 +1,8 @@
 """initial_schema
 
-Revision ID: f85e00d392cf
+Revision ID: 8f72fcc1185e
 Revises: 
-Create Date: 2026-08-14 21:22:27.920012
+Create Date: 2026-08-18 23:29:47.584842
 
 """
 from typing import Sequence, Union
@@ -12,7 +12,7 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision: str = 'f85e00d392cf'
+revision: str = '8f72fcc1185e'
 down_revision: Union[str, None] = None
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
@@ -38,6 +38,13 @@ def upgrade() -> None:
     sa.Column('public_basket_number', sa.String(length=50), nullable=True),
     sa.Column('verification_amount_cutoff', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('flagged_item_ids', sa.JSON(), nullable=True),
+    sa.Column('evening_price_active', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('evening_pricing_mode', sa.String(length=20), server_default='OFF', nullable=False),
+    sa.Column('evening_auto_enabled', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('evening_auto_start_time', sa.String(length=5), nullable=True),
+    sa.Column('evening_auto_end_time', sa.String(length=5), nullable=True),
+    sa.Column('near_expiry_threshold_days', sa.Integer(), server_default='7', nullable=False),
+    sa.Column('notification_email', sa.String(length=255), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_outlets'))
@@ -55,6 +62,36 @@ def upgrade() -> None:
     )
     with op.batch_alter_table('webhook_events', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_webhook_events_event_id'), ['event_id'], unique=True)
+
+    op.create_table('basket_qr_tokens',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('basket_number', sa.String(length=50), nullable=False),
+    sa.Column('token', sa.String(length=255), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_basket_qr_tokens_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_basket_qr_tokens'))
+    )
+    with op.batch_alter_table('basket_qr_tokens', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_basket_qr_tokens_outlet_id'), ['outlet_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_basket_qr_tokens_token'), ['token'], unique=True)
+
+    op.create_table('catalogue_batches',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
+    sa.Column('template', sa.String(length=50), nullable=False),
+    sa.Column('show_evening_price', sa.Boolean(), nullable=False),
+    sa.Column('show_evening_special_label', sa.Boolean(), nullable=False),
+    sa.Column('categories', sa.JSON(), nullable=False),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_catalogue_batches_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_catalogue_batches'))
+    )
+    with op.batch_alter_table('catalogue_batches', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_catalogue_batches_outlet_id'), ['outlet_id'], unique=False)
 
     op.create_table('categories',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -109,6 +146,23 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_inventory_items_barcode'), ['barcode'], unique=False)
         batch_op.create_index(batch_op.f('ix_inventory_items_outlet_id'), ['outlet_id'], unique=False)
 
+    op.create_table('notifications',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('type', sa.Enum('NEAR_EXPIRY', 'LOW_STOCK', 'RETURN_REQUEST', 'ABANDONED_CART', 'PRICE_ALERT', name='notificationtypeenum'), nullable=False),
+    sa.Column('title', sa.String(length=255), nullable=False),
+    sa.Column('message', sa.String(length=1000), nullable=False),
+    sa.Column('details', sa.JSON(), nullable=True),
+    sa.Column('is_read', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('channels_sent', sa.JSON(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_notifications_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_notifications'))
+    )
+    with op.batch_alter_table('notifications', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_notifications_outlet_id'), ['outlet_id'], unique=False)
+
     op.create_table('suppliers',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('outlet_id', sa.UUID(), nullable=False),
@@ -125,16 +179,41 @@ def upgrade() -> None:
     with op.batch_alter_table('suppliers', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_suppliers_outlet_id'), ['outlet_id'], unique=False)
 
+    op.create_table('sync_action_logs',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('client_action_id', sa.String(length=255), nullable=False),
+    sa.Column('action_type', sa.String(length=100), nullable=False),
+    sa.Column('action_timestamp', sa.DateTime(), nullable=False),
+    sa.Column('payload', sa.JSON(), nullable=True),
+    sa.Column('status', sa.String(length=20), nullable=False),
+    sa.Column('error_detail', sa.Text(), nullable=True),
+    sa.Column('result_snapshot', sa.JSON(), nullable=True),
+    sa.Column('synced_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_sync_action_logs_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_sync_action_logs')),
+    sa.UniqueConstraint('outlet_id', 'client_action_id', name='uq_sync_action_log_outlet_client_id')
+    )
+    with op.batch_alter_table('sync_action_logs', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_sync_action_logs_client_action_id'), ['client_action_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_sync_action_logs_outlet_id'), ['outlet_id'], unique=False)
+
     op.create_table('users',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('outlet_id', sa.UUID(), nullable=True),
-    sa.Column('role', sa.Enum('SUPERADMIN', 'OUTLET_ADMIN', 'MANAGER', 'FLOOR_STAFF', 'CASHIER', 'WAITER', 'DELIVERY_BOY', 'STAFF', name='roleenum'), nullable=False),
+    sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('email', sa.String(length=320), nullable=False),
+    sa.Column('phone', sa.String(length=50), nullable=True),
+    sa.Column('role', sa.Enum('SUPERADMIN', 'OUTLET_ADMIN', 'MANAGER', 'FLOOR_STAFF', 'CASHIER', 'WAITER', 'DELIVERY_BOY', 'STAFF', name='roleenum'), nullable=False),
     sa.Column('password_hash', sa.String(length=512), nullable=False),
+    sa.Column('pin_hash', sa.String(length=512), nullable=True),
     sa.Column('is_active', sa.Boolean(), nullable=False),
+    sa.Column('status', sa.String(length=20), nullable=False),
     sa.Column('refresh_token_hash', sa.String(length=512), nullable=True),
+    sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_users_created_by_users'), ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_users_outlet_id_outlets'), ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_users'))
     )
@@ -200,6 +279,7 @@ def upgrade() -> None:
     sa.Column('offer_label', sa.String(length=255), nullable=True),
     sa.Column('mrp', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('wholesale_price', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('evening_price', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('tax_category', sa.String(length=100), nullable=True),
     sa.Column('tax_rate', sa.Numeric(precision=5, scale=2), nullable=True),
     sa.Column('pricing_mode', sa.Enum('WEIGHT_BASED', 'FIXED_UNIT', name='pricingmodeenum'), server_default='FIXED_UNIT', nullable=False),
@@ -217,27 +297,22 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_menu_items_inventory_item_id'), ['inventory_item_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_menu_items_outlet_id'), ['outlet_id'], unique=False)
 
-    op.create_table('staff',
+    op.create_table('staff_audit_log',
     sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('staff_id', sa.UUID(), nullable=True),
     sa.Column('outlet_id', sa.UUID(), nullable=False),
-    sa.Column('name', sa.String(length=255), nullable=False),
-    sa.Column('email', sa.String(length=320), nullable=False),
-    sa.Column('phone', sa.String(length=50), nullable=True),
-    sa.Column('role', sa.Enum('SUPERADMIN', 'OUTLET_ADMIN', 'MANAGER', 'FLOOR_STAFF', 'CASHIER', 'WAITER', 'DELIVERY_BOY', 'STAFF', name='roleenum'), nullable=False),
-    sa.Column('password_hash', sa.String(length=512), nullable=False),
-    sa.Column('pin_hash', sa.String(length=512), nullable=True),
-    sa.Column('refresh_token_hash', sa.String(length=512), nullable=True),
-    sa.Column('status', sa.String(length=20), nullable=False),
-    sa.Column('created_by', sa.UUID(), nullable=True),
+    sa.Column('action_type', sa.String(length=100), nullable=False),
+    sa.Column('reference_type', sa.String(length=100), nullable=True),
+    sa.Column('reference_id', sa.String(length=255), nullable=True),
+    sa.Column('details', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_staff_created_by_users'), ondelete='SET NULL'),
-    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_staff_outlet_id_outlets'), ondelete='CASCADE'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_staff'))
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_staff_audit_log_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['staff_id'], ['users.id'], name=op.f('fk_staff_audit_log_staff_id_users'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_staff_audit_log'))
     )
-    with op.batch_alter_table('staff', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_staff_email'), ['email'], unique=False)
-        batch_op.create_index(batch_op.f('ix_staff_outlet_id'), ['outlet_id'], unique=False)
+    with op.batch_alter_table('staff_audit_log', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_staff_audit_log_outlet_id'), ['outlet_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_staff_audit_log_staff_id'), ['staff_id'], unique=False)
 
     op.create_table('stock_intakes',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -254,6 +329,7 @@ def upgrade() -> None:
     sa.Column('added_by', sa.UUID(), nullable=True),
     sa.Column('notes', sa.Text(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['added_by'], ['users.id'], name=op.f('fk_stock_intakes_added_by_users'), ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['item_id'], ['inventory_items.id'], name=op.f('fk_stock_intakes_item_id_inventory_items'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_stock_intakes_outlet_id_outlets'), ondelete='CASCADE'),
@@ -264,6 +340,24 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_stock_intakes_expiry_date'), ['expiry_date'], unique=False)
         batch_op.create_index(batch_op.f('ix_stock_intakes_item_id'), ['item_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_stock_intakes_outlet_id'), ['outlet_id'], unique=False)
+
+    op.create_table('sync_conflict_flags',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('action_log_id', sa.UUID(), nullable=True),
+    sa.Column('conflict_type', sa.String(length=50), nullable=False),
+    sa.Column('description', sa.Text(), nullable=False),
+    sa.Column('details', sa.JSON(), nullable=True),
+    sa.Column('is_resolved', sa.Boolean(), server_default='false', nullable=False),
+    sa.Column('resolved_by', sa.UUID(), nullable=True),
+    sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['action_log_id'], ['sync_action_logs.id'], name=op.f('fk_sync_conflict_flags_action_log_id_sync_action_logs'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_sync_conflict_flags_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['resolved_by'], ['users.id'], name=op.f('fk_sync_conflict_flags_resolved_by_users'), ondelete='SET NULL'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_sync_conflict_flags'))
+    )
+    with op.batch_alter_table('sync_conflict_flags', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_sync_conflict_flags_outlet_id'), ['outlet_id'], unique=False)
 
     op.create_table('menu_item_recipes',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -305,13 +399,16 @@ def upgrade() -> None:
     sa.Column('is_auto_verified', sa.Boolean(), nullable=False),
     sa.Column('created_by_staff_id', sa.UUID(), nullable=True),
     sa.Column('subtotal_amount', sa.Numeric(precision=10, scale=2), nullable=True),
+    sa.Column('tax_amount', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('discount_type', sa.String(length=30), nullable=True),
     sa.Column('discount_value', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('discount_reason', sa.String(length=500), nullable=True),
     sa.Column('discount_status', sa.String(length=30), nullable=True),
     sa.Column('payment_method', sa.String(length=30), nullable=True),
+    sa.Column('cash_denominations', sa.JSON(), nullable=True),
     sa.Column('finalized_at', sa.DateTime(), nullable=True),
     sa.Column('paid_at', sa.DateTime(), nullable=True),
+    sa.Column('confirmed_offline', sa.Boolean(), server_default='false', nullable=False),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['created_by_staff_id'], ['users.id'], name=op.f('fk_orders_created_by_staff_id_users'), ondelete='SET NULL'),
@@ -323,22 +420,31 @@ def upgrade() -> None:
         batch_op.create_index(batch_op.f('ix_orders_outlet_id'), ['outlet_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_orders_session_id'), ['session_id'], unique=False)
 
-    op.create_table('staff_audit_log',
+    op.create_table('purchase_returns',
     sa.Column('id', sa.UUID(), nullable=False),
-    sa.Column('staff_id', sa.UUID(), nullable=True),
+    sa.Column('return_number', sa.String(length=100), nullable=False),
     sa.Column('outlet_id', sa.UUID(), nullable=False),
-    sa.Column('action_type', sa.String(length=100), nullable=False),
-    sa.Column('reference_type', sa.String(length=100), nullable=True),
-    sa.Column('reference_id', sa.String(length=255), nullable=True),
-    sa.Column('details', sa.Text(), nullable=True),
+    sa.Column('intake_id', sa.UUID(), nullable=True),
+    sa.Column('item_id', sa.UUID(), nullable=False),
+    sa.Column('supplier_name', sa.String(length=255), nullable=False),
+    sa.Column('batch_number', sa.String(length=100), nullable=True),
+    sa.Column('quantity', sa.Numeric(precision=12, scale=3), nullable=False),
+    sa.Column('unit_cost', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('total_refund_amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('reason', sa.String(length=100), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
-    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_staff_audit_log_outlet_id_outlets'), ondelete='CASCADE'),
-    sa.ForeignKeyConstraint(['staff_id'], ['staff.id'], name=op.f('fk_staff_audit_log_staff_id_staff'), ondelete='SET NULL'),
-    sa.PrimaryKeyConstraint('id', name=op.f('pk_staff_audit_log'))
+    sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_purchase_returns_created_by_users'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['intake_id'], ['stock_intakes.id'], name=op.f('fk_purchase_returns_intake_id_stock_intakes'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['item_id'], ['inventory_items.id'], name=op.f('fk_purchase_returns_item_id_inventory_items'), ondelete='CASCADE'),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_purchase_returns_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_purchase_returns'))
     )
-    with op.batch_alter_table('staff_audit_log', schema=None) as batch_op:
-        batch_op.create_index(batch_op.f('ix_staff_audit_log_outlet_id'), ['outlet_id'], unique=False)
-        batch_op.create_index(batch_op.f('ix_staff_audit_log_staff_id'), ['staff_id'], unique=False)
+    with op.batch_alter_table('purchase_returns', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_purchase_returns_item_id'), ['item_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_purchase_returns_outlet_id'), ['outlet_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_purchase_returns_return_number'), ['return_number'], unique=True)
 
     op.create_table('abandoned_carts',
     sa.Column('id', sa.UUID(), nullable=False),
@@ -381,6 +487,27 @@ def upgrade() -> None:
     with op.batch_alter_table('bill_discount_approvals', schema=None) as batch_op:
         batch_op.create_index(batch_op.f('ix_bill_discount_approvals_order_id'), ['order_id'], unique=False)
 
+    op.create_table('customer_returns',
+    sa.Column('id', sa.UUID(), nullable=False),
+    sa.Column('return_number', sa.String(length=100), nullable=False),
+    sa.Column('outlet_id', sa.UUID(), nullable=False),
+    sa.Column('order_id', sa.UUID(), nullable=True),
+    sa.Column('customer_name', sa.String(length=255), nullable=True),
+    sa.Column('customer_phone', sa.String(length=20), nullable=True),
+    sa.Column('returned_items', sa.JSON(), nullable=False),
+    sa.Column('total_refund_amount', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('refund_payment_method', sa.String(length=50), nullable=False),
+    sa.Column('notes', sa.Text(), nullable=True),
+    sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.ForeignKeyConstraint(['order_id'], ['orders.id'], name=op.f('fk_customer_returns_order_id_orders'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_customer_returns_outlet_id_outlets'), ondelete='CASCADE'),
+    sa.PrimaryKeyConstraint('id', name=op.f('pk_customer_returns'))
+    )
+    with op.batch_alter_table('customer_returns', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_customer_returns_order_id'), ['order_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_customer_returns_outlet_id'), ['outlet_id'], unique=False)
+        batch_op.create_index(batch_op.f('ix_customer_returns_return_number'), ['return_number'], unique=True)
+
     op.create_table('order_items',
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('order_id', sa.UUID(), nullable=False),
@@ -389,6 +516,7 @@ def upgrade() -> None:
     sa.Column('added_by_staff_id', sa.UUID(), nullable=True),
     sa.Column('quantity', sa.Numeric(precision=10, scale=3), nullable=False),
     sa.Column('unit_price', sa.Numeric(precision=10, scale=2), nullable=False),
+    sa.Column('mrp', sa.Numeric(precision=10, scale=2), nullable=True),
     sa.Column('item_name', sa.String(length=255), nullable=True),
     sa.Column('is_complimentary', sa.Boolean(), nullable=False),
     sa.Column('line_total', sa.Numeric(precision=10, scale=2), nullable=True),
@@ -408,20 +536,24 @@ def upgrade() -> None:
     sa.Column('id', sa.UUID(), nullable=False),
     sa.Column('outlet_id', sa.UUID(), nullable=False),
     sa.Column('item_id', sa.UUID(), nullable=False),
-    sa.Column('change_type', sa.Enum('INTAKE', 'AUTO_DEDUCTION', 'MANUAL_ADJUSTMENT', 'RESTOCK', name='stockchangetypeenum'), nullable=False),
+    sa.Column('change_type', sa.Enum('INTAKE', 'AUTO_DEDUCTION', 'MANUAL_ADJUSTMENT', 'RESTOCK', 'PURCHASE_RETURN', 'VOID_BATCH', name='stockchangetypeenum'), nullable=False),
     sa.Column('quantity_change', sa.Numeric(precision=12, scale=3), nullable=False),
     sa.Column('resulting_stock', sa.Numeric(precision=12, scale=3), nullable=False),
     sa.Column('reference_order_id', sa.UUID(), nullable=True),
+    sa.Column('intake_id', sa.UUID(), nullable=True),
     sa.Column('created_by', sa.UUID(), nullable=True),
     sa.Column('unit_cost_snapshot', sa.Numeric(precision=12, scale=4), nullable=True),
     sa.Column('created_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
+    sa.Column('updated_at', sa.DateTime(), server_default=sa.text('(CURRENT_TIMESTAMP)'), nullable=False),
     sa.ForeignKeyConstraint(['created_by'], ['users.id'], name=op.f('fk_stock_ledger_created_by_users'), ondelete='SET NULL'),
+    sa.ForeignKeyConstraint(['intake_id'], ['stock_intakes.id'], name=op.f('fk_stock_ledger_intake_id_stock_intakes'), ondelete='SET NULL'),
     sa.ForeignKeyConstraint(['item_id'], ['inventory_items.id'], name=op.f('fk_stock_ledger_item_id_inventory_items'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['outlet_id'], ['outlets.id'], name=op.f('fk_stock_ledger_outlet_id_outlets'), ondelete='CASCADE'),
     sa.ForeignKeyConstraint(['reference_order_id'], ['orders.id'], name=op.f('fk_stock_ledger_reference_order_id_orders'), ondelete='SET NULL'),
     sa.PrimaryKeyConstraint('id', name=op.f('pk_stock_ledger'))
     )
     with op.batch_alter_table('stock_ledger', schema=None) as batch_op:
+        batch_op.create_index(batch_op.f('ix_stock_ledger_intake_id'), ['intake_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_stock_ledger_item_id'), ['item_id'], unique=False)
         batch_op.create_index(batch_op.f('ix_stock_ledger_outlet_id'), ['outlet_id'], unique=False)
 
@@ -433,6 +565,7 @@ def downgrade() -> None:
     with op.batch_alter_table('stock_ledger', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_stock_ledger_outlet_id'))
         batch_op.drop_index(batch_op.f('ix_stock_ledger_item_id'))
+        batch_op.drop_index(batch_op.f('ix_stock_ledger_intake_id'))
 
     op.drop_table('stock_ledger')
     with op.batch_alter_table('order_items', schema=None) as batch_op:
@@ -440,6 +573,12 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_order_items_added_by_staff_id'))
 
     op.drop_table('order_items')
+    with op.batch_alter_table('customer_returns', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_customer_returns_return_number'))
+        batch_op.drop_index(batch_op.f('ix_customer_returns_outlet_id'))
+        batch_op.drop_index(batch_op.f('ix_customer_returns_order_id'))
+
+    op.drop_table('customer_returns')
     with op.batch_alter_table('bill_discount_approvals', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_bill_discount_approvals_order_id'))
 
@@ -449,11 +588,12 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_abandoned_carts_outlet_id'))
 
     op.drop_table('abandoned_carts')
-    with op.batch_alter_table('staff_audit_log', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_staff_audit_log_staff_id'))
-        batch_op.drop_index(batch_op.f('ix_staff_audit_log_outlet_id'))
+    with op.batch_alter_table('purchase_returns', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_purchase_returns_return_number'))
+        batch_op.drop_index(batch_op.f('ix_purchase_returns_outlet_id'))
+        batch_op.drop_index(batch_op.f('ix_purchase_returns_item_id'))
 
-    op.drop_table('staff_audit_log')
+    op.drop_table('purchase_returns')
     with op.batch_alter_table('orders', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_orders_session_id'))
         batch_op.drop_index(batch_op.f('ix_orders_outlet_id'))
@@ -468,6 +608,10 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_menu_item_recipes_inventory_item_id'))
 
     op.drop_table('menu_item_recipes')
+    with op.batch_alter_table('sync_conflict_flags', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_sync_conflict_flags_outlet_id'))
+
+    op.drop_table('sync_conflict_flags')
     with op.batch_alter_table('stock_intakes', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_stock_intakes_outlet_id'))
         batch_op.drop_index(batch_op.f('ix_stock_intakes_item_id'))
@@ -475,11 +619,11 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_stock_intakes_batch_number'))
 
     op.drop_table('stock_intakes')
-    with op.batch_alter_table('staff', schema=None) as batch_op:
-        batch_op.drop_index(batch_op.f('ix_staff_outlet_id'))
-        batch_op.drop_index(batch_op.f('ix_staff_email'))
+    with op.batch_alter_table('staff_audit_log', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_staff_audit_log_staff_id'))
+        batch_op.drop_index(batch_op.f('ix_staff_audit_log_outlet_id'))
 
-    op.drop_table('staff')
+    op.drop_table('staff_audit_log')
     with op.batch_alter_table('menu_items', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_menu_items_outlet_id'))
         batch_op.drop_index(batch_op.f('ix_menu_items_inventory_item_id'))
@@ -502,10 +646,19 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_users_email'))
 
     op.drop_table('users')
+    with op.batch_alter_table('sync_action_logs', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_sync_action_logs_outlet_id'))
+        batch_op.drop_index(batch_op.f('ix_sync_action_logs_client_action_id'))
+
+    op.drop_table('sync_action_logs')
     with op.batch_alter_table('suppliers', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_suppliers_outlet_id'))
 
     op.drop_table('suppliers')
+    with op.batch_alter_table('notifications', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_notifications_outlet_id'))
+
+    op.drop_table('notifications')
     with op.batch_alter_table('inventory_items', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_inventory_items_outlet_id'))
         batch_op.drop_index(batch_op.f('ix_inventory_items_barcode'))
@@ -519,6 +672,15 @@ def downgrade() -> None:
         batch_op.drop_index(batch_op.f('ix_categories_outlet_id'))
 
     op.drop_table('categories')
+    with op.batch_alter_table('catalogue_batches', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_catalogue_batches_outlet_id'))
+
+    op.drop_table('catalogue_batches')
+    with op.batch_alter_table('basket_qr_tokens', schema=None) as batch_op:
+        batch_op.drop_index(batch_op.f('ix_basket_qr_tokens_token'))
+        batch_op.drop_index(batch_op.f('ix_basket_qr_tokens_outlet_id'))
+
+    op.drop_table('basket_qr_tokens')
     with op.batch_alter_table('webhook_events', schema=None) as batch_op:
         batch_op.drop_index(batch_op.f('ix_webhook_events_event_id'))
 

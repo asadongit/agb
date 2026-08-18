@@ -16,7 +16,7 @@ from app.models.outlet import Outlet
 from app.models.category import Category
 from app.models.menu_item import MenuItem
 from app.models.inventory_item import InventoryItem
-from app.models.staff import Staff
+from app.models.user import User
 from app.models.sync_action_log import SyncActionLog
 from app.models.sync_conflict_flag import SyncConflictFlag
 from app.schemas.sync import SyncAction
@@ -70,7 +70,7 @@ async def test_full_and_incremental_snapshot(db_session: AsyncSession):
     )
     db.add(menu_item)
 
-    staff = Staff(
+    staff = User(
         id=uuid.uuid4(),
         outlet_id=outlet_id,
         name="John Staff",
@@ -78,6 +78,7 @@ async def test_full_and_incremental_snapshot(db_session: AsyncSession):
         role=RoleEnum.CASHIER,
         password_hash="secret_hash_value",
         pin_hash="1234_hash_value",
+        status="active",
     )
     db.add(staff)
     await db.commit()

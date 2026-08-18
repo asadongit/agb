@@ -1,5 +1,6 @@
 """
 Staff service — CRUD operations, password & PIN hashing/verification, role permissions mapping, and audit trail logging.
+Operates on the unified User database model.
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from app.core.security import (
     verify_password,
 )
 from app.models.enums import RoleEnum
-from app.models.staff import Staff
+from app.models.user import User
 from app.models.staff_audit_log import StaffAuditLog
 from app.schemas.staff import (
     RolePermissions,
@@ -43,7 +44,7 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_process_payments=True,
         can_manage_orders=True,
         can_view_analytics=True,
-        allowed_sidebar_tabs=["orders", "billing", "menu", "staff", "inventory", "settings", "qrcodes"],
+        allowed_sidebar_tabs=["orders", "billing", "menu", "staff", "analytics", "inventory", "customerservices", "settings", "qrcodes"],
     ),
     RoleEnum.OUTLET_ADMIN: RolePermissions(
         can_manage_staff=True,
@@ -54,7 +55,7 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_process_payments=True,
         can_manage_orders=True,
         can_view_analytics=True,
-        allowed_sidebar_tabs=["orders", "billing", "menu", "staff", "inventory", "settings", "qrcodes"],
+        allowed_sidebar_tabs=["orders", "billing", "menu", "staff", "analytics", "inventory", "customerservices", "settings", "qrcodes"],
     ),
     RoleEnum.MANAGER: RolePermissions(
         can_manage_staff=True,
@@ -65,18 +66,7 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_process_payments=True,
         can_manage_orders=True,
         can_view_analytics=True,
-        allowed_sidebar_tabs=["orders", "billing", "menu", "inventory", "qrcodes"],
-    ),
-    RoleEnum.FLOOR_STAFF: RolePermissions(
-        can_manage_staff=False,
-        can_manage_billing=False,
-        can_edit_menu=False,
-        can_manage_inventory=False,
-        can_cancel_orders=False,
-        can_process_payments=False,
-        can_manage_orders=True,
-        can_view_analytics=False,
-        allowed_sidebar_tabs=["orders"],
+        allowed_sidebar_tabs=["orders", "billing", "menu", "staff", "analytics", "inventory", "customerservices", "settings", "qrcodes"],
     ),
     RoleEnum.CASHIER: RolePermissions(
         can_manage_staff=False,
@@ -87,9 +77,20 @@ ROLE_PERMISSIONS_MAP: dict[RoleEnum, RolePermissions] = {
         can_process_payments=True,
         can_manage_orders=True,
         can_view_analytics=False,
-        allowed_sidebar_tabs=["orders", "billing"],
+        allowed_sidebar_tabs=["billing", "orders"],
     ),
     RoleEnum.WAITER: RolePermissions(
+        can_manage_staff=False,
+        can_manage_billing=False,
+        can_edit_menu=False,
+        can_manage_inventory=False,
+        can_cancel_orders=False,
+        can_process_payments=False,
+        can_manage_orders=True,
+        can_view_analytics=False,
+        allowed_sidebar_tabs=["orders"],
+    ),
+    RoleEnum.FLOOR_STAFF: RolePermissions(
         can_manage_staff=False,
         can_manage_billing=False,
         can_edit_menu=False,
@@ -130,19 +131,19 @@ def get_permissions_for_role(role: RoleEnum) -> RolePermissions:
     return ROLE_PERMISSIONS_MAP.get(role, ROLE_PERMISSIONS_MAP[RoleEnum.STAFF])
 
 
-def to_staff_response(staff: Staff) -> StaffResponse:
-    """Helper to convert Staff model to StaffResponse Pydantic schema."""
+def to_staff_response(user: User) -> StaffResponse:
+    """Helper to convert User model to StaffResponse Pydantic schema."""
     return StaffResponse(
-        id=staff.id,
-        outlet_id=staff.outlet_id,
-        name=staff.name,
-        email=staff.email,
-        phone=staff.phone,
-        role=staff.role,
-        status=staff.status,
-        has_pin=staff.pin_hash is not None,
-        created_at=staff.created_at,
-        updated_at=staff.updated_at,
+        id=user.id,
+        outlet_id=user.outlet_id,
+        name=user.name or (user.email.split("@")[0].title() if user.email else "Team Member"),
+        email=user.email,
+        phone=user.phone,
+        role=user.role,
+        status=user.status,
+        has_pin=user.pin_hash is not None,
+        created_at=user.created_at,
+        updated_at=user.updated_at,
     )
 
 
@@ -151,25 +152,23 @@ async def create_staff(
     outlet_id: uuid.UUID,
     data: StaffCreate,
     created_by_user_id: uuid.UUID | None = None,
-) -> Staff:
-    """Create a new staff member for an outlet."""
-    # Check email uniqueness in outlet
+) -> User:
+    """Create a new staff member (User) for an outlet."""
     existing = await db.execute(
-        select(Staff).where(
-            Staff.outlet_id == outlet_id,
-            Staff.email == data.email.lower().strip(),
+        select(User).where(
+            User.email == data.email.lower().strip(),
         )
     )
     if existing.scalar_one_or_none() is not None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"Staff with email '{data.email}' already exists in this outlet.",
+            detail=f"User with email '{data.email}' already exists.",
         )
 
     pwd_hash = hash_password(data.password)
     p_hash = hash_password(data.pin) if data.pin else None
 
-    staff = Staff(
+    user = User(
         id=uuid.uuid4(),
         outlet_id=outlet_id,
         name=data.name.strip(),
@@ -178,24 +177,25 @@ async def create_staff(
         role=data.role,
         password_hash=pwd_hash,
         pin_hash=p_hash,
+        is_active=True,
         status="active",
         created_by=created_by_user_id,
     )
-    db.add(staff)
+    db.add(user)
     await db.flush()
-    await db.refresh(staff)
+    await db.refresh(user)
 
     await create_staff_audit_log(
         db,
         outlet_id=outlet_id,
-        staff_id=staff.id,
+        staff_id=user.id,
         action_type="staff_created",
-        reference_type="Staff",
-        reference_id=str(staff.id),
-        details=f"Created staff '{staff.name}' with role {staff.role.value}",
+        reference_type="User",
+        reference_id=str(user.id),
+        details=f"Created staff '{user.name}' with role {user.role.value}",
     )
 
-    return staff
+    return user
 
 
 async def update_staff(
@@ -203,46 +203,47 @@ async def update_staff(
     outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
     data: StaffUpdate,
-) -> Staff:
+) -> User:
     """Update staff profile, role, or active status."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.id == staff_id,
-            Staff.outlet_id == outlet_id,
+        select(User).where(
+            User.id == staff_id,
+            User.outlet_id == outlet_id,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff:
+    user = res.scalar_one_or_none()
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found.",
         )
 
     if data.name is not None:
-        staff.name = data.name.strip()
+        user.name = data.name.strip()
     if data.email is not None:
-        staff.email = data.email.lower().strip()
+        user.email = data.email.lower().strip()
     if data.phone is not None:
-        staff.phone = data.phone.strip()
+        user.phone = data.phone.strip()
     if data.role is not None:
-        staff.role = data.role
+        user.role = data.role
     if data.status is not None:
-        staff.status = data.status
+        user.status = data.status
+        user.is_active = (data.status == "active")
 
     await db.flush()
-    await db.refresh(staff)
+    await db.refresh(user)
 
     await create_staff_audit_log(
         db,
         outlet_id=outlet_id,
-        staff_id=staff.id,
+        staff_id=user.id,
         action_type="staff_updated",
-        reference_type="Staff",
-        reference_id=str(staff.id),
-        details=f"Updated staff '{staff.name}'",
+        reference_type="User",
+        reference_id=str(user.id),
+        details=f"Updated staff '{user.name}'",
     )
 
-    return staff
+    return user
 
 
 async def deactivate_staff(
@@ -250,31 +251,32 @@ async def deactivate_staff(
     outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
 ) -> None:
-    """Soft-delete/deactivate a staff member to preserve audit trail integrity."""
+    """Soft-delete/deactivate a staff member."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.id == staff_id,
-            Staff.outlet_id == outlet_id,
+        select(User).where(
+            User.id == staff_id,
+            User.outlet_id == outlet_id,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff:
+    user = res.scalar_one_or_none()
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found.",
         )
 
-    staff.status = "inactive"
+    user.status = "inactive"
+    user.is_active = False
     await db.flush()
 
     await create_staff_audit_log(
         db,
         outlet_id=outlet_id,
-        staff_id=staff.id,
+        staff_id=user.id,
         action_type="staff_deactivated",
-        reference_type="Staff",
-        reference_id=str(staff.id),
-        details=f"Deactivated staff '{staff.name}'",
+        reference_type="User",
+        reference_id=str(user.id),
+        details=f"Deactivated staff '{user.name}'",
     )
 
 
@@ -285,22 +287,22 @@ async def delete_staff_permanently(
 ) -> None:
     """Permanently delete a staff member from the database."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.id == staff_id,
-            Staff.outlet_id == outlet_id,
+        select(User).where(
+            User.id == staff_id,
+            User.outlet_id == outlet_id,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff:
+    user = res.scalar_one_or_none()
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found.",
         )
 
-    staff_name = staff.name
-    staff_email = staff.email
+    user_name = user.name
+    user_email = user.email
 
-    await db.delete(staff)
+    await db.delete(user)
     await db.flush()
 
     await create_staff_audit_log(
@@ -308,9 +310,9 @@ async def delete_staff_permanently(
         outlet_id=outlet_id,
         staff_id=None,
         action_type="staff_permanently_deleted",
-        reference_type="Staff",
+        reference_type="User",
         reference_id=str(staff_id),
-        details=f"Permanently deleted staff '{staff_name}' ({staff_email})",
+        details=f"Permanently deleted staff '{user_name}' ({user_email})",
     )
 
 
@@ -320,31 +322,31 @@ async def set_staff_pin(
     staff_id: uuid.UUID,
     pin: str,
 ) -> None:
-    """Set or update 4-digit PIN for a staff member."""
+    """Set or update 4-digit PIN for a staff member or admin user."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.id == staff_id,
-            Staff.outlet_id == outlet_id,
+        select(User).where(
+            User.id == staff_id,
+            User.outlet_id == outlet_id,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff:
+    user = res.scalar_one_or_none()
+    if not user:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Staff member not found.",
         )
 
-    staff.pin_hash = hash_password(pin)
+    user.pin_hash = hash_password(pin)
     await db.flush()
 
     await create_staff_audit_log(
         db,
         outlet_id=outlet_id,
-        staff_id=staff.id,
+        staff_id=user.id,
         action_type="staff_pin_updated",
-        reference_type="Staff",
-        reference_id=str(staff.id),
-        details=f"Updated PIN for staff '{staff.name}'",
+        reference_type="User",
+        reference_id=str(user.id),
+        details=f"Updated PIN for '{user.name}'",
     )
 
 
@@ -352,22 +354,22 @@ async def authenticate_staff_email(
     db: AsyncSession,
     email: str,
     password: str,
-) -> Staff:
+) -> User:
     """Authenticate staff via email and password."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.email == email.lower().strip(),
-            Staff.status == "active",
+        select(User).where(
+            User.email == email.lower().strip(),
+            User.is_active == True,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff or not verify_password(password, staff.password_hash):
+    user = res.scalar_one_or_none()
+    if not user or not verify_password(password, user.password_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid email or password.",
         )
 
-    return staff
+    return user
 
 
 async def authenticate_staff_pin(
@@ -375,23 +377,47 @@ async def authenticate_staff_pin(
     outlet_id: uuid.UUID,
     staff_id: uuid.UUID,
     pin: str,
-) -> Staff:
+) -> User:
     """Authenticate staff via PIN on a shared outlet device."""
     res = await db.execute(
-        select(Staff).where(
-            Staff.id == staff_id,
-            Staff.outlet_id == outlet_id,
-            Staff.status == "active",
+        select(User).where(
+            User.id == staff_id,
+            User.outlet_id == outlet_id,
+            User.is_active == True,
         )
     )
-    staff = res.scalar_one_or_none()
-    if not staff or not staff.pin_hash or not verify_password(pin, staff.pin_hash):
+    user = res.scalar_one_or_none()
+    if not user or not user.pin_hash or not verify_password(pin, user.pin_hash):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Invalid staff PIN.",
         )
 
-    return staff
+    return user
+
+
+async def authenticate_staff_pin_standalone(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    pin: str,
+) -> User:
+    """Authenticate staff on an outlet device by PIN alone."""
+    res = await db.execute(
+        select(User).where(
+            User.outlet_id == outlet_id,
+            User.is_active == True,
+            User.pin_hash.isnot(None),
+        )
+    )
+    users_list = res.scalars().all()
+    for u in users_list:
+        if u.pin_hash and verify_password(pin, u.pin_hash):
+            return u
+
+    raise HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail="Invalid staff PIN for this outlet.",
+    )
 
 
 async def create_staff_audit_log(

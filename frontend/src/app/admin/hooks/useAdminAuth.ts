@@ -16,6 +16,26 @@ import {
 } from "../adminTypes";
 import { parseApiResponse } from "../adminUtils";
 
+export function getRoleFromToken(token: string | null): string | null {
+  if (!token) return null;
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const base64Url = parts[1];
+    const base64 = base64Url.replace(/-/g, "+").replace(/_/g, "/");
+    const jsonPayload = decodeURIComponent(
+      atob(base64)
+        .split("")
+        .map((c) => "%" + ("00" + c.charCodeAt(0).toString(16)).slice(-2))
+        .join("")
+    );
+    const payload = JSON.parse(jsonPayload);
+    return payload.role || null;
+  } catch {
+    return null;
+  }
+}
+
 export function useAdminAuth() {
   const [accessToken, setAccessToken] = useState<string | null>(null);
   const [isMounted, setIsMounted] = useState(false);
@@ -30,6 +50,12 @@ export function useAdminAuth() {
       }
     }
   }, []);
+
+  const userRole = useMemo(() => getRoleFromToken(accessToken), [accessToken]);
+  const isAdminRole = useMemo(() => {
+    if (!userRole) return false;
+    return ["SUPERADMIN", "OUTLET_ADMIN", "MANAGER"].includes(userRole.toUpperCase());
+  }, [userRole]);
 
   const authHeaders = useMemo(() => {
     if (!accessToken) return null;
@@ -97,6 +123,10 @@ export function useAdminAuth() {
       });
 
       if (response.status === 401) {
+        if (path.includes("/pin-switch") || path.includes("/pin-login") || path.includes("/login")) {
+          return parseApiResponse<T>(response);
+        }
+
         const newAccessToken = await tryRefreshToken();
         if (newAccessToken) {
           response = await fetch(`${apiBase}${path}`, {
@@ -148,6 +178,33 @@ export function useAdminAuth() {
     []
   );
 
+  const pinLogin = useCallback(
+    async (outlet_id: string, pin: string): Promise<LoginResponse> => {
+      const apiBase = getApiBaseUrl();
+      const response = await fetch(`${apiBase}/api/staff/pin-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ outlet_id, pin }),
+      });
+
+      const data = await parseApiResponse<LoginResponse>(response);
+
+      setAccessToken(data.access_token);
+      window.localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+      window.localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
+
+      return data;
+    },
+    []
+  );
+
+  const setSessionToken = useCallback((newToken: string) => {
+    setAccessToken(newToken);
+    if (typeof window !== "undefined") {
+      window.localStorage.setItem(ACCESS_TOKEN_KEY, newToken);
+    }
+  }, []);
+
   const logout = useCallback(async () => {
     try {
       if (accessToken) {
@@ -175,6 +232,10 @@ export function useAdminAuth() {
     authHeaders,
     apiRequest,
     login,
+    pinLogin,
     logout,
+    userRole,
+    isAdminRole,
+    setSessionToken,
   };
 }

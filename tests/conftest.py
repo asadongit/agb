@@ -137,10 +137,10 @@ async def create_test_staff(
     email: str = "staff@test.com",
     password: str = "staffpassword123",
     role: RoleEnum = RoleEnum.CASHIER,
-) -> Staff:
-    from app.models.staff import Staff
+) -> User:
+    from app.models.user import User
 
-    staff = Staff(
+    staff = User(
         id=uuid.uuid4(),
         outlet_id=outlet.id,
         name=name,

@@ -18,7 +18,6 @@ from app.core.security import (
     hash_token,
     verify_password,
 )
-from app.models.staff import Staff
 from app.models.user import User
 from app.schemas.auth import LoginRequest, RegisterRequest, TokenResponse
 
@@ -38,10 +37,15 @@ async def register_user(
 
     user = User(
         id=uuid.uuid4(),
-        email=data.email,
+        email=data.email.lower().strip(),
         password_hash=hash_password(data.password),
+        name=data.name.strip() if data.name else (data.email.split("@")[0].title() if data.email else "Team Member"),
+        phone=data.phone.strip() if data.phone else None,
+        pin_hash=hash_password(data.pin) if data.pin else None,
         outlet_id=data.outlet_id,
         role=data.role,
+        status="active",
+        is_active=True,
     )
     db.add(user)
     await db.flush()
@@ -82,11 +86,14 @@ async def login_user(
     # Store refresh token hash
     user.refresh_token_hash = hash_token(refresh_token)
     await db.flush()
+    await db.refresh(user)
 
+    from app.services.staff_service import to_staff_response
     return TokenResponse(
         access_token=access_token,
         refresh_token=refresh_token,
         role=user.role.value,
+        user=to_staff_response(user),
     )
 
 #User and Staff

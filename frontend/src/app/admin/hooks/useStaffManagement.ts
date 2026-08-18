@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useState } from "react";
+import { FormEvent, useCallback, useEffect, useState } from "react";
 import type {
   RolePermissions,
   StaffAuditEntry,
@@ -13,6 +13,7 @@ type UseStaffManagementProps = {
   authHeaders: Record<string, string> | null;
   restaurant: RestaurantProfile | null;
   apiRequest: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
+  setSessionToken?: (newToken: string) => void;
   setNotice: (msg: string | null) => void;
   setError: (msg: string | null) => void;
 };
@@ -22,6 +23,7 @@ export function useStaffManagement({
   authHeaders,
   restaurant,
   apiRequest,
+  setSessionToken,
   setNotice,
   setError,
 }: UseStaffManagementProps) {
@@ -83,6 +85,26 @@ export function useStaffManagement({
       console.error("Permissions fetch error:", err);
     }
   }, [apiRequest, authHeaders]);
+
+  const loadMyProfile = useCallback(async () => {
+    if (!authHeaders) return;
+    try {
+      const myProfile = await apiRequest<StaffMember>("/api/staff/me");
+      if (myProfile) {
+        setActiveStaff(myProfile);
+      }
+    } catch (err) {
+      if (isAuthError(err)) return;
+      console.error("Profile fetch error:", err);
+    }
+  }, [apiRequest, authHeaders]);
+
+  useEffect(() => {
+    if (authHeaders) {
+      void loadStaffPermissions();
+      void loadMyProfile();
+    }
+  }, [authHeaders, loadStaffPermissions, loadMyProfile]);
 
   const loadStaffAuditLogs = useCallback(async () => {
     if (!authHeaders) return;
@@ -199,6 +221,9 @@ export function useStaffManagement({
         }
       );
 
+      if (res.staff_context_token && setSessionToken) {
+        setSessionToken(res.staff_context_token);
+      }
       setActiveStaff(res.active_staff);
       setNotice(`Switched active staff to ${res.active_staff.name} (${res.active_staff.role})`);
       setPinSwitchModalOpen(false);

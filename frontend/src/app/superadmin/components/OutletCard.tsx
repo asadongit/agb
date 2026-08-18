@@ -40,8 +40,8 @@ export function OutletCard({
   onDeleteUser,
   formatDateTime,
 }: OutletCardProps) {
-  const admins = r.users.filter((u) => u.role === "OUTLET_ADMIN");
-  const staffUsers = r.users.filter((u) => u.role === "STAFF");
+  const admins = r.users.filter((u) => u.role === "OUTLET_ADMIN" || u.role === "SUPERADMIN");
+  const staffUsers = r.users.filter((u) => u.role !== "OUTLET_ADMIN" && u.role !== "SUPERADMIN");
 
   return (
     <article className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-5 shadow-xs transition-all hover:border-[var(--accent-brand)]">
@@ -170,16 +170,21 @@ export function OutletCard({
                     key={u.id}
                     className="flex items-center justify-between rounded-xl border border-amber-200/60 bg-amber-50/40 p-3"
                   >
-                    <div className="space-y-0.5">
-                      <p className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5">
-                        <UserCheck className="h-3.5 w-3.5 text-amber-600" />
-                        {u.email}
+                    <div className="space-y-0.5 min-w-0">
+                      <p className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                        <UserCheck className="h-3.5 w-3.5 text-amber-600 shrink-0" />
+                        <span>{u.name || u.email.split("@")[0]}</span>
                       </p>
-                      <p className="text-[11px] text-[var(--text-muted)]">
-                        Joined {formatDateTime(u.created_at)}
+                      <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">
+                        {u.email} {u.phone ? `• ${u.phone}` : ""}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 shrink-0">
+                      {u.has_pin && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                          PIN Set
+                        </span>
+                      )}
                       <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
                         Admin
                       </span>
@@ -204,48 +209,48 @@ export function OutletCard({
               <div className="flex items-center gap-1.5">
                 <Users className="h-4 w-4 text-[var(--accent-brand)]" />
                 <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  Outlet Staff &amp; Team Roster ({staffList.length})
+                  Outlet Staff &amp; Team Roster ({staffUsers.length})
                 </h4>
               </div>
             </div>
 
-            {staffList.length === 0 ? (
+            {staffUsers.length === 0 ? (
               <p className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 text-xs text-[var(--text-muted)]">
                 No staff members provisioned for this outlet yet.
               </p>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2">
-                {staffList.map((s) => (
+                {staffUsers.map((u) => (
                   <div
-                    key={s.id}
+                    key={u.id}
                     className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3"
                   >
-                    <div className="space-y-0.5 truncate">
+                    <div className="space-y-0.5 truncate min-w-0">
                       <p className="text-xs font-bold text-[var(--text-primary)] truncate flex items-center gap-1.5">
-                        <UserCheck className="h-3.5 w-3.5 text-[var(--accent-brand)]" />
-                        {s.name} ({s.email})
+                        <UserCheck className="h-3.5 w-3.5 text-[var(--accent-brand)] shrink-0" />
+                        <span className="truncate">{u.name || u.email.split("@")[0]}</span>
                       </p>
-                      <div className="flex items-center gap-2">
-                        <span className="text-[10px] font-mono uppercase text-[var(--text-muted)]">
-                          Role: {s.role.replace("_", " ")}
-                        </span>
-                        {s.has_pin && (
-                          <span className="text-[10px] text-emerald-600 font-bold">
-                            • PIN Active
-                          </span>
-                        )}
-                      </div>
+                      <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">
+                        {u.email} {u.phone ? `• ${u.phone}` : ""}
+                      </p>
                     </div>
-                    <div className="flex items-center gap-1 shrink-0">
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[10px] font-bold uppercase ${
-                          s.status === "active"
-                            ? "bg-emerald-100 text-emerald-800"
-                            : "bg-rose-100 text-rose-800"
-                        }`}
-                      >
-                        {s.status}
+                    <div className="flex items-center gap-2 shrink-0">
+                      {u.has_pin && (
+                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                          PIN Set
+                        </span>
+                      )}
+                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-800 uppercase">
+                        {u.role.replace("_", " ")}
                       </span>
+                      <button
+                        type="button"
+                        onClick={() => onDeleteUser(u.id, u.email)}
+                        className="p-1 rounded-lg text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition"
+                        title="Delete User Account"
+                      >
+                        <Trash2 className="h-3.5 w-3.5" />
+                      </button>
                     </div>
                   </div>
                 ))}

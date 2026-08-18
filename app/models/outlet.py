@@ -22,7 +22,6 @@ if TYPE_CHECKING:
     from app.models.customer import Customer
     from app.models.menu_item import MenuItem
     from app.models.order import Order
-    from app.models.staff import Staff
     from app.models.user import User
 
 
@@ -106,10 +105,6 @@ class Outlet(Base, TimestampMixin):
                 return _is_in_window(now_ist, start_t, end_t)
         return False
 
-    # Relationships
-    staff: Mapped[list[Staff]] = relationship(
-        "Staff", back_populates="outlet", cascade="all, delete-orphan"
-    )
     users: Mapped[list[User]] = relationship(
         "User", back_populates="outlet", cascade="all, delete-orphan"
     )

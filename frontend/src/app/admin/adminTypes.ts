@@ -37,12 +37,14 @@ export interface LoginResponse {
   refresh_token: string;
   token_type: string;
   role: string;
-  restaurant_id: string;
+  restaurant_id?: string;
   outlet_id?: string;
   restaurant_slug?: string;
   outlet_slug?: string;
   restaurant_name?: string;
   outlet_name?: string;
+  user?: StaffMember | null;
+  staff?: StaffMember | null;
 }
 
 export interface RestaurantProfile {

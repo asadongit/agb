@@ -58,6 +58,11 @@ class StaffPinSwitchRequest(StrictSchema):
     pin: str = Field(min_length=4, max_length=6, pattern="^[0-9]+$")
 
 
+class StaffPinLoginRequest(StrictSchema):
+    outlet_id: uuid.UUID
+    pin: str = Field(min_length=4, max_length=6, pattern="^[0-9]+$")
+
+
 class StaffLoginResponse(BaseResponse):
     access_token: str
     refresh_token: str
