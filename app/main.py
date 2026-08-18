@@ -34,7 +34,8 @@ async def lifespan(app: FastAPI):
             await conn.run_sync(Base.metadata.create_all)
             from sqlalchemy import text
             try:
-                await conn.execute(text("ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS evening_price NUMERIC(10,2);"))
+                if not settings.DATABASE_URL.startswith("sqlite"):
+                    await conn.execute(text("ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS evening_price NUMERIC(10,2);"))
             except Exception as e:
                 print(f"[Startup Info] ALTER TABLE menu_items: {e}")
 
@@ -59,21 +60,30 @@ async def lifespan(app: FastAPI):
     except Exception as err:
         print(f"[Startup Warning] Could not auto-create superadmin: {err}")
 
-    # Start the evening price auto-scheduler
+    # Start background auto-schedulers
     import asyncio
     from app.database import async_session_factory
     from app.services.evening_scheduler import run_evening_scheduler
+    from app.services.notification_service import run_notification_scheduler
 
     scheduler_task = asyncio.create_task(
         run_evening_scheduler(async_session_factory)
     )
+    notification_scheduler_task = asyncio.create_task(
+        run_notification_scheduler(async_session_factory, interval_seconds=300)
+    )
 
     yield
 
-    # Shutdown
+    # Shutdown background tasks
     scheduler_task.cancel()
+    notification_scheduler_task.cancel()
     try:
         await scheduler_task
+    except asyncio.CancelledError:
+        pass
+    try:
+        await notification_scheduler_task
     except asyncio.CancelledError:
         pass
     await close_redis()
@@ -116,6 +126,7 @@ def create_app() -> FastAPI:
     from app.routers.admin.customers import router as customers_router
     from app.routers.admin.sessions import router as admin_sessions_router
     from app.routers.admin.catalogues import router as catalogues_router
+    from app.routers.admin.notifications import router as notifications_router
     from app.routers.public.menu import router as public_menu_router
     from app.routers.public.orders import router as public_orders_router
     from app.routers.public.sessions import router as sessions_router
@@ -137,6 +148,7 @@ def create_app() -> FastAPI:
     app.include_router(customers_router)
     app.include_router(admin_sessions_router)
     app.include_router(catalogues_router)
+    app.include_router(notifications_router)
     app.include_router(public_menu_router)
     app.include_router(public_orders_router)
     app.include_router(sessions_router)
@@ -144,6 +156,11 @@ def create_app() -> FastAPI:
     app.include_router(razorpay_router)
     app.include_router(ws_router)
     app.include_router(upload_router)
+
+    # ── Cloud-only sync routes (gated by RUNTIME_MODE) ───────────────
+    if settings.RUNTIME_MODE == "cloud":
+        from app.routers.admin.sync import router as sync_router
+        app.include_router(sync_router)
 
     # ── Serve Uploaded Static Files ──────────────────────────────────
     from pathlib import Path

@@ -13,6 +13,7 @@ import { SuperadminHeader } from "./components/SuperadminHeader";
 import { CreateOutletWizard } from "./components/CreateOutletWizard";
 import { OutletCard } from "./components/OutletCard";
 import { EditOutletModal } from "./components/EditOutletModal";
+import { ConfirmDeleteModal } from "./components/ConfirmDeleteModal";
 
 function formatDateTime(value: string): string {
   const parsed = new Date(value);
@@ -70,6 +71,10 @@ export default function SuperadminPage() {
     onCreateAdminUser,
     deleteRestaurant,
     deleteUser,
+    deleteTarget,
+    setDeleteTarget,
+    isDeletingEntity,
+    executeConfirmedDelete,
     startAddUserForRestaurant,
     autoSlug,
   } = useSuperadminData();
@@ -214,6 +219,21 @@ export default function SuperadminPage() {
         setSettingsForm={setSettingsForm}
         isSavingSettings={isSavingSettings}
         onSaveOutletSettings={onSaveOutletSettings}
+      />
+
+      {/* Centered TypeScript Confirm Delete Modal */}
+      <ConfirmDeleteModal
+        isOpen={Boolean(deleteTarget)}
+        onClose={() => setDeleteTarget(null)}
+        onConfirm={() => void executeConfirmedDelete()}
+        title={deleteTarget?.type === "OUTLET" ? "Delete Outlet" : "Delete User Account"}
+        itemName={deleteTarget?.name}
+        message={
+          deleteTarget?.type === "OUTLET"
+            ? `Are you sure you want to delete "${deleteTarget.name}"? This will permanently delete this outlet, all categories, products, variants, orders, and associated user accounts!`
+            : `Are you sure you want to delete user account "${deleteTarget?.name}"?`
+        }
+        isDeleting={isDeletingEntity}
       />
     </div>
   );

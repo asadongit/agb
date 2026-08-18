@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.models.bill_discount_approval import BillDiscountApproval
+from app.models.customer_return import CustomerReturn
 from app.models.enums import OrderStatusEnum, RoleEnum
 from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
@@ -547,68 +548,144 @@ async def process_customer_return(
     data: Any,
 ) -> dict[str, Any]:
     """
-    Process customer return / exchange for a finalized bill.
-    Restocks returned items and computes net refund or exchange balance.
+    Process customer return / exchange for a bill or direct un-billed return.
+    Restocks returned items and saves return record to database.
     """
-    order_uuid = uuid.UUID(data.order_id)
-    order_res = await db.execute(
-        select(Order).options(selectinload(Order.items)).where(
-            Order.id == order_uuid,
-            Order.outlet_id == outlet_id,
-        )
-    )
-    order = order_res.scalar_one_or_none()
-    if not order:
-        raise HTTPException(status_code=404, detail="Original bill not found.")
+    order: Order | None = None
+    customer_name = getattr(data, "customer_name", None)
+    customer_phone = getattr(data, "customer_phone", None)
+    original_bill_number = None
 
-    if order.status not in [OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]:
-        raise HTTPException(
-            status_code=400,
-            detail="Cannot process return on un-paid or un-finalized bill."
+    if getattr(data, "order_id", None):
+        order_uuid = uuid.UUID(data.order_id)
+        order_res = await db.execute(
+            select(Order).options(selectinload(Order.items)).where(
+                Order.id == order_uuid,
+                Order.outlet_id == outlet_id,
+            )
         )
+        order = order_res.scalar_one_or_none()
+        if not order:
+            raise HTTPException(status_code=404, detail="Original bill not found.")
+
+        if order.status not in [OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]:
+            raise HTTPException(
+                status_code=400,
+                detail="Cannot process return on un-paid or un-finalized bill."
+            )
+        customer_name = customer_name or order.customer_name
+        customer_phone = customer_phone or order.customer_phone
+        original_bill_number = f"#{order.id.hex[:8].upper()}"
 
     total_return_amount = Decimal("0.00")
     returned_items_summary = []
 
     for ret_item in data.return_items:
-        item_uuid = uuid.UUID(ret_item.order_item_id)
-        matching = next((i for i in order.items if i.id == item_uuid), None)
-        if not matching:
-            continue
-
         ret_qty = Decimal(str(ret_item.quantity))
-        item_unit_price = matching.unit_price or Decimal("0.00")
+        item_unit_price = Decimal("0.00")
+        item_name = ret_item.item_name or "Returned Item"
+        menu_item_id = ret_item.menu_item_id
+
+        if order and ret_item.order_item_id:
+            item_uuid = uuid.UUID(ret_item.order_item_id)
+            matching = next((i for i in order.items if i.id == item_uuid), None)
+            if matching:
+                item_unit_price = matching.unit_price or Decimal("0.00")
+                item_name = matching.item_name or item_name
+                menu_item_id = menu_item_id or (str(matching.menu_item_id) if matching.menu_item_id else None)
+        elif ret_item.unit_price is not None:
+            item_unit_price = Decimal(str(ret_item.unit_price))
+
         line_refund = item_unit_price * ret_qty
         total_return_amount += line_refund
 
         returned_items_summary.append({
-            "item_name": matching.item_name,
+            "order_item_id": ret_item.order_item_id,
+            "menu_item_id": menu_item_id,
+            "item_name": item_name,
             "quantity": float(ret_qty),
             "unit_price": float(item_unit_price),
             "line_refund": float(line_refund),
+            "reason": ret_item.reason or "CUSTOMER_RETURN",
         })
 
-        # Restock inventory item if linked
-        if matching.menu_item_id:
-            m_item = await db.get(MenuItem, matching.menu_item_id)
-            if m_item and m_item.inventory_item_id:
-                from app.models.inventory_item import InventoryItem
-                inv_item = await db.get(InventoryItem, m_item.inventory_item_id)
-                if inv_item:
-                    inv_item.current_stock += ret_qty
+        # Restock inventory item and original intake batch if linked to a MenuItem
+        if menu_item_id:
+            try:
+                m_item = await db.get(MenuItem, uuid.UUID(menu_item_id))
+                if m_item and m_item.inventory_item_id:
+                    from app.services.inventory_service import restore_customer_return_to_batch
+                    await restore_customer_return_to_batch(
+                        db=db,
+                        outlet_id=outlet_id,
+                        item_id=m_item.inventory_item_id,
+                        return_qty=ret_qty,
+                        order_id=order.id if order else None,
+                    )
+            except Exception as e:
+                print(f"⚠️ [Customer Return Restock Error] {e}")
 
     net_balance = float(total_return_amount)
+    return_num = f"RET-{uuid.uuid4().hex[:6].upper()}"
+
+    # Save to CustomerReturn table
+    customer_return_rec = CustomerReturn(
+        return_number=return_num,
+        outlet_id=outlet_id,
+        order_id=order.id if order else None,
+        customer_name=customer_name,
+        customer_phone=customer_phone,
+        returned_items=returned_items_summary,
+        total_refund_amount=total_return_amount,
+        refund_payment_method=data.refund_payment_method or "CASH",
+        notes=data.notes,
+    )
+    db.add(customer_return_rec)
+    await db.flush()
 
     return {
+        "id": str(customer_return_rec.id),
         "status": "PROCESSED",
-        "return_number": f"RET-{uuid.uuid4().hex[:6].upper()}",
-        "order_id": str(order.id),
-        "customer_name": order.customer_name,
+        "return_number": return_num,
+        "order_id": str(order.id) if order else None,
+        "original_bill_number": original_bill_number or "Direct Return (No Bill)",
+        "customer_name": customer_name,
+        "customer_phone": customer_phone,
         "total_refund_amount": float(total_return_amount),
         "net_balance": net_balance,
         "returned_items": returned_items_summary,
+        "refund_payment_method": data.refund_payment_method or "CASH",
         "processed_at": datetime.now(timezone.utc).isoformat(),
     }
+
+
+async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[dict[str, Any]]:
+    """List all past customer return bills for an outlet."""
+    res = await db.execute(
+        select(CustomerReturn)
+        .options(selectinload(CustomerReturn.order))
+        .where(CustomerReturn.outlet_id == outlet_id)
+        .order_by(CustomerReturn.created_at.desc())
+    )
+    returns_list = res.scalars().all()
+    out = []
+    for ret in returns_list:
+        orig_bill = f"#{ret.order.id.hex[:8].upper()}" if ret.order else "Direct Return (No Bill)"
+        out.append({
+            "id": str(ret.id),
+            "return_number": ret.return_number,
+            "order_id": str(ret.order_id) if ret.order_id else None,
+            "original_bill_number": orig_bill,
+            "customer_name": ret.customer_name,
+            "customer_phone": ret.customer_phone,
+            "returned_items": ret.returned_items,
+            "total_refund_amount": float(ret.total_refund_amount),
+            "net_balance": float(ret.total_refund_amount),
+            "refund_payment_method": ret.refund_payment_method,
+            "notes": ret.notes,
+            "created_at": ret.created_at.isoformat() if ret.created_at else datetime.now(timezone.utc).isoformat(),
+        })
+    return out
 
 
 async def discard_draft_bill(db: AsyncSession, bill_id: uuid.UUID, outlet_id: uuid.UUID) -> None:

@@ -84,6 +84,12 @@ class Outlet(Base, TimestampMixin):
     evening_auto_end_time: Mapped[str | None] = mapped_column(
         String(5), nullable=True, default=None  # HH:MM in IST e.g. "22:00"
     )
+    near_expiry_threshold_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="7", default=7
+    )
+    notification_email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None
+    )
 
     @property
     def is_evening_active(self) -> bool:

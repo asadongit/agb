@@ -56,6 +56,12 @@ class StockLedger(Base):
         ForeignKey("orders.id", ondelete="SET NULL"),
         nullable=True,
     )
+    intake_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("stock_intakes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("users.id", ondelete="SET NULL"),
@@ -67,9 +73,13 @@ class StockLedger(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, server_default=func.now(), onupdate=func.now()
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship("Outlet")
     item: Mapped[InventoryItem] = relationship("InventoryItem")
     reference_order: Mapped[Order | None] = relationship("Order")
+    intake: Mapped[Any | None] = relationship("StockIntake")
     user: Mapped[User | None] = relationship("User")

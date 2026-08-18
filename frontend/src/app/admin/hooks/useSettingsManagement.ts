@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useState, useEffect } from "react";
 import type {
   RestaurantFormState,
   RestaurantProfile,
@@ -37,8 +37,37 @@ export function useSettingsManagement({
     public_basket_number: "",
     verification_amount_cutoff: "",
     flagged_item_ids: [],
+    near_expiry_threshold_days: 7,
+    notification_email: "",
   });
   const [isSavingRestaurant, setIsSavingRestaurant] = useState(false);
+
+  useEffect(() => {
+    if (restaurant) {
+      setRestaurantForm({
+        name: restaurant.name || "",
+        slug: restaurant.slug || "",
+        payment_mode: restaurant.payment_mode || "PAY_AT_COUNTER",
+        razorpay_account_id: restaurant.razorpay_account_id || "",
+        direct_upi_id: restaurant.direct_upi_id || "",
+        raw_upi_payload: restaurant.raw_upi_payload || "",
+        logo_url: restaurant.logo_url || "",
+        address: restaurant.address || "",
+        phone: restaurant.phone || "",
+        gstin: restaurant.gstin || "",
+        fssai_no: restaurant.fssai_no || "",
+        session_duration_minutes: restaurant.session_duration_minutes ?? 30,
+        public_basket_number: restaurant.public_basket_number || "",
+        verification_amount_cutoff:
+          restaurant.verification_amount_cutoff !== null && restaurant.verification_amount_cutoff !== undefined
+            ? String(restaurant.verification_amount_cutoff)
+            : "",
+        flagged_item_ids: restaurant.flagged_item_ids || [],
+        near_expiry_threshold_days: restaurant.near_expiry_threshold_days ?? 7,
+        notification_email: restaurant.notification_email || "",
+      });
+    }
+  }, [restaurant]);
 
   const onSubmitRestaurantSettings = async (
     event: FormEvent<HTMLFormElement>
@@ -64,6 +93,8 @@ export function useSettingsManagement({
         public_basket_number: restaurantForm.public_basket_number?.trim() || null,
         verification_amount_cutoff: restaurantForm.verification_amount_cutoff?.trim() ? parseFloat(restaurantForm.verification_amount_cutoff) : null,
         flagged_item_ids: restaurantForm.flagged_item_ids || [],
+        near_expiry_threshold_days: restaurantForm.near_expiry_threshold_days,
+        notification_email: restaurantForm.notification_email?.trim() || null,
       };
 
       const updated = await apiRequest<RestaurantProfile>(

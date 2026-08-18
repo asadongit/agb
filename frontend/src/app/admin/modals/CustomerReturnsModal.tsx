@@ -1,10 +1,31 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
-import { ArrowRight, Barcode, Calendar, History, Minus, Plus, Printer, RefreshCw, RotateCcw, Search, ShoppingBag, Trash2, UserCheck, X } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import {
+  Barcode,
+  Eye,
+  Minus,
+  Plus,
+  Printer,
+  RefreshCw,
+  RotateCcw,
+  Search,
+  UserCheck,
+  X,
+  FileText,
+} from "lucide-react";
 import type { AdminMenuItem } from "../adminTypes";
 import type { ManualBill } from "@/types";
 import type { DraftCartItem } from "./CreateBillDrawer";
+import { generateReturnReceiptPDF } from "@/lib/pdfGenerator";
+import { apiRequest } from "../adminUtils";
+
+type DirectReturnItem = {
+  menu_item_id: string;
+  item_name: string;
+  unit_price: number;
+  quantity: number;
+};
 
 type CustomerReturnsModalProps = {
   isOpen: boolean;
@@ -12,6 +33,7 @@ type CustomerReturnsModalProps = {
   billsList: ManualBill[];
   menuItems: AdminMenuItem[];
   onRequestReturn: (returnData: any) => Promise<void>;
+  restaurantName?: string;
 };
 
 export function CustomerReturnsModal({
@@ -20,24 +42,55 @@ export function CustomerReturnsModal({
   billsList,
   menuItems,
   onRequestReturn,
+  restaurantName = "ApnaGreen Basket",
 }: CustomerReturnsModalProps) {
-  const [lookupTab, setLookupTab] = useState<"USER_HISTORY" | "ITEM_SELECTION" | "INVOICE_NO">("USER_HISTORY");
+  const [lookupTab, setLookupTab] = useState<"USER_HISTORY" | "INVOICE_NO" | "RETURN_HISTORY">("USER_HISTORY");
 
   // Search queries
   const [customerSearch, setCustomerSearch] = useState("");
-  const [itemSearch, setItemSearch] = useState("");
   const [invoiceSearch, setInvoiceSearch] = useState("");
 
-  // Selected Bill
+  // Mode: Bill-referenced return vs Direct un-billed return
+  const [returnMode, setReturnMode] = useState<"BILL_REFERENCED" | "DIRECT_UNBILLED">("BILL_REFERENCED");
+
+  // Selected Bill for bill-referenced return
   const [selectedBill, setSelectedBill] = useState<ManualBill | null>(null);
 
-  // Return quantities: item_id -> quantity to return
+  // Return quantities for bill items: item_id -> quantity to return
   const [returnItemsMap, setReturnItemsMap] = useState<Record<string, number>>({});
   const [returnReason, setReturnReason] = useState("DEFECTIVE_PRODUCT");
+
+  // Direct return items (when customer has no original bill)
+  const [directReturnItems, setDirectReturnItems] = useState<DirectReturnItem[]>([]);
+  const [directCustomerName, setDirectCustomerName] = useState("");
+  const [directCustomerPhone, setDirectCustomerPhone] = useState("");
 
   // Exchange items to add
   const [exchangeItems, setExchangeItems] = useState<DraftCartItem[]>([]);
   const [refundMethod, setRefundMethod] = useState<"CASH" | "UPI" | "STORE_CREDIT">("CASH");
+
+  // Return bills history state
+  const [returnsHistoryList, setReturnsHistoryList] = useState<any[]>([]);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  // Fetch return bills history when tab 3 (Return Log) is opened
+  useEffect(() => {
+    if (isOpen && lookupTab === "RETURN_HISTORY") {
+      void fetchReturnsHistory();
+    }
+  }, [isOpen, lookupTab]);
+
+  const fetchReturnsHistory = async () => {
+    setIsLoadingHistory(true);
+    try {
+      const data = await apiRequest<any[]>("/api/billing/returns");
+      setReturnsHistoryList(data || []);
+    } catch (err) {
+      console.error("Error loading returns history:", err);
+    } finally {
+      setIsLoadingHistory(false);
+    }
+  };
 
   if (!isOpen) return null;
 
@@ -51,13 +104,6 @@ export function CustomerReturnsModal({
     );
   });
 
-  // Filter bills by item search
-  const filteredItemBills = billsList.filter((b) => {
-    if (!itemSearch.trim()) return true;
-    const q = itemSearch.toLowerCase();
-    return b.items?.some((it: any) => (it.item_name || "").toLowerCase().includes(q));
-  });
-
   // Filter bill by invoice ID
   const matchingInvoiceBill = billsList.find((b) => {
     if (!invoiceSearch.trim()) return false;
@@ -65,14 +111,14 @@ export function CustomerReturnsModal({
     return b.id.toLowerCase().includes(q) || (b.basket_number && b.basket_number.toLowerCase().includes(q));
   });
 
-  // Calculate return credit total
-  const returnCreditTotal = selectedBill
+  // Calculate return credit total (Bill-referenced vs Direct unbilled)
+  const returnCreditTotal = returnMode === "BILL_REFERENCED" && selectedBill
     ? (selectedBill.items || []).reduce((sum: number, item: any) => {
         const qty = returnItemsMap[item.id] || 0;
         const price = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
         return sum + qty * price;
       }, 0)
-    : 0;
+    : directReturnItems.reduce((sum, it) => sum + it.unit_price * it.quantity, 0);
 
   // Calculate exchange items total
   const exchangeItemsTotal = exchangeItems.reduce((sum, it) => sum + it.unit_price * it.quantity, 0);
@@ -105,57 +151,87 @@ export function CustomerReturnsModal({
   };
 
   const handleSubmitReturn = async () => {
-    if (!selectedBill) return;
-    const returnItemsPayload = Object.entries(returnItemsMap).map(([order_item_id, quantity]) => ({
-      order_item_id,
-      quantity,
-      reason: returnReason,
-    }));
+    if (returnMode === "BILL_REFERENCED") {
+      if (!selectedBill) return;
+      const returnItemsPayload = Object.entries(returnItemsMap).map(([order_item_id, quantity]) => ({
+        order_item_id,
+        quantity,
+        reason: returnReason,
+      }));
 
-    if (returnItemsPayload.length === 0) {
-      alert("Please select at least one item to return.");
-      return;
+      if (returnItemsPayload.length === 0) {
+        alert("Please select at least one item to return.");
+        return;
+      }
+
+      await onRequestReturn({
+        order_id: selectedBill.id,
+        return_items: returnItemsPayload,
+        exchange_items: exchangeItems,
+        refund_payment_method: refundMethod,
+      });
+    } else {
+      // Direct Unbilled Return
+      if (directReturnItems.length === 0) {
+        alert("Please add at least one store item for direct return.");
+        return;
+      }
+
+      const returnItemsPayload = directReturnItems.map((item) => ({
+        menu_item_id: item.menu_item_id,
+        item_name: item.item_name,
+        quantity: item.quantity,
+        unit_price: item.unit_price,
+        reason: returnReason,
+      }));
+
+      await onRequestReturn({
+        order_id: null,
+        customer_name: directCustomerName.trim() || null,
+        customer_phone: directCustomerPhone.trim() || null,
+        return_items: returnItemsPayload,
+        exchange_items: exchangeItems,
+        refund_payment_method: refundMethod,
+      });
     }
-
-    await onRequestReturn({
-      order_id: selectedBill.id,
-      return_items: returnItemsPayload,
-      exchange_items: exchangeItems,
-      refund_payment_method: refundMethod,
-    });
     onClose();
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 p-4 backdrop-blur-sm animate-in fade-in duration-150">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-150">
       <div className="w-full max-w-5xl rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl flex flex-col h-[88vh] max-h-[92vh]">
-        {/* Header */}
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
+        {/* Modal Header */}
+        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)] flex-shrink-0">
           <div className="flex items-center gap-2">
             <RotateCcw className="h-5 w-5 text-sky-400" />
             <h3 className="font-display text-lg font-bold text-[var(--text-primary)]">
-              Returns &amp; Exchanges with Bill
+              Returns &amp; Exchanges
             </h3>
+            {returnMode === "DIRECT_UNBILLED" && (
+              <span className="rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
+                Direct Unbilled Return
+              </span>
+            )}
           </div>
           <button
             type="button"
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-[var(--border-subtle)] text-[var(--text-muted)]"
+            className="p-1 rounded-lg hover:bg-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
           >
-            <X className="h-4 w-4" />
+            <X className="h-5 w-5" />
           </button>
         </div>
 
-        {/* Modal Content: 2 Columns */}
-        <div className="flex-1 overflow-y-auto grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)]">
-          {/* Left Column: 3 Lookup Options & Bill Picker */}
-          <div className="lg:col-span-6 p-5 space-y-4 flex flex-col">
+        {/* Modal Content Grid: Fixed Containers */}
+        <div className="flex-1 overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)]">
+          {/* Left Column: Fixed Header/Tabs/Search, Only Middle Box Scrollable */}
+          <div className="lg:col-span-6 p-5 flex flex-col h-full overflow-hidden space-y-4">
             {/* 3 Lookup Options Tabs */}
-            <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[var(--bg-surface-elevated)] p-1 border border-[var(--border-strong)]">
+            <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[var(--bg-surface-elevated)] p-1 border border-[var(--border-strong)] flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setLookupTab("USER_HISTORY")}
-                className={`rounded-xl py-2 px-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
                   lookupTab === "USER_HISTORY"
                     ? "bg-sky-500 text-white shadow-xs"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
@@ -166,33 +242,33 @@ export function CustomerReturnsModal({
               </button>
               <button
                 type="button"
-                onClick={() => setLookupTab("ITEM_SELECTION")}
-                className={`rounded-xl py-2 px-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
-                  lookupTab === "ITEM_SELECTION"
-                    ? "bg-sky-500 text-white shadow-xs"
-                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
-                }`}
-              >
-                <ShoppingBag className="h-4 w-4" />
-                <span>2. Item Selection</span>
-              </button>
-              <button
-                type="button"
                 onClick={() => setLookupTab("INVOICE_NO")}
-                className={`rounded-xl py-2 px-2 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
                   lookupTab === "INVOICE_NO"
                     ? "bg-sky-500 text-white shadow-xs"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
                 <Barcode className="h-4 w-4" />
-                <span>3. Invoice No</span>
+                <span>2. Invoice No</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setLookupTab("RETURN_HISTORY")}
+                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                  lookupTab === "RETURN_HISTORY"
+                    ? "bg-sky-500 text-white shadow-xs"
+                    : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                <FileText className="h-4 w-4" />
+                <span>3. Return Log</span>
               </button>
             </div>
 
             {/* Search Input based on active lookup option */}
             {lookupTab === "USER_HISTORY" && (
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <input
                   type="text"
@@ -204,21 +280,8 @@ export function CustomerReturnsModal({
               </div>
             )}
 
-            {lookupTab === "ITEM_SELECTION" && (
-              <div className="relative">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
-                <input
-                  type="text"
-                  placeholder="Search item name or scan product barcode..."
-                  value={itemSearch}
-                  onChange={(e) => setItemSearch(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2 pl-9 pr-3 text-xs text-[var(--text-primary)] focus:border-sky-400 outline-none"
-                />
-              </div>
-            )}
-
             {lookupTab === "INVOICE_NO" && (
-              <div className="relative">
+              <div className="relative flex-shrink-0">
                 <Barcode className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <input
                   type="text"
@@ -230,17 +293,68 @@ export function CustomerReturnsModal({
               </div>
             )}
 
-            {/* List of matching bills */}
-            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-[300px]">
-              {lookupTab === "INVOICE_NO" ? (
+            {/* Scrollable Middle List Box */}
+            <div className="flex-1 overflow-y-auto space-y-2 pr-1 min-h-0">
+              {lookupTab === "RETURN_HISTORY" ? (
+                isLoadingHistory ? (
+                  <div className="flex flex-col items-center justify-center py-12 text-xs text-[var(--text-muted)] space-y-2">
+                    <RefreshCw className="h-6 w-6 animate-spin text-sky-400" />
+                    <span>Loading Return Bills History...</span>
+                  </div>
+                ) : returnsHistoryList.length === 0 ? (
+                  <p className="text-xs text-[var(--text-muted)] text-center py-12">No past return bills found.</p>
+                ) : (
+                  returnsHistoryList.map((ret) => (
+                    <div
+                      key={ret.id}
+                      className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-2"
+                    >
+                      <div className="flex justify-between items-center text-xs">
+                        <span className="font-mono font-bold text-sky-400">{ret.return_number}</span>
+                        <span className="font-mono font-bold text-[var(--text-primary)]">
+                          ₹{ret.total_refund_amount.toFixed(2)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between items-center text-[11px] text-[var(--text-muted)]">
+                        <span>Orig Bill: {ret.original_bill_number}</span>
+                        <span>{new Date(ret.created_at).toLocaleDateString()}</span>
+                      </div>
+                      <div className="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)]">
+                        <span className="text-[11px] text-[var(--text-secondary)] font-semibold">
+                          {ret.customer_name || "Walk-In Customer"}
+                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <button
+                            type="button"
+                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, "view")}
+                            className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] font-bold text-sky-400 hover:bg-sky-500/20"
+                          >
+                            <Eye className="h-3 w-3" />
+                            <span>View</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, "download")}
+                            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1 text-[11px] font-bold text-[var(--text-primary)] hover:border-sky-400"
+                          >
+                            <Printer className="h-3 w-3" />
+                            <span>Print</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                )
+              ) : lookupTab === "INVOICE_NO" ? (
                 matchingInvoiceBill ? (
                   <div
                     onClick={() => {
+                      setReturnMode("BILL_REFERENCED");
                       setSelectedBill(matchingInvoiceBill);
                       setReturnItemsMap({});
                     }}
                     className={`rounded-2xl border p-3.5 cursor-pointer transition ${
-                      selectedBill?.id === matchingInvoiceBill.id
+                      selectedBill?.id === matchingInvoiceBill.id && returnMode === "BILL_REFERENCED"
                         ? "border-sky-500/40 bg-sky-500/10"
                         : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] hover:border-sky-400/60"
                     }`}
@@ -260,18 +374,19 @@ export function CustomerReturnsModal({
                     Enter a valid invoice ID to view bill details.
                   </p>
                 )
-              ) : (lookupTab === "USER_HISTORY" ? filteredUserBills : filteredItemBills).length === 0 ? (
+              ) : filteredUserBills.length === 0 ? (
                 <p className="text-xs text-[var(--text-muted)] text-center py-12">No matching paid bills found.</p>
               ) : (
-                (lookupTab === "USER_HISTORY" ? filteredUserBills : filteredItemBills).map((bill) => (
+                filteredUserBills.map((bill) => (
                   <div
                     key={bill.id}
                     onClick={() => {
+                      setReturnMode("BILL_REFERENCED");
                       setSelectedBill(bill);
                       setReturnItemsMap({});
                     }}
                     className={`rounded-2xl border p-3.5 cursor-pointer transition space-y-1 ${
-                      selectedBill?.id === bill.id
+                      selectedBill?.id === bill.id && returnMode === "BILL_REFERENCED"
                         ? "border-sky-500/40 bg-sky-500/10"
                         : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] hover:border-sky-400/60"
                     }`}
@@ -294,18 +409,21 @@ export function CustomerReturnsModal({
             </div>
           </div>
 
-          {/* Right Column: Return Items Selector & Exchange Counter */}
-          <div className="lg:col-span-6 p-5 space-y-5 flex flex-col justify-between">
+          {/* Right Column: Return Items Selector & Summary (Fixed Header/Footer, Middle Scrollable) */}
+          <div className="lg:col-span-6 p-5 flex flex-col h-full overflow-hidden justify-between space-y-4">
             {!selectedBill ? (
               <div className="h-full flex flex-col items-center justify-center text-xs text-[var(--text-muted)] text-center space-y-2 py-16">
                 <RotateCcw className="h-8 w-8 text-sky-400/60 animate-bounce" />
                 <p className="font-semibold text-sm">Select a bill from the left to initiate Return or Exchange</p>
               </div>
             ) : (
-              <div className="space-y-4 flex-1 overflow-y-auto">
-                <div className="border-b border-[var(--border-subtle)] pb-2 flex justify-between items-center">
+              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1">
+                {/* Header Block */}
+                <div className="border-b border-[var(--border-subtle)] pb-2 flex justify-between items-center flex-shrink-0">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">Selected Bill</span>
+                    <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">
+                      Selected Original Bill
+                    </span>
                     <span className="font-mono font-bold text-sky-400 text-xs">
                       #{selectedBill.id.slice(0, 8).toUpperCase()} • {selectedBill.customer_name || "Walk-In"}
                     </span>
@@ -318,8 +436,9 @@ export function CustomerReturnsModal({
                 {/* Line Items to select for return */}
                 <div className="space-y-2">
                   <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] block">
-                    Select Line Items to Return:
+                    Select Bill Items to Return:
                   </span>
+
                   {(selectedBill.items || []).map((item: any) => {
                     const retQty = returnItemsMap[item.id] || 0;
                     const price = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
@@ -418,17 +537,17 @@ export function CustomerReturnsModal({
             )}
 
             {/* Footer Action */}
-            <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between">
+            <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between flex-shrink-0">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-[var(--border-strong)] px-4 py-2 text-xs font-bold text-[var(--text-muted)]"
+                className="rounded-xl border border-[var(--border-strong)] px-4 py-2 text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={!selectedBill || returnCreditTotal <= 0}
+                disabled={returnCreditTotal <= 0}
                 onClick={handleSubmitReturn}
                 className="rounded-xl bg-sky-500 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-sky-600 transition disabled:opacity-50 flex items-center gap-1.5"
               >

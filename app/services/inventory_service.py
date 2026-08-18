@@ -9,7 +9,7 @@ from decimal import Decimal
 from typing import Sequence
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -87,9 +87,9 @@ async def process_order_auto_deduction(
                 if not inv_item:
                     continue
 
-                inv_item.current_stock = max(Decimal("0.000"), inv_item.current_stock - deduct_qty)
+                inv_item.current_stock = inv_item.current_stock - deduct_qty
 
-                # FIFO batch stock drawdown by earliest expiry date
+                # FEFO batch stock drawdown by earliest expiry date
                 batches_res = await db.execute(
                     select(StockIntake)
                     .where(
@@ -112,17 +112,31 @@ async def process_order_auto_deduction(
                     batch.remaining_quantity = batch.remaining_quantity - take
                     needed = needed - take
 
-                ledger_entry = StockLedger(
-                    id=uuid.uuid4(),
-                    outlet_id=order.outlet_id,
-                    item_id=inv_item.id,
-                    change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
-                    quantity_change=-deduct_qty,
-                    resulting_stock=inv_item.current_stock,
-                    reference_order_id=order.id,
-                    unit_cost_snapshot=inv_item.cost_per_unit,
-                )
-                db.add(ledger_entry)
+                    db.add(StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=order.outlet_id,
+                        item_id=inv_item.id,
+                        intake_id=batch.id,
+                        change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                        quantity_change=-take,
+                        resulting_stock=inv_item.current_stock,
+                        reference_order_id=order.id,
+                        unit_cost_snapshot=batch.unit_cost,
+                    ))
+
+                # If needed > 0 remains (unbatched POS overselling balance)
+                if needed > Decimal("0.000"):
+                    db.add(StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=order.outlet_id,
+                        item_id=inv_item.id,
+                        intake_id=None,
+                        change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                        quantity_change=-needed,
+                        resulting_stock=inv_item.current_stock,
+                        reference_order_id=order.id,
+                        unit_cost_snapshot=inv_item.cost_per_unit,
+                    ))
         else:
             # ── Type A: Direct 1:1 Product Deduction Fallback ───────────────────
             from app.models.menu_item import MenuItem
@@ -164,9 +178,9 @@ async def process_order_auto_deduction(
                 continue
 
             deduct_qty = Decimal(str(item.quantity))
-            target_inv_item.current_stock = max(Decimal("0.000"), target_inv_item.current_stock - deduct_qty)
+            target_inv_item.current_stock = target_inv_item.current_stock - deduct_qty
 
-            # FIFO batch stock drawdown by earliest expiry date
+            # FEFO batch stock drawdown by earliest expiry date
             batches_res = await db.execute(
                 select(StockIntake)
                 .where(
@@ -189,17 +203,30 @@ async def process_order_auto_deduction(
                 batch.remaining_quantity = batch.remaining_quantity - take
                 needed = needed - take
 
-            ledger_entry = StockLedger(
-                id=uuid.uuid4(),
-                outlet_id=order.outlet_id,
-                item_id=target_inv_item.id,
-                change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
-                quantity_change=-deduct_qty,
-                resulting_stock=target_inv_item.current_stock,
-                reference_order_id=order.id,
-                unit_cost_snapshot=target_inv_item.cost_per_unit,
-            )
-            db.add(ledger_entry)
+                db.add(StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=order.outlet_id,
+                    item_id=target_inv_item.id,
+                    intake_id=batch.id,
+                    change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                    quantity_change=-take,
+                    resulting_stock=target_inv_item.current_stock,
+                    reference_order_id=order.id,
+                    unit_cost_snapshot=batch.unit_cost,
+                ))
+
+            if needed > Decimal("0.000"):
+                db.add(StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=order.outlet_id,
+                    item_id=target_inv_item.id,
+                    intake_id=None,
+                    change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                    quantity_change=-needed,
+                    resulting_stock=target_inv_item.current_stock,
+                    reference_order_id=order.id,
+                    unit_cost_snapshot=target_inv_item.cost_per_unit,
+                ))
 
     await db.flush()
 
@@ -387,13 +414,24 @@ async def log_stock_intake(
 
     batch_num = data.batch_number.strip() if data.batch_number else generate_batch_number()
 
+    # POS Auto-Reconciliation: check if pre-intake current_stock was negative
+    pre_stock = item.current_stock
+    unbatched_oversold = max(Decimal("0.000"), -pre_stock)
+    remaining_qty = data.quantity
+
+    if unbatched_oversold > Decimal("0.000"):
+        absorbed = min(remaining_qty, unbatched_oversold)
+        remaining_qty = remaining_qty - absorbed
+        print(f"🔄 [POS Auto-Reconciliation] Absorbed {absorbed} units of oversold backorder into batch #{batch_num}")
+
     intake = StockIntake(
         id=uuid.uuid4(),
         outlet_id=outlet_id,
         item_id=item.id,
         batch_number=batch_num,
         quantity=data.quantity,
-        remaining_quantity=data.quantity,
+        initial_quantity=data.quantity,
+        remaining_quantity=remaining_qty,
         unit_cost=data.unit_cost,
         supplier_name=data.supplier_name.strip() if data.supplier_name else None,
         intake_date=data.intake_date,
@@ -403,6 +441,19 @@ async def log_stock_intake(
     )
     db.add(intake)
 
+    if unbatched_oversold > Decimal("0.000"):
+        # Retroactively update unit_cost_snapshot for recent unbatched AUTO_DEDUCTION ledger entries
+        stmt = (
+            update(StockLedger)
+            .where(
+                StockLedger.item_id == item.id,
+                StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+                StockLedger.intake_id.is_(None),
+            )
+            .values(intake_id=intake.id, unit_cost_snapshot=data.unit_cost)
+        )
+        await db.execute(stmt)
+
     # Increment stock and update cost per unit
     item.current_stock = item.current_stock + data.quantity
     item.cost_per_unit = data.unit_cost
@@ -411,10 +462,12 @@ async def log_stock_intake(
         id=uuid.uuid4(),
         outlet_id=outlet_id,
         item_id=item.id,
+        intake_id=intake.id,
         change_type=StockChangeTypeEnum.INTAKE,
         quantity_change=data.quantity,
         resulting_stock=item.current_stock,
         created_by=user_id,
+        unit_cost_snapshot=data.unit_cost,
     )
     db.add(ledger)
 
@@ -776,11 +829,16 @@ async def save_menu_item_recipe(
 async def get_near_expiry_alerts(
     db: AsyncSession,
     outlet_id: uuid.UUID,
-    threshold_days: int = 7,
+    threshold_days: int | None = None,
 ) -> list[dict[str, Any]]:
     """
     Find active intake batches (remaining_quantity > 0) with expiry_date <= NOW() + threshold_days.
+    Uses outlet's near_expiry_threshold_days setting if threshold_days is not provided.
     """
+    if threshold_days is None:
+        outlet = await db.get(Outlet, outlet_id)
+        threshold_days = outlet.near_expiry_threshold_days if outlet else 7
+
     now = datetime.utcnow()
     cutoff_date = now + timedelta(days=threshold_days)
 
@@ -1230,5 +1288,97 @@ async def get_purchase_return_by_id(
         "created_by_name": user_name or "System Admin",
         "created_at": pr.created_at,
     }
+
+
+async def restore_customer_return_to_batch(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    item_id: uuid.UUID,
+    return_qty: Decimal,
+    order_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
+) -> None:
+    """
+    Restores customer return stock back to its original intake batch (or recent active batch),
+    updating both StockIntake.remaining_quantity and InventoryItem.current_stock.
+    """
+    inv_item = await db.get(InventoryItem, item_id)
+    if not inv_item:
+        return
+
+    remaining_to_restore = return_qty
+
+    if order_id:
+        # Trace original batch intake IDs from order's StockLedger AUTO_DEDUCTION entries
+        stmt = (
+            select(StockLedger)
+            .where(
+                StockLedger.reference_order_id == order_id,
+                StockLedger.item_id == item_id,
+                StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+                StockLedger.intake_id.is_not(None),
+            )
+            .order_by(StockLedger.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        ledger_entries = res.scalars().all()
+
+        for entry in ledger_entries:
+            if remaining_to_restore <= Decimal("0.000"):
+                break
+            if not entry.intake_id:
+                continue
+
+            batch = await db.get(StockIntake, entry.intake_id)
+            if batch:
+                restore_amount = min(remaining_to_restore, abs(entry.quantity_change))
+                batch.remaining_quantity += restore_amount
+                remaining_to_restore -= restore_amount
+
+                # Log RESTOCK ledger entry linked to original intake batch
+                restock_entry = StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=outlet_id,
+                    item_id=item_id,
+                    intake_id=batch.id,
+                    change_type=StockChangeTypeEnum.RESTOCK,
+                    quantity_change=restore_amount,
+                    resulting_stock=inv_item.current_stock + (return_qty - remaining_to_restore),
+                    reference_order_id=order_id,
+                    unit_cost_snapshot=batch.unit_cost,
+                    created_by=user_id,
+                )
+                db.add(restock_entry)
+
+    # If any remaining quantity unassigned (or no order_id), restore to most recent active batch
+    if remaining_to_restore > Decimal("0.000"):
+        recent_stmt = (
+            select(StockIntake)
+            .where(StockIntake.item_id == item_id, StockIntake.outlet_id == outlet_id)
+            .order_by(StockIntake.intake_date.desc())
+        )
+        recent_res = await db.execute(recent_stmt)
+        recent_batch = recent_res.scalars().first()
+
+        if recent_batch:
+            recent_batch.remaining_quantity += remaining_to_restore
+            restock_entry = StockLedger(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                item_id=item_id,
+                intake_id=recent_batch.id,
+                change_type=StockChangeTypeEnum.RESTOCK,
+                quantity_change=remaining_to_restore,
+                resulting_stock=inv_item.current_stock + return_qty,
+                reference_order_id=order_id,
+                unit_cost_snapshot=recent_batch.unit_cost,
+                created_by=user_id,
+            )
+            db.add(restock_entry)
+
+    # Master stock update
+    inv_item.current_stock += return_qty
+    await db.flush()
+
 
 

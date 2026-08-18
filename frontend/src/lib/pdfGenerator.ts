@@ -480,3 +480,160 @@ export function generateAnalyticsPdfReport(
 
   doc.save(`Sales-Report-${restaurantName.replace(/\s+/g, "_")}.pdf`);
 }
+
+export interface ReturnPdfData {
+  return_number: string;
+  order_id?: string | null;
+  original_bill_number?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  returned_items: Array<{
+    item_name: string;
+    quantity: number;
+    unit_price: number;
+    line_refund?: number;
+    reason?: string;
+  }>;
+  total_refund_amount: number;
+  refund_payment_method?: string;
+  created_at?: string;
+  processed_at?: string;
+}
+
+export function generateReturnReceiptPDF(
+  returnData: ReturnPdfData,
+  restaurantName: string = "APNAGREEN BASKET",
+  action: "download" | "view" = "download"
+) {
+  const doc = new jsPDF({
+    orientation: "portrait",
+    unit: "mm",
+    format: [80, 210],
+  });
+
+  const pageWidth = doc.internal.pageSize.getWidth();
+  const margin = 4;
+  const contentWidth = pageWidth - margin * 2;
+  let y = 8;
+
+  const drawDashedLine = (posY: number) => {
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.2);
+    doc.setLineDashPattern([1, 1], 0);
+    doc.line(margin, posY, pageWidth - margin, posY);
+    doc.setLineDashPattern([], 0);
+  };
+
+  const drawSolidLine = (posY: number) => {
+    doc.setDrawColor(0, 0, 0);
+    doc.setLineWidth(0.35);
+    doc.line(margin, posY, pageWidth - margin, posY);
+  };
+
+  // Header Store Name
+  doc.setFont("courier", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(0, 0, 0);
+  doc.text((restaurantName || "APNAGREEN BASKET").toUpperCase(), pageWidth / 2, y, {
+    align: "center",
+    maxWidth: contentWidth,
+  });
+
+  y += 5;
+  doc.setFont("courier", "bold");
+  doc.setFontSize(9);
+  doc.text("*** CUSTOMER RETURN BILL ***", pageWidth / 2, y, { align: "center" });
+
+  y += 4;
+  drawSolidLine(y);
+  y += 4.5;
+
+  // Metadata
+  doc.setFont("courier", "normal");
+  doc.setFontSize(7.5);
+
+  doc.text(`RETURN BILL #: ${returnData.return_number}`, margin, y);
+  y += 3.5;
+
+  const origBill = returnData.original_bill_number || (returnData.order_id ? `#${returnData.order_id.slice(0, 8).toUpperCase()}` : "Direct Return (No Bill)");
+  doc.text(`ORIGINAL BILL: ${origBill}`, margin, y);
+  y += 3.5;
+
+  const timestamp = returnData.processed_at || returnData.created_at || new Date().toISOString();
+  const formattedDate = new Date(timestamp).toLocaleString("en-IN", {
+    dateStyle: "short",
+    timeStyle: "short",
+  });
+  doc.text(`DATE/TIME: ${formattedDate}`, margin, y);
+  y += 3.5;
+
+  if (returnData.customer_name || returnData.customer_phone) {
+    const custStr = `${returnData.customer_name || "Walk-In"} (${returnData.customer_phone || "N/A"})`;
+    doc.text(`CUSTOMER: ${custStr}`, margin, y);
+    y += 3.5;
+  }
+
+  y += 1;
+  drawDashedLine(y);
+  y += 4;
+
+  // Table Headers
+  doc.setFont("courier", "bold");
+  doc.setFontSize(7);
+  doc.text("ITEM", margin, y);
+  doc.text("QTY", 42, y, { align: "right" });
+  doc.text("PRICE", 57, y, { align: "right" });
+  doc.text("REFUND", pageWidth - margin, y, { align: "right" });
+  y += 3;
+  drawDashedLine(y);
+  y += 4;
+
+  // Returned Items Table
+  doc.setFont("courier", "normal");
+  (returnData.returned_items || []).forEach((item) => {
+    const qty = typeof item.quantity === "number" ? item.quantity : parseFloat(String(item.quantity)) || 0;
+    const price = typeof item.unit_price === "number" ? item.unit_price : parseFloat(String(item.unit_price)) || 0;
+    const lineRefund = item.line_refund !== undefined ? item.line_refund : qty * price;
+
+    doc.text(item.item_name, margin, y, { maxWidth: 33 });
+    doc.text(qty.toFixed(2), 42, y, { align: "right" });
+    doc.text(price.toFixed(2), 57, y, { align: "right" });
+    doc.text(lineRefund.toFixed(2), pageWidth - margin, y, { align: "right" });
+    y += 4.5;
+  });
+
+  y += 1;
+  drawDashedLine(y);
+  y += 4.5;
+
+  // Total Summary
+  doc.setFont("courier", "bold");
+  doc.setFontSize(9);
+  doc.text("TOTAL REFUND AMOUNT", margin, y);
+  doc.text(`INR ${returnData.total_refund_amount.toFixed(2)}`, pageWidth - margin, y, { align: "right" });
+
+  y += 4.5;
+  doc.setFont("courier", "normal");
+  doc.setFontSize(7.5);
+  doc.text(`REFUND METHOD: ${returnData.refund_payment_method || "CASH"}`, margin, y);
+
+  y += 5;
+  drawSolidLine(y);
+  y += 4.5;
+
+  doc.setFont("courier", "bold");
+  doc.setFontSize(7.5);
+  doc.text("*** INVENTORY RESTOCKED ***", pageWidth / 2, y, { align: "center" });
+  y += 4;
+  doc.setFont("courier", "normal");
+  doc.setFontSize(7);
+  doc.text("Thank you for shopping with us!", pageWidth / 2, y, { align: "center" });
+
+  if (action === "view") {
+    const stringUrl = doc.output("bloburl");
+    window.open(stringUrl, "_blank");
+  } else {
+    doc.save(`Return-Bill-${returnData.return_number}.pdf`);
+  }
+}
+

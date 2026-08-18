@@ -77,6 +77,21 @@ async def create_order(
         unit_price, is_verif, item_name, tax_rate, tax_category = await _compute_unit_price(
             db, outlet.id, item_req
         )
+        # Strict online order stock cap validation (non-staff self-checkout)
+        if not getattr(item_req, "added_by_staff_id", None):
+            m_item = await db.get(MenuItem, item_req.menu_item_id)
+            if m_item and m_item.inventory_item_id:
+                from app.models.inventory_item import InventoryItem
+                inv_item = await db.get(InventoryItem, m_item.inventory_item_id)
+                if inv_item:
+                    req_qty = Decimal(str(item_req.quantity))
+                    if req_qty > inv_item.current_stock:
+                        avail = max(Decimal("0.000"), inv_item.current_stock)
+                        raise HTTPException(
+                            status_code=status.HTTP_400_BAD_REQUEST,
+                            detail=f"Only {avail} {inv_item.unit.value if hasattr(inv_item.unit, 'value') else inv_item.unit} of '{item_name}' remaining in stock.",
+                        )
+
         if is_verif:
             has_flagged_item = True
 

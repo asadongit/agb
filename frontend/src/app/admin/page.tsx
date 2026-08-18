@@ -11,11 +11,14 @@ import { useBillingManagement } from "./hooks/useBillingManagement";
 import { useAnalyticsManagement } from "./hooks/useAnalyticsManagement";
 import { useSessionsManagement } from "./hooks/useSessionsManagement";
 import { useSettingsManagement } from "./hooks/useSettingsManagement";
+import { useNotificationManagement } from "./hooks/useNotificationManagement";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 import { isAuthError } from "./adminUtils";
 
 import { AdminLoginForm } from "./components/AdminLoginForm";
 import { AdminSidebar } from "./components/AdminSidebar";
+import { NotificationPanel } from "./components/NotificationPanel";
+import { Bell } from "lucide-react";
 
 import { OrdersTab } from "./tabs/OrdersTab";
 import { MenuTab } from "./tabs/MenuTab";
@@ -211,6 +214,11 @@ export default function AdminDashboardPage() {
     setError,
   });
 
+  const notificationState = useNotificationManagement({
+    accessToken,
+    apiRequest,
+  });
+
   // Global Barcode Scanner Hook for Inventory Tab
   useBarcodeScanner({
     onScan: (barcode: string) => {
@@ -270,6 +278,35 @@ export default function AdminDashboardPage() {
 
       {/* Main Content Area */}
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
+        {/* Top Header Control Bar with Bell Notification Icon */}
+        <div className="mb-6 flex items-center justify-between pb-4 border-b border-[var(--border-subtle)]">
+          <div>
+            <h1 className="font-display text-xl font-black text-[var(--text-primary)] capitalize">
+              {restaurant?.name || "ApnaGreen Basket"}
+            </h1>
+            <p className="text-xs text-[var(--text-muted)] capitalize">
+              {activeTab} Dashboard • Real-time Store Controls
+            </p>
+          </div>
+
+          <div className="flex items-center gap-3">
+            {/* Top-Right Bell Icon Button */}
+            <button
+              type="button"
+              onClick={() => notificationState.setIsNotificationPanelOpen(true)}
+              className="relative flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] hover:border-amber-400/60 hover:text-amber-400 transition shadow-xs"
+              title="View Store Notifications & Near-Expiry Alerts"
+            >
+              <Bell className="h-5 w-5" />
+              {notificationState.unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 flex h-4.5 w-4.5 items-center justify-center rounded-full bg-red-500 text-[10px] font-black text-white shadow-xs">
+                  {notificationState.unreadCount}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
         {/* Notice & Error Toasts */}
         {notice && (
           <div className="mb-4 rounded-xl bg-emerald-500/10 border border-emerald-500/30 p-3 text-xs text-emerald-400 flex items-center justify-between">
@@ -621,6 +658,17 @@ export default function AdminDashboardPage() {
         setPinSwitchInput={staffState.setPinSwitchInput}
         isSwitchingPin={staffState.isSwitchingPin}
         onSubmitPinQuickSwitch={staffState.onSubmitPinQuickSwitch}
+      />
+
+      {/* Top-Right Notification Bell Panel */}
+      <NotificationPanel
+        isOpen={notificationState.isNotificationPanelOpen}
+        onClose={() => notificationState.setIsNotificationPanelOpen(false)}
+        notifications={notificationState.notifications}
+        unreadCount={notificationState.unreadCount}
+        thresholdDays={notificationState.thresholdDays}
+        onRefresh={() => void notificationState.fetchNotifications()}
+        onMarkRead={notificationState.handleMarkRead}
       />
     </div>
   );

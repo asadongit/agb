@@ -96,6 +96,9 @@ class Order(Base, TimestampMixin):
     paid_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
     )
+    confirmed_offline: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(

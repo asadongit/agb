@@ -9,6 +9,7 @@ interface BarcodeRegisterModalProps {
   categories: string[];
   items?: InventoryItem[];
   suppliers?: Supplier[];
+  prefillItem?: InventoryItem | null;
   onOpenAddSupplierModal?: () => void;
   onSuccess: (itemName: string, stock: string) => void;
   onboardItem: (data: {
@@ -40,6 +41,7 @@ export function BarcodeRegisterModal({
   categories,
   items = [],
   suppliers = [],
+  prefillItem,
   onOpenAddSupplierModal,
   onSuccess,
   onboardItem,
@@ -72,30 +74,53 @@ export function BarcodeRegisterModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Auto-populate item fields from an existing InventoryItem instance
+  const populateFromItem = (itm: InventoryItem) => {
+    setSelectedItemId(itm.id);
+    setName(itm.name);
+    setCategory(itm.category || categories[0] || "General");
+    setUnit(itm.unit || "pcs");
+    if (itm.barcode) setCustomBarcode(itm.barcode);
+    if (itm.mrp != null) setMrp(String(itm.mrp));
+    if ((itm as any).selling_price != null) setSellingPrice(String((itm as any).selling_price));
+    if (itm.wholesale_price != null) setWholesalePrice(String(itm.wholesale_price));
+    if (itm.cost_per_unit != null) setCostPerUnit(String(itm.cost_per_unit));
+    if (itm.tax_category) setTaxCategory(itm.tax_category);
+    if (itm.tax_rate != null) setTaxRate(String(itm.tax_rate));
+    const supp = (itm as any).supplier_name || (itm as any).batches?.[0]?.supplier_name || "";
+    if (supp) setSupplierName(supp);
+    setIsItemDropdownOpen(false);
+  };
+
   useEffect(() => {
     if (isOpen) {
-      setCustomBarcode(barcode);
-      setName("");
-      setCategory(categories[0] || "General");
+      if (prefillItem) {
+        populateFromItem(prefillItem);
+      } else {
+        setSelectedItemId(undefined);
+        setCustomBarcode(barcode);
+        setName("");
+        setCategory(categories[0] || "General");
+        setUnit("pcs");
+        setCostPerUnit("0");
+        setMrp("");
+        setSellingPrice("");
+        setWholesalePrice("");
+        setTaxCategory("GST 0%");
+        setTaxRate("0");
+        setSupplierName("");
+      }
       setCategorySearch("");
       setIsCategoryDropdownOpen(false);
-      setUnit("pcs");
       setInitialStock("1");
       setSortedQuantity("");
       setTotalBilledAmount("");
-      setCostPerUnit("0");
-      setMrp("");
-      setSellingPrice("");
-      setWholesalePrice("");
-      setTaxCategory("GST 0%");
-      setTaxRate("0");
       setCustomTaxRate("");
       setBatchNumber(`BAT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
       setExpiryDate("");
-      setSupplierName("");
       setError(null);
     }
-  }, [isOpen, barcode, categories]);
+  }, [isOpen, barcode, categories, prefillItem]);
 
   // Recalculate cost_per_unit dynamically when totalBilledAmount, sortedQuantity, or initialStock changes
   useEffect(() => {
@@ -284,15 +309,7 @@ export function BarcodeRegisterModal({
                       key={itm.id}
                       type="button"
                       onMouseDown={() => {
-                        setSelectedItemId(itm.id);
-                        setName(itm.name);
-                        setCategory(itm.category);
-                        setUnit(itm.unit);
-                        if (itm.mrp) setMrp(String(itm.mrp));
-                        if (itm.tax_category) setTaxCategory(itm.tax_category);
-                        if (itm.tax_rate !== undefined && itm.tax_rate !== null) setTaxRate(String(itm.tax_rate));
-                        if (itm.barcode && !customBarcode) setCustomBarcode(itm.barcode);
-                        setIsItemDropdownOpen(false);
+                        populateFromItem(itm);
                       }}
                       className="w-full px-3 py-2 text-left text-xs hover:bg-[var(--accent-brand)]/15 transition flex items-center justify-between border-b border-[var(--border-subtle)] last:border-0"
                     >

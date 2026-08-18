@@ -47,6 +47,7 @@ class Settings(BaseSettings):
     ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
     LOG_LEVEL: str = "INFO"
     DASHBOARD_RESET_TIME: str = "00:00"
+    RUNTIME_MODE: str = "cloud"  # "cloud" (deployed) or "local" (desktop terminal)
 
     @property
     def allowed_origins_list(self) -> list[str]:
@@ -55,6 +56,14 @@ class Settings(BaseSettings):
     @property
     def is_production(self) -> bool:
         return self.APP_ENV == "production"
+
+    @property
+    def is_cloud(self) -> bool:
+        return self.RUNTIME_MODE == "cloud"
+
+    @property
+    def is_local(self) -> bool:
+        return self.RUNTIME_MODE == "local"
 
 
 @lru_cache

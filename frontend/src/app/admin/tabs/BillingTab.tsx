@@ -30,6 +30,7 @@ import type { DiscountApproval, ManualBill, RolePermissions } from "@/types";
 import type { RestaurantProfile, AdminMenuItem } from "../adminTypes";
 import { apiRequest } from "../adminUtils";
 import { CustomerReturnsModal } from "../modals/CustomerReturnsModal";
+import { ReturnSuccessModal } from "../modals/ReturnSuccessModal";
 
 type BillingTabProps = {
   restaurant: RestaurantProfile | null;
@@ -71,6 +72,8 @@ export function BillingTab({
   onOpenPaymentModal,
 }: BillingTabProps) {
   const [returnsModalOpen, setReturnsModalOpen] = useState(false);
+  const [successReturnData, setSuccessReturnData] = useState<any | null>(null);
+  const [showReturnSuccessModal, setShowReturnSuccessModal] = useState(false);
   const [denomDate, setDenomDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
   const [dailyDenomData, setDailyDenomData] = useState<{
     date: string;
@@ -99,11 +102,12 @@ export function BillingTab({
 
   const handleProcessCustomerReturn = async (returnData: any) => {
     try {
-      await apiRequest("/api/billing/returns", {
+      const res = await apiRequest<any>("/api/billing/returns", {
         method: "POST",
         body: JSON.stringify(returnData),
       });
-      alert("Return processed & inventory restocked successfully!");
+      setSuccessReturnData(res);
+      setShowReturnSuccessModal(true);
       void loadBillingData();
     } catch (err: any) {
       alert(err instanceof Error ? err.message : "Failed to process return.");
@@ -496,6 +500,18 @@ export function BillingTab({
         billsList={billsList.filter((b) => b.status === "PAID" || b.status === "COMPLETED")}
         menuItems={menuItems}
         onRequestReturn={handleProcessCustomerReturn}
+        restaurantName={restaurant?.name || "ApnaGreen Basket"}
+      />
+
+      {/* Centered Return Success Modal */}
+      <ReturnSuccessModal
+        isOpen={showReturnSuccessModal}
+        onClose={() => {
+          setShowReturnSuccessModal(false);
+          setSuccessReturnData(null);
+        }}
+        returnData={successReturnData}
+        restaurantName={restaurant?.name || "ApnaGreen Basket"}
       />
     </div>
   );

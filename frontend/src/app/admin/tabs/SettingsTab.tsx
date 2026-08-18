@@ -312,6 +312,53 @@ export function SettingsTab({
             </label>
           </div>
 
+          {/* Inventory & Expiry Alert Configuration */}
+          <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+              <span>Inventory &amp; Expiry Alert Settings</span>
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Near-Expiry Alert Threshold (Days)</span>
+                <input
+                  type="number"
+                  min={1}
+                  max={180}
+                  value={restaurantForm.near_expiry_threshold_days}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      near_expiry_threshold_days: parseInt(event.target.value) || 7,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-bold text-amber-400"
+                />
+                <span className="text-[10px] text-[var(--text-muted)] block">
+                  Batches expiring within these days trigger top-right notifications &amp; email/whatsapp alerts.
+                </span>
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Notification Email</span>
+                <input
+                  type="email"
+                  value={restaurantForm.notification_email}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      notification_email: event.target.value,
+                    }))
+                  }
+                  placeholder="admin@apnagreenbasket.com"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+                />
+                <span className="text-[10px] text-[var(--text-muted)] block">
+                  Email for near-expiry &amp; inventory alert dispatches (defaults to account admin email).
+                </span>
+              </label>
+            </div>
+          </div>
+
           {/* Verification Rules Settings */}
           <div className="space-y-4 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4">
             <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-2">

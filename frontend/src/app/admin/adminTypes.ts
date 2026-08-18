@@ -58,16 +58,21 @@ export interface RestaurantProfile {
   upi_id?: string | null;
   direct_upi_id?: string | null;
   razorpay_account_id?: string | null;
+  raw_upi_payload?: string | null;
+  public_basket_number?: string | null;
   session_duration_minutes?: number;
   session_grace_period_minutes?: number;
   basket_locking_enabled?: boolean;
   verification_cutoff_amount?: string | number | null;
+  verification_amount_cutoff?: string | number | null;
   flagged_item_ids?: string[] | null;
   evening_price_active?: boolean;
   evening_pricing_mode?: "OFF" | "MANUAL" | "AUTO";
   evening_auto_enabled?: boolean;
   evening_auto_start_time?: string | null;  // "HH:MM" IST
   evening_auto_end_time?: string | null;    // "HH:MM" IST
+  near_expiry_threshold_days?: number;
+  notification_email?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -91,6 +96,8 @@ export interface RestaurantFormState {
   verification_amount_cutoff?: string | null;
   verification_cutoff_amount?: string;
   flagged_item_ids: string[];
+  near_expiry_threshold_days: number;
+  notification_email: string;
 }
 
 export interface AdminCategory {

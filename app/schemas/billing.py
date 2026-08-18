@@ -53,17 +53,36 @@ class MarkPaidRequest(StrictSchema):
 
 
 class CustomerReturnItemInput(StrictSchema):
-    order_item_id: str
+    order_item_id: str | None = None
+    menu_item_id: str | None = None
+    item_name: str | None = None
     quantity: float = Field(..., gt=0)
+    unit_price: float | None = Field(None, ge=0)
     reason: str = Field(default="CUSTOMER_RETURN")
 
 
 class CustomerReturnRequest(StrictSchema):
-    order_id: str
+    order_id: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
     return_items: list[CustomerReturnItemInput]
     exchange_items: list[BillItemInput] = Field(default_factory=list)
     refund_payment_method: str = Field(default="CASH", pattern="^(CASH|UPI|STORE_CREDIT)$")
     notes: str | None = None
+
+
+class CustomerReturnResponse(BaseResponse):
+    id: str
+    return_number: str
+    order_id: str | None = None
+    original_bill_number: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    returned_items: list[dict]
+    total_refund_amount: float
+    net_balance: float
+    refund_payment_method: str
+    processed_at: str
 
 
 class BillItemResponse(StrictSchema):

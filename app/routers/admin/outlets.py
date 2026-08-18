@@ -114,6 +114,7 @@ async def get_my_outlet(
 
 
 @router.patch("/me", response_model=OutletResponse)
+@router.put("/me", response_model=OutletResponse)
 async def update_my_outlet(
     data: OutletUpdate,
     current_user: RequireAdmin,
@@ -185,6 +186,7 @@ async def update_my_outlet(
 
 
 @router.patch("/{outlet_id}", response_model=OutletResponse)
+@router.put("/{outlet_id}", response_model=OutletResponse)
 async def update_outlet_by_id(
     outlet_id: uuid.UUID,
     data: OutletUpdate,

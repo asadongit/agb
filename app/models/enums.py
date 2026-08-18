@@ -102,3 +102,17 @@ def is_valid_transition(
 ) -> bool:
     """Check if transitioning from current to target is allowed."""
     return target in VALID_ORDER_TRANSITIONS.get(current, set())
+
+
+class NotificationTypeEnum(str, enum.Enum):
+    NEAR_EXPIRY = "NEAR_EXPIRY"
+    LOW_STOCK = "LOW_STOCK"
+    RETURN_REQUEST = "RETURN_REQUEST"
+    ABANDONED_CART = "ABANDONED_CART"
+    PRICE_ALERT = "PRICE_ALERT"
+
+
+class NotificationChannelEnum(str, enum.Enum):
+    IN_APP = "IN_APP"
+    EMAIL = "EMAIL"
+    WHATSAPP = "WHATSAPP"

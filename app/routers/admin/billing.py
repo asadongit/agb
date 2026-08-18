@@ -40,6 +40,7 @@ from app.services.billing_service import (
     finalize_bill,
     get_daily_cash_denominations,
     get_pending_approvals_count,
+    list_customer_returns,
     mark_bill_paid,
     process_customer_return,
     update_manual_bill,
@@ -296,10 +297,21 @@ async def customer_return_endpoint(
     db: DBSession,
     current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
 ):
-    """Process customer return or exchange against an existing bill with inventory restocking."""
+    """Process customer return or exchange against an existing bill or direct return with inventory restocking."""
     if not current_user.outlet_id:
         raise HTTPException(status_code=400, detail="outlet_id required")
     return await process_customer_return(db, current_user.outlet_id, current_user, data)
+
+
+@router.get("/returns")
+async def list_customer_returns_endpoint(
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """List customer return bills history for an outlet."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    return await list_customer_returns(db, current_user.outlet_id)
 
 
 @router.get("/bills/{bill_id}", response_model=BillResponse)

@@ -157,6 +157,9 @@ export function InventoryTab({
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [manualBarcodeInput, setManualBarcodeInput] = useState("");
 
+  // Prefill Item state for adding a batch to an existing product
+  const [prefillItem, setPrefillItem] = useState<InventoryItem | null>(null);
+
   // Batch Stock Adjustment Modal state
   const [selectedAdjustBatch, setSelectedAdjustBatch] = useState<BatchDetail | null>(null);
   const [isAdjustModalOpen, setIsAdjustModalOpen] = useState(false);
@@ -855,9 +858,12 @@ export function InventoryTab({
                   className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs text-[var(--text-primary)]"
                 >
                   <option value="">All Change Types</option>
-                  <option value="INTAKE">Intake / Restock</option>
+                  <option value="INTAKE">Stock Intake / Inwarding</option>
                   <option value="AUTO_DEDUCTION">POS Auto-Deduction</option>
-                  <option value="MANUAL_ADJUSTMENT">Manual / Wastage</option>
+                  <option value="MANUAL_ADJUSTMENT">Manual / Wastage Adjustment</option>
+                  <option value="RESTOCK">Customer Return Restock</option>
+                  <option value="PURCHASE_RETURN">Supplier Purchase Return</option>
+                  <option value="VOID_BATCH">Void / Discarded Batch</option>
                 </select>
               </div>
             </div>
@@ -901,9 +907,15 @@ export function InventoryTab({
                               className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
                                 String(row.change_type).toUpperCase().includes("INTAKE")
                                   ? "bg-emerald-500/10 text-emerald-400"
+                                  : String(row.change_type).toUpperCase().includes("RESTOCK")
+                                  ? "bg-sky-500/10 text-sky-400"
                                   : String(row.change_type).toUpperCase().includes("DEDUCTION")
                                   ? "bg-blue-500/10 text-blue-400"
-                                  : "bg-amber-500/10 text-amber-400"
+                                  : String(row.change_type).toUpperCase().includes("PURCHASE_RETURN")
+                                  ? "bg-amber-500/10 text-amber-400"
+                                  : String(row.change_type).toUpperCase().includes("VOID")
+                                  ? "bg-rose-500/10 text-rose-400"
+                                  : "bg-purple-500/10 text-purple-400"
                               }`}
                             >
                               {row.change_type}
@@ -931,14 +943,19 @@ export function InventoryTab({
       {/* Barcode Register Modal (First-time scan onboarding & Inward Stock) */}
       <BarcodeRegisterModal
         isOpen={isRegisterModalOpen}
-        onClose={() => setIsRegisterModalOpen(false)}
+        onClose={() => {
+          setIsRegisterModalOpen(false);
+          setPrefillItem(null);
+        }}
         barcode={unregisteredBarcode}
         categories={categories}
         items={items}
         suppliers={suppliers}
+        prefillItem={prefillItem}
         onOpenAddSupplierModal={() => setIsAddSupplierModalOpen?.(true)}
         onSuccess={(name, stock) => {
           console.log(`Registered ${name} with initial stock ${stock}`);
+          setPrefillItem(null);
         }}
         onboardItem={onboardScannedItem}
       />
@@ -953,6 +970,7 @@ export function InventoryTab({
           onLogWastageClick={(itm) => openWastageModal(itm)}
           onAddStockClick={(itm) => {
             setScannedBarcode("");
+            setPrefillItem(itm);
             setIsRegisterModalOpen(true);
           }}
           onAdjustBatchClick={(b) => {

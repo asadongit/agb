@@ -143,6 +143,14 @@ export function useSuperadminData() {
   const [selectedRestaurantId, setSelectedRestaurantId] = useState<string>("");
   const [isCreatingUser, setIsCreatingUser] = useState(false);
 
+  // Confirm Delete Modal state
+  const [deleteTarget, setDeleteTarget] = useState<{
+    type: "OUTLET" | "USER";
+    id: string;
+    name: string;
+  } | null>(null);
+  const [isDeletingEntity, setIsDeletingEntity] = useState(false);
+
   // Step: "create_restaurant" | "create_admin" | "done"
   const [step, setStep] = useState<"create_restaurant" | "create_admin" | "done">("create_restaurant");
 
@@ -426,7 +434,7 @@ export function useSuperadminData() {
       };
 
       await apiRequest(`/api/admin/outlets/${settingsOutlet.id}`, {
-        method: "PUT",
+        method: "PATCH",
         body: JSON.stringify(payload),
       });
 
@@ -479,41 +487,37 @@ export function useSuperadminData() {
     }
   };
 
-  const deleteRestaurant = async (restaurantId: string, restaurantName: string) => {
-    if (
-      !window.confirm(
-        `Are you sure you want to delete "${restaurantName}"?\n\nThis will permanently delete this outlet, all categories, products, variants, orders, and associated user accounts!`
-      )
-    ) {
-      return;
-    }
-
-    setError(null);
-    try {
-      await apiRequest<void>(`/api/admin/outlets/${restaurantId}`, {
-        method: "DELETE",
-      });
-      setNotice(`Outlet "${restaurantName}" deleted successfully.`);
-      void loadRestaurants();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to delete outlet.";
-      setError(message);
-    }
+  const deleteRestaurant = (restaurantId: string, restaurantName: string) => {
+    setDeleteTarget({ type: "OUTLET", id: restaurantId, name: restaurantName });
   };
 
-  const deleteUser = async (userId: string, userEmail: string) => {
-    if (!window.confirm(`Delete user account "${userEmail}"?`)) return;
+  const deleteUser = (userId: string, userEmail: string) => {
+    setDeleteTarget({ type: "USER", id: userId, name: userEmail });
+  };
 
+  const executeConfirmedDelete = async () => {
+    if (!deleteTarget) return;
+    setIsDeletingEntity(true);
     setError(null);
     try {
-      await apiRequest<void>(`/api/auth/users/${userId}`, {
-        method: "DELETE",
-      });
-      setNotice(`User account "${userEmail}" deleted.`);
+      if (deleteTarget.type === "OUTLET") {
+        await apiRequest<void>(`/api/admin/outlets/${deleteTarget.id}`, {
+          method: "DELETE",
+        });
+        setNotice(`Outlet "${deleteTarget.name}" deleted successfully.`);
+      } else {
+        await apiRequest<void>(`/api/auth/users/${deleteTarget.id}`, {
+          method: "DELETE",
+        });
+        setNotice(`User account "${deleteTarget.name}" deleted.`);
+      }
+      setDeleteTarget(null);
       void loadRestaurants();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "Unable to delete user.";
+      const message = err instanceof Error ? err.message : "Unable to delete entity.";
       setError(message);
+    } finally {
+      setIsDeletingEntity(false);
     }
   };
 
@@ -609,6 +613,10 @@ export function useSuperadminData() {
     onCreateAdminUser,
     deleteRestaurant,
     deleteUser,
+    deleteTarget,
+    setDeleteTarget,
+    isDeletingEntity,
+    executeConfirmedDelete,
     startAddUserForRestaurant,
     autoSlug,
   };

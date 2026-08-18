@@ -199,14 +199,18 @@ export interface CustomerHistoryResponse {
 
 export type InventoryUnit = "kg" | "g" | "l" | "ml" | "pcs";
 export type StockChangeType =
+  | "INTAKE"
+  | "AUTO_DEDUCTION"
+  | "MANUAL_ADJUSTMENT"
+  | "RESTOCK"
+  | "PURCHASE_RETURN"
+  | "VOID_BATCH"
   | "intake"
   | "auto_deduction"
   | "manual_adjustment"
   | "restock"
-  | "INTAKE"
-  | "AUTO_DEDUCTION"
-  | "MANUAL_ADJUSTMENT"
-  | "RESTOCK";
+  | "purchase_return"
+  | "void_batch";
 
 export type WastageReason =
   | "SPOILED_EXPIRED"
