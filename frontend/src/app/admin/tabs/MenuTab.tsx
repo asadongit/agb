@@ -114,6 +114,29 @@ export function MenuTab({
   const [modalError, setModalError] = useState<string | null>(null);
   const [isUploadingImage, setIsUploadingImage] = useState(false);
 
+  // Inline Category Creation & Custom Tax state
+  const [showInlineCatInput, setShowInlineCatInput] = useState(false);
+  const [inlineCatName, setInlineCatName] = useState("");
+  const [isCreatingInlineCat, setIsCreatingInlineCat] = useState(false);
+  const [isCustomTax, setIsCustomTax] = useState(false);
+
+  const handleInlineCategoryCreate = async () => {
+    if (!inlineCatName.trim() || !onCreateCategory) return;
+    try {
+      setIsCreatingInlineCat(true);
+      const created = await onCreateCategory(inlineCatName.trim());
+      setInlineCatName("");
+      setShowInlineCatInput(false);
+      if (created?.id) {
+        setFormData((prev) => ({ ...prev, category_id: created.id }));
+      }
+    } catch (err: any) {
+      setModalError(err?.message || "Failed to create category");
+    } finally {
+      setIsCreatingInlineCat(false);
+    }
+  };
+
   const handleImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -132,6 +155,9 @@ export function MenuTab({
   const openCreateModal = () => {
     setEditingItem(null);
     setModalError(null);
+    setShowInlineCatInput(false);
+    setInlineCatName("");
+    setIsCustomTax(false);
     setFormData({
       category_id: selectedCategory !== "ALL" ? selectedCategory : (categories[0]?.id || ""),
       inventory_item_id: null,
@@ -159,6 +185,10 @@ export function MenuTab({
   const openEditModal = (item: AdminMenuItem) => {
     setEditingItem(item);
     setModalError(null);
+    setShowInlineCatInput(false);
+    setInlineCatName("");
+    const isCustom = !!item.tax_category && !["GST 0%", "GST 5%", "GST 12%", "GST 18%", "GST 28%"].includes(item.tax_category);
+    setIsCustomTax(isCustom);
     setFormData({
       category_id: item.category_id,
       inventory_item_id: item.inventory_item_id || null,
@@ -194,6 +224,11 @@ export function MenuTab({
       ? eveningPriceNum
       : priceNum;
     const mrpNum = formData.mrp ? parseFloat(formData.mrp) : null;
+
+    if (!formData.category_id || formData.category_id.trim() === "") {
+      setModalError("Please select a valid Category. If no categories exist, click '+ Category' to create one first.");
+      return;
+    }
 
     if (mrpNum !== null && !isNaN(mrpNum) && mrpNum > 0 && mrpNum < effectivePriceNum) {
       setModalError(`MRP (₹${mrpNum.toFixed(2)}) cannot be smaller than effective Selling Price (₹${effectivePriceNum.toFixed(2)}). MRP must be greater than or equal to Selling Price.`);
@@ -577,31 +612,90 @@ export function MenuTab({
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block font-semibold mb-1">Category *</label>
-                  <select
-                    value={formData.category_id}
-                    onChange={(e) => setFormData({ ...formData, category_id: e.target.value })}
-                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)]"
-                  >
-                    {categories.map((c) => (
-                      <option key={c.id} value={c.id}>
-                        {c.name}
-                      </option>
-                    ))}
-                  </select>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="font-semibold text-xs">Category *</label>
+                    <button
+                      type="button"
+                      onClick={() => setShowInlineCatInput(!showInlineCatInput)}
+                      className="text-[11px] font-bold text-[var(--accent-brand)] hover:underline"
+                    >
+                      {showInlineCatInput ? "Cancel" : "+ New"}
+                    </button>
+                  </div>
+
+                  {showInlineCatInput ? (
+                    <div className="flex items-center gap-1 mt-0.5">
+                      <input
+                        type="text"
+                        placeholder="Category name"
+                        value={inlineCatName}
+                        onChange={(e) => setInlineCatName(e.target.value)}
+                        className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            void handleInlineCategoryCreate();
+                          }
+                        }}
+                      />
+                      <button
+                        type="button"
+                        disabled={isCreatingInlineCat || !inlineCatName.trim()}
+                        onClick={() => void handleInlineCategoryCreate()}
+                        className="rounded-xl bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white hover:opacity-90 disabled:opacity-50 shrink-0"
+                      >
+                        {isCreatingInlineCat ? "..." : "Add"}
+                      </button>
+                    </div>
+                  ) : (
+                    <select
+                      value={formData.category_id}
+                      onChange={(e) => {
+                        if (e.target.value === "__ADD_NEW__") {
+                          setShowInlineCatInput(true);
+                        } else {
+                          setFormData({ ...formData, category_id: e.target.value });
+                        }
+                      }}
+                      required
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)]"
+                    >
+                      {(!formData.category_id || categories.length === 0) && (
+                        <option value="">-- Choose Category --</option>
+                      )}
+                      {categories.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.name}
+                        </option>
+                      ))}
+                      <option value="__ADD_NEW__">+ Add New Category...</option>
+                    </select>
+                  )}
                 </div>
+
                 <div>
-                  <label className="block font-semibold mb-1">Tax Category</label>
+                  <label className="block font-semibold mb-1 text-xs">Tax Category</label>
                   <select
-                    value={formData.tax_category || "GST 0%"}
+                    value={isCustomTax ? "CUSTOM" : (formData.tax_category || "GST 0%")}
                     onChange={(e) => {
                       const val = e.target.value;
-                      let rate = "0";
-                      if (val === "GST 5%") rate = "5";
-                      else if (val === "GST 12%") rate = "12";
-                      else if (val === "GST 18%") rate = "18";
-                      else if (val === "GST 28%") rate = "28";
-                      setFormData({ ...formData, tax_category: val, tax_rate: rate });
+                      if (val === "CUSTOM") {
+                        setIsCustomTax(true);
+                        const rate = formData.tax_rate || "5";
+                        setFormData({
+                          ...formData,
+                          tax_category: `GST Custom (${rate}%)`,
+                          tax_rate: rate,
+                        });
+                      } else {
+                        setIsCustomTax(false);
+                        let rate = "0";
+                        if (val === "GST 5%") rate = "5";
+                        else if (val === "GST 12%") rate = "12";
+                        else if (val === "GST 18%") rate = "18";
+                        else if (val === "GST 28%") rate = "28";
+                        setFormData({ ...formData, tax_category: val, tax_rate: rate });
+                      }
                     }}
                     className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)]"
                   >
@@ -610,7 +704,31 @@ export function MenuTab({
                     <option value="GST 12%">GST 12%</option>
                     <option value="GST 18%">GST 18%</option>
                     <option value="GST 28%">GST 28%</option>
+                    <option value="CUSTOM">Custom Tax Rate...</option>
                   </select>
+
+                  {isCustomTax && (
+                    <div className="mt-1 flex items-center gap-1.5">
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="100"
+                        placeholder="Rate e.g. 3"
+                        value={formData.tax_rate || ""}
+                        onChange={(e) => {
+                          const rateVal = e.target.value;
+                          setFormData({
+                            ...formData,
+                            tax_category: rateVal ? `GST Custom (${rateVal}%)` : "GST Custom",
+                            tax_rate: rateVal,
+                          });
+                        }}
+                        className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1 font-mono text-xs text-[var(--text-primary)]"
+                      />
+                      <span className="text-xs font-bold text-[var(--text-muted)]">%</span>
+                    </div>
+                  )}
                 </div>
               </div>
 
