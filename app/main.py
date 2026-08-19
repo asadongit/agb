@@ -60,30 +60,37 @@ async def lifespan(app: FastAPI):
     except Exception as err:
         print(f"[Startup Warning] Could not auto-create superadmin: {err}")
 
-    # Start background auto-schedulers
+    # Start background auto-schedulers (cloud mode only — not needed locally)
     import asyncio
-    from app.database import async_session_factory
-    from app.services.evening_scheduler import run_evening_scheduler
-    from app.services.notification_service import run_notification_scheduler
+    scheduler_task = None
+    notification_scheduler_task = None
+    if settings.RUNTIME_MODE != "local":
+        from app.database import async_session_factory
+        from app.services.evening_scheduler import run_evening_scheduler
+        from app.services.notification_service import run_notification_scheduler
 
-    scheduler_task = asyncio.create_task(
-        run_evening_scheduler(async_session_factory)
-    )
-    notification_scheduler_task = asyncio.create_task(
-        run_notification_scheduler(async_session_factory, interval_seconds=300)
-    )
+        scheduler_task = asyncio.create_task(
+            run_evening_scheduler(async_session_factory)
+        )
+        notification_scheduler_task = asyncio.create_task(
+            run_notification_scheduler(async_session_factory, interval_seconds=300)
+        )
 
     yield
 
     # Shutdown background tasks
-    scheduler_task.cancel()
-    notification_scheduler_task.cancel()
+    if scheduler_task:
+        scheduler_task.cancel()
+    if notification_scheduler_task:
+        notification_scheduler_task.cancel()
     try:
-        await scheduler_task
+        if scheduler_task:
+            await scheduler_task
     except asyncio.CancelledError:
         pass
     try:
-        await notification_scheduler_task
+        if notification_scheduler_task:
+            await notification_scheduler_task
     except asyncio.CancelledError:
         pass
     await close_redis()
@@ -157,10 +164,17 @@ def create_app() -> FastAPI:
     app.include_router(ws_router)
     app.include_router(upload_router)
 
-    # ── Cloud-only sync routes (gated by RUNTIME_MODE) ───────────────
+    # ── Cloud-only sync routes ───────────────────────────────────────
     if settings.RUNTIME_MODE == "cloud":
         from app.routers.admin.sync import router as sync_router
         app.include_router(sync_router)
+
+    # ── Local-only routes (seed + action queue only) ─────────────────
+    if settings.RUNTIME_MODE == "local":
+        from app.routers.local.queue import router as local_queue_router
+        from app.routers.local.recache import router as local_recache_router
+        app.include_router(local_queue_router)
+        app.include_router(local_recache_router)
 
     # ── Serve Uploaded Static Files ──────────────────────────────────
     from pathlib import Path

@@ -37,3 +37,62 @@ async def get_menu(
     Uses Redis cache-aside with jittered 24h TTL and thundering-herd protection.
     """
     return await get_public_menu(db, outlet_slug)
+
+
+@router.get("/prelogin-snapshot")
+@limiter.limit("60/minute")
+async def get_prelogin_snapshot(request: Request, db: DBSession):
+    """
+    Public pre-login snapshot containing outlets and staff PIN hashes
+    for offline desktop POS pre-login seeding.
+    """
+    from datetime import datetime, timezone
+    from fastapi import HTTPException
+    from sqlalchemy import select
+    from app.models.outlet import Outlet
+    from app.models.user import User
+
+    outlets_result = await db.execute(select(Outlet).order_by(Outlet.created_at.asc()))
+    outlets = outlets_result.scalars().all()
+    if not outlets:
+        raise HTTPException(status_code=404, detail="No outlets found")
+
+    primary_outlet = outlets[0]
+
+    users_result = await db.execute(
+        select(User).where(User.is_active == True, User.pin_hash.isnot(None))
+    )
+    users = users_result.scalars().all()
+
+    return {
+        "outlet": {
+            "id": str(primary_outlet.id),
+            "name": primary_outlet.name,
+            "slug": primary_outlet.slug,
+            "payment_mode": primary_outlet.payment_mode.value if hasattr(primary_outlet.payment_mode, "value") else str(primary_outlet.payment_mode),
+            "address": primary_outlet.address,
+            "phone": primary_outlet.phone,
+            "gstin": primary_outlet.gstin,
+            "fssai_no": primary_outlet.fssai_no,
+        },
+        "categories": [],
+        "menu_items": [],
+        "menu_item_variants": [],
+        "menu_item_recipes": [],
+        "staff": [
+            {
+                "id": str(u.id),
+                "name": u.name,
+                "role": u.role.value if hasattr(u.role, "value") else str(u.role),
+                "pin_hash": u.pin_hash,
+                "status": u.status,
+            }
+            for u in users
+        ],
+        "inventory_items": [],
+        "stock_intakes": [],
+        "customers": [],
+        "suppliers": [],
+        "generated_at": datetime.now(timezone.utc).isoformat(),
+        "is_full": False,
+    }

@@ -16,6 +16,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.category import Category
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item import MenuItem
+from app.models.menu_item_variant import MenuItemVariant
+from app.models.menu_item_recipe import MenuItemRecipe
+from app.models.customer import Customer
+from app.models.supplier import Supplier
 from app.models.outlet import Outlet
 from app.models.user import User
 from app.models.enums import RoleEnum
@@ -24,12 +28,16 @@ from app.models.sync_action_log import SyncActionLog
 from app.models.sync_conflict_flag import SyncConflictFlag
 from app.schemas.sync import (
     CategorySnapshot,
+    CustomerSnapshot,
     InventoryItemSnapshot,
     MenuItemSnapshot,
+    MenuItemVariantSnapshot,
+    MenuItemRecipeSnapshot,
     OutletConfigSnapshot,
     SnapshotResponse,
     StaffSnapshot,
     StockIntakeSnapshot,
+    SupplierSnapshot,
     SyncAction,
     SyncActionResult,
     SyncStatusResponse,
@@ -120,6 +128,52 @@ async def generate_outlet_snapshot(
         intake_date=s.intake_date, created_at=s.created_at,
     ) for s in si_rows]
 
+    # Menu Item Variants
+    var_stmt = (
+        select(MenuItemVariant)
+        .join(MenuItem, MenuItemVariant.menu_item_id == MenuItem.id)
+        .where(MenuItem.outlet_id == outlet_id)
+    )
+    var_rows = (await db.execute(var_stmt)).scalars().all()
+    var_list = [MenuItemVariantSnapshot(
+        id=v.id, menu_item_id=v.menu_item_id, name=v.name,
+        price_delta=v.price_delta, is_available=v.is_available,
+    ) for v in var_rows]
+
+    # Menu Item Recipes (for stock auto-deduction during billing)
+    recipe_stmt = (
+        select(MenuItemRecipe)
+        .join(MenuItem, MenuItemRecipe.menu_item_id == MenuItem.id)
+        .where(MenuItem.outlet_id == outlet_id)
+    )
+    recipe_rows = (await db.execute(recipe_stmt)).scalars().all()
+    recipe_list = [MenuItemRecipeSnapshot(
+        id=r.id, menu_item_id=r.menu_item_id,
+        inventory_item_id=r.inventory_item_id,
+        quantity_required=r.quantity_required,
+        unit=r.unit.value if hasattr(r.unit, 'value') else r.unit,
+    ) for r in recipe_rows]
+
+    # Customers
+    cust_stmt = select(Customer).where(Customer.outlet_id == outlet_id)
+    if not is_full and since is not None:
+        cust_stmt = cust_stmt.where(Customer.updated_at > since)
+    cust_rows = (await db.execute(cust_stmt)).scalars().all()
+    cust_list = [CustomerSnapshot(
+        id=c.id, name=c.name, phone=c.phone, outlet_id=c.outlet_id,
+        updated_at=c.updated_at,
+    ) for c in cust_rows]
+
+    # Suppliers
+    sup_stmt = select(Supplier).where(Supplier.outlet_id == outlet_id)
+    if not is_full and since is not None:
+        sup_stmt = sup_stmt.where(Supplier.created_at > since)
+    sup_rows = (await db.execute(sup_stmt)).scalars().all()
+    sup_list = [SupplierSnapshot(
+        id=s.id, name=s.name, phone=s.phone, outlet_id=s.outlet_id,
+        created_at=s.created_at,
+    ) for s in sup_rows]
+
     return SnapshotResponse(
         outlet=OutletConfigSnapshot(
             id=outlet.id, name=outlet.name, slug=outlet.slug,
@@ -134,9 +188,13 @@ async def generate_outlet_snapshot(
         ),
         categories=[CategorySnapshot(id=c.id, name=c.name, display_order=c.display_order, updated_at=c.updated_at) for c in cats],
         menu_items=menu_items,
+        menu_item_variants=var_list,
+        menu_item_recipes=recipe_list,
         staff=staff_list,
         inventory_items=inv_list,
         stock_intakes=si_list,
+        customers=cust_list,
+        suppliers=sup_list,
         generated_at=datetime.now(timezone.utc),
         is_full=is_full,
     )

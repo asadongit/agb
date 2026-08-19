@@ -75,6 +75,34 @@ class StockIntakeSnapshot(BaseModel):
     intake_date: datetime
     created_at: datetime
 
+class MenuItemVariantSnapshot(BaseModel):
+    id: uuid.UUID
+    menu_item_id: uuid.UUID
+    name: str
+    price_delta: Decimal = Decimal("0.00")
+    is_available: bool = True
+
+class MenuItemRecipeSnapshot(BaseModel):
+    id: uuid.UUID
+    menu_item_id: uuid.UUID
+    inventory_item_id: uuid.UUID
+    quantity_required: Decimal
+    unit: str
+
+class CustomerSnapshot(BaseModel):
+    id: uuid.UUID
+    name: str | None = None
+    phone: str
+    outlet_id: uuid.UUID
+    updated_at: datetime | None = None
+
+class SupplierSnapshot(BaseModel):
+    id: uuid.UUID
+    name: str
+    phone: str | None = None
+    outlet_id: uuid.UUID
+    created_at: datetime | None = None
+
 class OutletConfigSnapshot(BaseModel):
     id: uuid.UUID
     name: str
@@ -96,9 +124,13 @@ class SnapshotResponse(BaseModel):
     outlet: OutletConfigSnapshot
     categories: list[CategorySnapshot]
     menu_items: list[MenuItemSnapshot]
+    menu_item_variants: list[MenuItemVariantSnapshot] = []
+    menu_item_recipes: list[MenuItemRecipeSnapshot] = []
     staff: list[StaffSnapshot]
     inventory_items: list[InventoryItemSnapshot]
     stock_intakes: list[StockIntakeSnapshot]
+    customers: list[CustomerSnapshot] = []
+    suppliers: list[SupplierSnapshot] = []
     generated_at: datetime
     is_full: bool  # True if full snapshot, False if incremental
 
