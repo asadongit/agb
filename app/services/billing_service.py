@@ -43,6 +43,7 @@ async def create_manual_bill(
     outlet_id: uuid.UUID,
     staff_user: Any,
     data: CreateManualBillRequest,
+    order_id: uuid.UUID | None = None,
 ) -> Order:
     """Create a draft manual bill with line items and snapshot pricing."""
     # Auto-register / link Customer account if phone number provided
@@ -56,7 +57,7 @@ async def create_manual_bill(
         )
 
     order = Order(
-        id=uuid.uuid4(),
+        id=order_id or uuid.uuid4(),
         outlet_id=outlet_id,
         basket_number=data.basket_number or "WALK-IN",
         customer_name=data.customer_name,

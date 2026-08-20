@@ -298,7 +298,8 @@ async def _dispatch_sync_action(
         staff_id = uuid.UUID(payload["staff_id"]) if payload.get("staff_id") else uuid.uuid4()
         user = _SyncUser(staff_id, outlet_id)
         bill_data = CreateManualBillRequest(**payload["bill_data"])
-        order = await create_manual_bill(db, outlet_id, user, bill_data)
+        local_order_id = uuid.UUID(payload["local_order_id"]) if payload.get("local_order_id") else None
+        order = await create_manual_bill(db, outlet_id, user, bill_data, order_id=local_order_id)
         return {"order_id": str(order.id), "invoice_number": order.basket_number}
 
     elif action.action_type == "bill_finalized":
