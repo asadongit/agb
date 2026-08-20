@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
-from app.dependencies import DBSession, RequireAdmin
+from app.dependencies import DBSession, RequireStaffOrAdmin
 from app.models.sync_conflict_flag import SyncConflictFlag
 from app.schemas.sync import (
     SnapshotResponse,
@@ -33,7 +33,7 @@ router = APIRouter(prefix="/api/admin/sync", tags=["sync"])
 async def snapshot(
     outlet_id: uuid.UUID,
     db: DBSession,
-    current_user: RequireAdmin,
+    current_user: RequireStaffOrAdmin,
     since: datetime | None = Query(None, description="ISO timestamp for incremental fetch"),
 ):
     """Full or incremental snapshot of outlet data for local caching."""
@@ -47,7 +47,7 @@ async def sync_actions(
     outlet_id: uuid.UUID,
     body: SyncActionsBatchRequest,
     db: DBSession,
-    current_user: RequireAdmin,
+    current_user: RequireStaffOrAdmin,
 ):
     """Ingest a batch of offline actions with full idempotency."""
     if current_user.outlet_id and current_user.outlet_id != outlet_id:
@@ -60,7 +60,7 @@ async def sync_actions(
 async def sync_status(
     outlet_id: uuid.UUID,
     db: DBSession,
-    current_user: RequireAdmin,
+    current_user: RequireStaffOrAdmin,
 ):
     """Lightweight sync status for connectivity check and admin dashboard."""
     if current_user.outlet_id and current_user.outlet_id != outlet_id:
