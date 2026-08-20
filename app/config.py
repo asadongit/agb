@@ -48,6 +48,8 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     DASHBOARD_RESET_TIME: str = "00:00"
     RUNTIME_MODE: str = "cloud"  # "cloud" (deployed) or "local" (desktop terminal)
+    CLOUD_BACKEND_URL: str = "http://localhost:8000"
+    LOCAL_OUTLET_ID: str = ""
 
     @property
     def allowed_origins_list(self) -> list[str]:

@@ -32,6 +32,7 @@ from app.schemas.billing import (
     UpdateManualBillRequest,
 )
 from app.services.inventory_service import process_order_auto_deduction
+from app.services.outbox_service import append_to_outbox
 
 
 def _get_user_id(user: Any) -> uuid.UUID:
@@ -142,7 +143,20 @@ async def create_manual_bill(
     res_final = await db.execute(
         select(Order).where(Order.id == order.id).options(selectinload(Order.items))
     )
-    return res_final.scalar_one()
+    final_order = res_final.scalar_one()
+
+    # OUTBOX: Queue action for cloud sync if local
+    append_to_outbox(
+        db,
+        action_type="bill_created",
+        payload={
+            "local_order_id": str(final_order.id),
+            "staff_id": str(_get_user_id(staff_user)),
+            "bill_data": data.model_dump(mode="json"),
+        }
+    )
+
+    return final_order
 
 
 async def update_manual_bill(
@@ -340,6 +354,17 @@ async def apply_discount(
         )
         db.add(approval)
 
+    # OUTBOX: Queue action for cloud sync if local
+    append_to_outbox(
+        db,
+        action_type="discount_applied",
+        payload={
+            "order_id": str(order_id),
+            "staff_id": str(_get_user_id(staff_user)),
+            "discount_data": data.model_dump(mode="json"),
+        }
+    )
+
     await db.flush()
     return order
 
@@ -422,6 +447,14 @@ async def finalize_bill(
         raise HTTPException(status_code=404, detail="Bill not found.")
 
     order.finalized_at = datetime.utcnow()
+    
+    # OUTBOX: Queue action for cloud sync if local
+    append_to_outbox(
+        db,
+        action_type="bill_finalized",
+        payload={"order_id": str(order_id)}
+    )
+    
     await db.flush()
     return order
 
@@ -466,6 +499,20 @@ async def mark_bill_paid(
 
     # Trigger recipe auto-deduction for stock management
     await process_order_auto_deduction(db, order)
+
+    # OUTBOX: Queue action for cloud sync if local
+    append_to_outbox(
+        db,
+        action_type="payment_confirmed",
+        payload={
+            "order_id": str(order_id),
+            "payment_data": {
+                "payment_method": payment_method,
+                "cash_denominations": cash_denominations
+            },
+            "confirmed_offline": True,
+        }
+    )
 
     await db.flush()
     return order
@@ -642,6 +689,17 @@ async def process_customer_return(
         notes=data.notes,
     )
     db.add(customer_return_rec)
+    
+    # OUTBOX: Queue action for cloud sync if local
+    append_to_outbox(
+        db,
+        action_type="customer_return",
+        payload={
+            "staff_id": str(_get_user_id(staff_user)) if _get_user_id(staff_user) else None,
+            "return_data": data.model_dump(mode="json"),
+        }
+    )
+
     await db.flush()
 
     return {

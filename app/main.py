@@ -75,10 +75,18 @@ async def lifespan(app: FastAPI):
         notification_scheduler_task = asyncio.create_task(
             run_notification_scheduler(async_session_factory, interval_seconds=300)
         )
+    else:
+        # Start local sync worker
+        from app.services.local_sync_worker import sync_worker
+        sync_worker.start()
 
     yield
 
     # Shutdown background tasks
+    if settings.RUNTIME_MODE == "local":
+        from app.services.local_sync_worker import sync_worker
+        await sync_worker.stop()
+        
     if scheduler_task:
         scheduler_task.cancel()
     if notification_scheduler_task:
