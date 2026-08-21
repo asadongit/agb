@@ -196,6 +196,11 @@ def create_app() -> FastAPI:
     async def health():
         return {"status": "healthy", "version": "0.1.0"}
 
+    # ── Admin Dashboard (sqladmin) ───────────────────────────────────
+    from app.database import engine
+    from app.admin_setup import setup_admin
+    setup_admin(app, engine)
+
     return app
 
 
