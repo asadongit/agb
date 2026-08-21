@@ -67,3 +67,8 @@ frontend/out/
 
 # Docker (for later)
 docker-compose.override.yml
+
+
+# Tauri build artifacts
+frontend/src-tauri/target/
+frontend/src-tauri/gen/
