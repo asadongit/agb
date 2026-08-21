@@ -162,7 +162,7 @@ export function OrdersTab({
                                   menuItems.forEach((m) => {
                                     itemsMap[m.id] = { name: m.name, tax_rate: m.tax_rate, tax_category: m.tax_category };
                                   });
-                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, {}, "view");
+                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, restaurant || {}, "view");
                                 }}
                                 className="flex items-center gap-0.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-cyan-500 hover:border-cyan-400 transition cursor-pointer"
                                 title="View Official Bill PDF"
@@ -177,7 +177,7 @@ export function OrdersTab({
                                   menuItems.forEach((m) => {
                                     itemsMap[m.id] = { name: m.name, tax_rate: m.tax_rate, tax_category: m.tax_category };
                                   });
-                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, {}, "download");
+                                  generateReceiptPDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, restaurant || {}, "download");
                                 }}
                                 className="flex items-center gap-0.5 rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 text-[10px] font-bold text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition cursor-pointer"
                                 title="Download Official Bill PDF"

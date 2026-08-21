@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import get_settings
 from app.core.security import create_access_token
-from app.database import async_session_maker
+from app.database import async_session_factory
 from app.models.local_action_queue import LocalActionQueue
 from app.schemas.sync import SnapshotResponse
 

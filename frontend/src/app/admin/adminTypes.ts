@@ -75,6 +75,9 @@ export interface RestaurantProfile {
   evening_auto_end_time?: string | null;    // "HH:MM" IST
   near_expiry_threshold_days?: number;
   notification_email?: string | null;
+  email?: string | null;
+  bill_qr_url?: string | null;
+  place_of_supply?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -100,6 +103,9 @@ export interface RestaurantFormState {
   flagged_item_ids: string[];
   near_expiry_threshold_days: number;
   notification_email: string;
+  email: string;
+  bill_qr_url: string;
+  place_of_supply: string;
 }
 
 export interface AdminCategory {

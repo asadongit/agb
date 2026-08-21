@@ -1,6 +1,7 @@
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { OrderResponse } from "@/types";
+import QRCode from "qrcode";
 
 export interface ReceiptPdfData {
   invoice_no?: string;
@@ -11,6 +12,8 @@ export interface ReceiptPdfData {
   customer_name?: string;
   customer_phone?: string;
   total_amount: string | number;
+  delivery_charge?: number;
+  handling_charge?: number;
   subtotal_without_tax?: number;
   total_tax?: number;
   cgst?: number;
@@ -21,18 +24,72 @@ export interface ReceiptPdfData {
     quantity: number;
     unit_price: string | number;
     line_total?: string | number;
+    mrp?: string | number;
+    is_complimentary?: boolean;
+    tax_rate?: number | string | null;
+    item_tax_rate?: number | string | null;
+  }>;
+}
+
+// Helper to safely fetch an image and convert it to Base64 (bypassing canvas CORS issues for relative paths)
+async function fetchImageAsBase64(url: string): Promise<string> {
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("Failed to fetch image");
+  const blob = await response.blob();
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onloadend = () => resolve(reader.result as string);
+    reader.onerror = reject;
+    reader.readAsDataURL(blob);
+  });
+}
+
+export interface ReceiptPdfData {
+  invoice_no?: string;
+  order_id: string;
+  basket_number: string;
+  created_at?: string;
+  date_time?: string;
+  customer_name?: string;
+  customer_phone?: string;
+  total_amount: string | number;
+  delivery_charge?: number;
+  handling_charge?: number;
+  subtotal_without_tax?: number;
+  total_tax?: number;
+  cgst?: number;
+  sgst?: number;
+  items: Array<{
+    menu_item_id?: string;
+    item_name?: string;
+    quantity: number;
+    unit_price: string | number;
+    line_total?: string | number;
+    mrp?: number | string;
+    is_complimentary?: boolean;
+    tax_rate?: number | string | null;
+    item_tax_rate?: number | string | null;
   }>;
   restaurant?: {
     name?: string;
     address?: string;
     phone?: string;
+    email?: string;
     gstin?: string;
     fssai_no?: string;
     logo_url?: string;
+    bill_qr_url?: string;
+    place_of_supply?: string;
+  };
+  discount_type?: string;
+  discount_value?: string | number;
+  customer?: {
+    name?: string;
+    phone?: string;
   };
 }
 
-export function generateReceiptPDF(
+export async function generateReceiptPDF(
   order: OrderResponse | ReceiptPdfData,
   restaurantName: string = "Outlet Receipt",
   menuItemsMap?: Record<string, { name: string; price?: string; tax_rate?: number | string | null; tax_category?: string | null }>,
@@ -54,7 +111,7 @@ export function generateReceiptPDF(
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
-    format: [80, 210], // 80mm Standard POS Thermal Paper Format
+    format: [80, 297], // Extended length to accommodate more content
   });
 
   const pageWidth = doc.internal.pageSize.getWidth(); // 80mm
@@ -80,9 +137,35 @@ export function generateReceiptPDF(
   };
 
   // 1. STORE HEADER BLOCK (Centered, Courier Bold)
+  const getOutletField = (field: string) => {
+    return storeDetails?.[field] || (order as any).restaurant?.[field] || (order as any).outlet?.[field];
+  };
+
+  const logoUrl = getOutletField("logo_url");
+  
+  // Try to load image if provided
+  if (logoUrl) {
+    try {
+      // Timeout for image loading
+      const base64Img = await Promise.race([
+        fetchImageAsBase64(logoUrl),
+        new Promise<string>((_, reject) => setTimeout(() => reject("Timeout"), 3000))
+      ]);
+      
+      const imgWidth = 20;
+      const imgHeight = 20;
+      // We don't know if it's PNG or JPEG from base64 string directly without parsing, 
+      // but jsPDF accepts the base64 string directly in addImage if formatted correctly.
+      doc.addImage(base64Img, (pageWidth - imgWidth) / 2, y, imgWidth, imgHeight);
+      y += imgHeight + 4;
+    } catch (e) {
+      console.warn("Failed to load logo", e);
+      // Skip logo on failure
+    }
+  }
+
   const rawStoreName =
-    (order as any).restaurant?.name ||
-    storeDetails?.name ||
+    getOutletField("name") ||
     (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "ApnaGreen Basket" ? restaurantName : null) ||
     "APNAGREEN BASKET";
   const storeName = rawStoreName.toUpperCase();
@@ -93,76 +176,109 @@ export function generateReceiptPDF(
   doc.text(storeName, pageWidth / 2, y, { align: "center", maxWidth: contentWidth });
 
   y += 4;
-  const addressStr = storeDetails?.address || (order as any).restaurant?.address;
+  const addressStr = getOutletField("address");
   if (addressStr) {
     doc.setFont("courier", "normal");
     doc.setFontSize(7);
     doc.text(addressStr, pageWidth / 2, y, { align: "center", maxWidth: contentWidth });
     y += 3.5;
   }
+  
+  const billQrUrlRaw = getOutletField("bill_qr_url");
+  if (billQrUrlRaw) {
+    try {
+      const parsedUrl = new URL(billQrUrlRaw);
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7);
+      doc.text(parsedUrl.hostname, pageWidth / 2, y, { align: "center" });
+      y += 3.5;
+    } catch {
+      // Ignore if not a valid URL
+    }
+  }
 
-  const phoneStr = storeDetails?.phone || (order as any).restaurant?.phone;
-  if (phoneStr) {
+  const fssai = getOutletField("fssai_no");
+  if (fssai) {
     doc.setFont("courier", "normal");
-    doc.setFontSize(7);
-    doc.text(`Phone: ${phoneStr}`, pageWidth / 2, y, { align: "center" });
+    doc.setFontSize(6.5);
+    doc.text(`FSSAI Reg No: ${fssai}`, pageWidth / 2, y, { align: "center" });
     y += 3.5;
   }
 
-  const gstin = storeDetails?.gstin || (order as any).restaurant?.gstin || "01AAFCB7044K1ZV";
-  const fssai = storeDetails?.fssai_no || (order as any).restaurant?.fssai_no;
+  const gstin = getOutletField("gstin") || "01AAFCB7044K1ZV";
   doc.setFont("courier", "normal");
   doc.setFontSize(6.5);
-  doc.text(`GSTIN: ${gstin}${fssai ? ` | FSSAI: ${fssai}` : ""}`, pageWidth / 2, y, { align: "center" });
+  doc.text(`GSTIN: ${gstin}`, pageWidth / 2, y, { align: "center" });
+  y += 3.5;
+  
+  const phoneStr = getOutletField("phone");
+  if (phoneStr) {
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+    doc.text(`Phone: ${phoneStr}`, pageWidth / 2, y, { align: "center" });
+    y += 3.5;
+  }
+  
+  const emailStr = getOutletField("email");
+  if (emailStr) {
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+    doc.text(`Email: ${emailStr}`, pageWidth / 2, y, { align: "center", maxWidth: contentWidth });
+    y += 3.5;
+  }
 
-  y += 2.5;
+  y -= 1; // Adjust spacing before dashed line
   drawDashedLine(y);
 
   // 2. CASH MEMO TITLE & BILL METADATA (Grid Aligned)
   y += 4;
   doc.setFont("courier", "bold");
   doc.setFontSize(8.5);
-  doc.text("TAX INVOICE / CASH MEMO", pageWidth / 2, y, { align: "center" });
+  doc.text("TAX INVOICE", pageWidth / 2, y, { align: "center" });
 
   y += 4;
   doc.setFont("courier", "normal");
   doc.setFontSize(7.5);
 
   const invoiceNo = (order as any).invoice_no || (order as any).id?.slice(0, 8).toUpperCase() || "RECEIPT";
-  const tableNo = order.basket_number || "#";
-  doc.text(`Bill No : #${invoiceNo}`, margin, y);
-  doc.text(`Basket: #${tableNo}`, pageWidth - margin, y, { align: "right" });
-
-  y += 3.5;
   let orderDateStr = (order as any).date_time;
   if (!orderDateStr && (order as any).created_at) {
-    orderDateStr = new Date((order as any).created_at).toLocaleString("en-IN", {
-      timeZone: "Asia/Kolkata",
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: true,
-    });
+    const d = new Date((order as any).created_at);
+    const day = d.getDate().toString().padStart(2, '0');
+    const month = (d.getMonth() + 1).toString().padStart(2, '0');
+    const year = d.getFullYear();
+    const hours = d.getHours();
+    const minutes = d.getMinutes().toString().padStart(2, '0');
+    const ampm = hours >= 12 ? 'pm' : 'am';
+    const formattedHours = (hours % 12 || 12).toString().padStart(2, '0');
+    orderDateStr = `${day}/${month}/${year}, ${formattedHours}:${minutes} ${ampm}`;
   }
+  
+  doc.text(`Bill No : #${invoiceNo}`, margin, y);
+  
+  y += 3.5;
   doc.text(`Date    : ${orderDateStr || "N/A"}`, margin, y);
 
-  const guestName = (order as any).customer?.name || order.customer_name;
-  if (guestName) {
+  y += 3.5;
+  const guestName = (order as any).customer?.name || (order as any).customer_name || "Walk-In";
+  doc.text(`Customer: ${guestName}`, margin, y);
+  
+  const guestPhone = (order as any).customer?.phone || (order as any).customer_phone;
+  if (guestPhone) {
+    doc.text(`Mob: ${guestPhone}`, pageWidth - margin, y, { align: "right" });
+  }
+  
+  const placeOfSupply = getOutletField("place_of_supply");
+  if (placeOfSupply) {
     y += 3.5;
-    doc.text(`Customer: ${guestName}`, margin, y);
-    const guestPhone = (order as any).customer?.phone || (order as any).customer_phone;
-    if (guestPhone) {
-      doc.text(`Mob: ${guestPhone}`, pageWidth - margin, y, { align: "right" });
-    }
+    doc.text(`Place of Supply: ${placeOfSupply}`, margin, y);
   }
 
   y += 2.5;
   drawSolidLine(y);
 
   // 3. ITEMIZED TABLE GRID (Courier Monospaced Column Alignment)
-  const tableData = (order.items || []).map((item: any, idx: number) => {
+  const tableData = ((order as any).items || []).map((item: any, idx: number) => {
     const dishName =
       item.item_name ||
       menuItemsMap?.[item.menu_item_id]?.name ||
@@ -186,25 +302,25 @@ export function generateReceiptPDF(
   autoTable(doc, {
     startY: y + 1.5,
     margin: { left: margin, right: margin },
-    head: [["Item Description", "Qty", "MRP", "Rate", "Amount"]],
+    head: [["#  Item", "Qty", "MRP", "Rate", "Amt"]],
     body: tableData,
     theme: "plain",
     styles: {
       font: "courier",
-      fontSize: 7,
-      cellPadding: 1,
+      fontSize: 6.5,
+      cellPadding: { top: 1, bottom: 1, left: 0, right: 0 },
       textColor: [0, 0, 0],
       lineWidth: 0,
     },
     headStyles: {
       font: "courier",
       fontStyle: "bold",
-      fontSize: 7,
+      fontSize: 6.5,
       textColor: [0, 0, 0],
       fillColor: false,
     },
     columnStyles: {
-      0: { cellWidth: 24, halign: "left" },
+      0: { cellWidth: 26, halign: "left" },
       1: { cellWidth: 8, halign: "center" },
       2: { cellWidth: 11, halign: "right" },
       3: { cellWidth: 11, halign: "right" },
@@ -217,12 +333,14 @@ export function generateReceiptPDF(
 
   // 4. TAX & FINANCIAL SUMMARY GRID (Structured User Format with Per-Item Catalog GST Referencing)
   let summaryY = finalY + 4;
-  const totalAmountNum = parseFloat(String(order.total_amount || 0));
+  
+  const deliveryCharge = parseFloat(String((order as any).delivery_charge || 0));
+  const handlingCharge = parseFloat(String((order as any).handling_charge || 0));
 
   let totalMrpVal = 0;
   let totalSellingSubtotal = 0;
 
-  (order.items || []).forEach((it: any) => {
+  ((order as any).items || []).forEach((it: any) => {
     const qty = parseFloat(String(it.quantity || "1"));
     const price = parseFloat(String(it.unit_price || "0"));
     const mrp = it.mrp ? parseFloat(String(it.mrp)) : price;
@@ -243,12 +361,10 @@ export function generateReceiptPDF(
     extraDiscountLabel = `Extra Discount (${discVal}% OFF)`;
   } else if (discType === "FLAT" && discVal > 0) {
     extraDiscountRupees = discVal;
-    extraDiscountLabel = `Extra Discount (Flat ₹${discVal})`;
+    extraDiscountLabel = `Extra Discount (Flat Rs.${discVal})`;
   } else if (discType === "COMPLIMENTARY") {
     extraDiscountRupees = totalSellingSubtotal;
     extraDiscountLabel = `Extra Discount (Complimentary)`;
-  } else if (totalSellingSubtotal > totalAmountNum) {
-    extraDiscountRupees = totalSellingSubtotal - totalAmountNum;
   }
 
   const amountPayable = Math.max(0, totalSellingSubtotal - extraDiscountRupees);
@@ -257,41 +373,38 @@ export function generateReceiptPDF(
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
 
-  // Total MRP Value
-  doc.text("Total MRP Value", margin, summaryY);
-  doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-  summaryY += 3.5;
-
-  // Product Discount
-  if (mrpSavings > 0) {
-    doc.text("Product Discount", margin, summaryY);
-    doc.text(`- INR ${mrpSavings.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  if (mrpSavings > 0 || extraDiscountRupees > 0) {
+    doc.text("Total MRP Value", margin, summaryY);
+    doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
     summaryY += 3.5;
+
+    if (mrpSavings > 0) {
+      doc.text("Product Discount", margin, summaryY);
+      doc.text(`- INR ${mrpSavings.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+
+    if (extraDiscountRupees > 0) {
+      doc.text(extraDiscountLabel, margin, summaryY);
+      doc.text(`- INR ${extraDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+    
+    summaryY += 1;
+    drawDashedLine(summaryY);
+    summaryY += 4.5;
   }
 
-  // Extra Discount
-  if (extraDiscountRupees > 0) {
-    doc.text(extraDiscountLabel, margin, summaryY);
-    doc.text(`- INR ${extraDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  }
-
-  summaryY += 1;
-  drawDashedLine(summaryY);
-  summaryY += 4.5;
-
-  // Amount Payable (GST Inclusive)
   doc.setFont("courier", "bold");
-  doc.text("Amount Payable (GST Inclusive)", margin, summaryY);
+  doc.text("Bill Total (GST Inclusive)", margin, summaryY);
   doc.text(`INR ${amountPayable.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
   summaryY += 4.5;
   doc.setFont("courier", "normal");
 
-  // Per-Product Catalog GST Grouping
   const discountRatio = totalSellingSubtotal > 0 ? (amountPayable / totalSellingSubtotal) : 0;
   const taxGroupMap: Record<number, { base: number; tax: number }> = {};
 
-  (order.items || []).forEach((item: any) => {
+  ((order as any).items || []).forEach((item: any) => {
     if (item.is_complimentary) return;
     const qtyVal = parseFloat(String(item.quantity || "0"));
     const unitPrice = parseFloat(String(item.unit_price || "0"));
@@ -308,12 +421,13 @@ export function generateReceiptPDF(
     if (isNaN(itemTaxRate)) itemTaxRate = 0;
 
     if (itemTaxRate > 0) {
-      const taxAmount = itemLineTotal * (itemTaxRate / 100);
+      const base = itemLineTotal / (1 + (itemTaxRate / 100));
+      const taxAmount = itemLineTotal - base;
 
       if (!taxGroupMap[itemTaxRate]) {
         taxGroupMap[itemTaxRate] = { base: 0, tax: 0 };
       }
-      taxGroupMap[itemTaxRate].base += itemLineTotal;
+      taxGroupMap[itemTaxRate].base += base;
       taxGroupMap[itemTaxRate].tax += taxAmount;
     }
   });
@@ -329,8 +443,7 @@ export function generateReceiptPDF(
     const rateLabel = rate.toFixed(1).replace(/\.0$/, "");
     const halfRateLabel = (rate / 2).toFixed(1).replace(/\.0$/, "");
 
-    doc.text(`GST Included @ ${rateLabel}%`, margin, summaryY);
-    doc.text(`INR ${groupTax.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    doc.text(`GST Included @ ${rateLabel}% (on Rs.${group.base.toFixed(2)})`, margin, summaryY);
     summaryY += 3.5;
 
     doc.text(`  CGST @ ${halfRateLabel}%`, margin, summaryY);
@@ -346,33 +459,134 @@ export function generateReceiptPDF(
   drawDashedLine(summaryY);
 
   summaryY += 4.5;
-  doc.setFont("courier", "bold");
-  doc.setFontSize(9);
-  doc.text("GRAND TOTAL:", margin, summaryY);
-  doc.text(`INR ${totalAmountNum.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  const billAmount = amountPayable;
+  const totalBeforeRound = billAmount + deliveryCharge + handlingCharge;
+  
+  // ALWAYS enforce standard rounding to nearest integer for POS systems
+  const netTotal = Math.round(totalBeforeRound);
+  const roundOff = netTotal - totalBeforeRound;
 
-  summaryY += 3;
+  doc.setFont("courier", "normal");
+  doc.setFontSize(7.5);
+  
+  doc.text("Bill Amount", margin, summaryY);
+  doc.text(`INR ${billAmount.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  summaryY += 3.5;
+  
+  if (deliveryCharge > 0 || (order as any).delivery_charge !== undefined) {
+    doc.text("Delivery Charge", margin, summaryY);
+    doc.text(`INR ${deliveryCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    summaryY += 3.5;
+  }
+  
+  if (handlingCharge > 0 || (order as any).handling_charge !== undefined) {
+    doc.text("Handling Charge", margin, summaryY);
+    doc.text(`INR ${handlingCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    summaryY += 3.5;
+  }
+  
+  if (Math.abs(roundOff) > 0.001) {
+    doc.text("Round Off", margin, summaryY);
+    const sign = roundOff > 0 ? "+" : "";
+    doc.text(`${sign}${roundOff.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    summaryY += 3.5;
+  }
+  
+  summaryY += 1;
   drawSolidLine(summaryY);
 
-  // 5. PAYMENT STATUS STAMP & FOOTER BLOCK
-  summaryY += 4.5;
+  summaryY += 4;
+  doc.setFont("courier", "bold");
+  doc.setFontSize(8.5);
+  doc.text("NET TOTAL", margin, summaryY);
+  doc.text(`INR ${netTotal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  
+  summaryY += 1;
+  drawSolidLine(summaryY + 2);
+
+  // 5. FOOTER & QR CODE
+  summaryY += 8;
+  
+  // Draw QR Code if bill_qr_url is available
+  if (billQrUrlRaw) {
+    try {
+      const qrDataUrl = await QRCode.toDataURL(billQrUrlRaw, { margin: 1, width: 60 });
+      const qrSize = 25; // 25x25mm
+      doc.addImage(qrDataUrl, "PNG", (pageWidth - qrSize) / 2, summaryY, qrSize, qrSize);
+      summaryY += qrSize + 4;
+    } catch (e) {
+      console.warn("Failed to generate QR code", e);
+    }
+  } else {
+    summaryY += 2;
+  }
+  
+  // App Store Badges
+  const badgeWidth = 26;
+  const badgeHeight = 8;
+  const badgeGap = 4;
+  const totalBadgesWidth = badgeWidth * 2 + badgeGap;
+  const badgesStartX = (pageWidth - totalBadgesWidth) / 2;
+  
+  try {
+    // Attempt to load the user-uploaded images from public folder
+    const [playStoreBase64, appStoreBase64] = await Promise.all([
+      Promise.race([fetchImageAsBase64("/images/google-play.png"), new Promise<string>((_, r) => setTimeout(() => r(""), 2000))]),
+      Promise.race([fetchImageAsBase64("/images/app-store.png"), new Promise<string>((_, r) => setTimeout(() => r(""), 2000))])
+    ]);
+    
+    if (playStoreBase64) {
+      doc.addImage(playStoreBase64, badgesStartX, summaryY, badgeWidth, badgeHeight);
+    } else {
+      throw new Error("Missing play store image");
+    }
+    
+    if (appStoreBase64) {
+      doc.addImage(appStoreBase64, badgesStartX + badgeWidth + badgeGap, summaryY, badgeWidth, badgeHeight);
+    } else {
+      throw new Error("Missing app store image");
+    }
+  } catch (err) {
+    // Fallback to text boxes if images fail to load
+    const drawBadge = (x: number, yPos: number, width: number, height: number, text: string) => {
+      doc.setFillColor(0, 0, 0);
+      doc.roundedRect(x, yPos, width, height, 2, 2, "F");
+      doc.setTextColor(255, 255, 255);
+      doc.setFontSize(6.5);
+      doc.setFont("courier", "bold");
+      doc.text(text, x + width / 2, yPos + height / 2 + 1, { align: "center" });
+      doc.setTextColor(0, 0, 0);
+    };
+    
+    drawBadge(badgesStartX, summaryY, badgeWidth, badgeHeight, "Google Play");
+    drawBadge(badgesStartX + badgeWidth + badgeGap, summaryY, badgeWidth, badgeHeight, "App Store");
+  }
+  
+  // Text Links
+  doc.link(badgesStartX, summaryY, badgeWidth, badgeHeight, { url: "https://play.google.com/store/apps/details?id=com.apnagreenbasket" });
+  doc.link(badgesStartX + badgeWidth + badgeGap, summaryY, badgeWidth, badgeHeight, { url: "https://www.apple.com/app-store/" });
+  
+  summaryY += badgeHeight + 6;
+
+  // 6. PAYMENT STATUS STAMP & FOOTER BLOCK
   doc.setFont("courier", "bold");
   doc.setFontSize(8);
-  doc.text("[ STATUS: PAID & SETTLED ]", pageWidth / 2, summaryY, { align: "center" });
+  doc.text("STATUS: PAID & SETTLED", pageWidth / 2, summaryY, { align: "center" });
 
   summaryY += 4.5;
   doc.setFont("courier", "bold");
   doc.setFontSize(7.5);
-  doc.text("Thank you for visiting!", pageWidth / 2, summaryY, { align: "center" });
-
-  summaryY += 3.5;
-  doc.setFont("courier", "normal");
-  doc.setFontSize(7);
-  doc.text("Please Come Again", pageWidth / 2, summaryY, { align: "center" });
+  doc.text("THANK YOU", pageWidth / 2, summaryY, { align: "center" });
 
   summaryY += 3.5;
   doc.text("*** HAVE A GREAT DAY ***", pageWidth / 2, summaryY, { align: "center" });
-
+  
+  summaryY += 5; // End margin
+  
+  // Optional: Trim page height to fit content if we went over or under
+  // With jsPDF you can't dynamically resize the page after creation easily, 
+  // but starting with 297mm ensures we don't clip unless it's a huge order.
+  
   if (action === "view") {
     const blobUrl = doc.output("bloburl");
     window.open(blobUrl, "_blank");

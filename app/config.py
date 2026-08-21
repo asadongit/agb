@@ -44,7 +44,7 @@ class Settings(BaseSettings):
     # ---- App ----
     APP_ENV: str = "development"
     DEBUG: bool = True
-    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173"
+    ALLOWED_ORIGINS: str = "http://localhost:3000,http://localhost:5173,http://127.0.0.1:3000"
     LOG_LEVEL: str = "INFO"
     DASHBOARD_RESET_TIME: str = "00:00"
     RUNTIME_MODE: str = "cloud"  # "cloud" (deployed) or "local" (desktop terminal)

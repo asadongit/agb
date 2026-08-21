@@ -160,3 +160,18 @@ class TestAuth:
             "refresh_token": refresh_token_2,
         })
         assert resp.status_code == 401
+
+    async def test_login_user_without_outlet(self, client, db_session):
+        """Login with user whose outlet_id is None (e.g. Superadmin)."""
+        user = await create_test_user(db_session, outlet=None, role=RoleEnum.SUPERADMIN)
+        await db_session.commit()
+
+        resp = await client.post("/api/auth/login", json={
+            "email": user.email,
+            "password": "testpassword123",
+        })
+        assert resp.status_code == 200
+        data = resp.json()
+        assert "access_token" in data
+        assert data["user"]["outlet_id"] is None
+

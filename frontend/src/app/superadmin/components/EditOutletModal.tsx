@@ -132,6 +132,39 @@ export function EditOutletModal({
             </label>
 
             <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Outlet Email</span>
+              <input
+                type="email"
+                value={settingsForm.email}
+                onChange={(e) => setSettingsForm((prev) => ({ ...prev, email: e.target.value }))}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm font-mono"
+                placeholder="store@apnagreenbasket.com"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Place of Supply (State)</span>
+              <input
+                type="text"
+                value={settingsForm.place_of_supply}
+                onChange={(e) => setSettingsForm((prev) => ({ ...prev, place_of_supply: e.target.value }))}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-sm"
+                placeholder="Jammu and Kashmir"
+              />
+            </label>
+
+            <label className="block space-y-1">
+              <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Bill QR URL</span>
+              <input
+                type="url"
+                value={settingsForm.bill_qr_url}
+                onChange={(e) => setSettingsForm((prev) => ({ ...prev, bill_qr_url: e.target.value }))}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-sm"
+                placeholder="https://apnagreenbasket.com"
+              />
+            </label>
+
+            <label className="block space-y-1">
               <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Logo URL</span>
               <input
                 type="text"

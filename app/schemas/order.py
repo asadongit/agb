@@ -47,6 +47,9 @@ class OutletInfoResponse(BaseResponse):
     gstin: str | None = None
     fssai_no: str | None = None
     logo_url: str | None = None
+    email: str | None = None
+    bill_qr_url: str | None = None
+    place_of_supply: str | None = None
 
 
 class OrderItemResponse(BaseResponse):
@@ -78,6 +81,8 @@ class OrderResponse(BaseResponse):
     is_auto_verified: bool = False
     created_at: datetime
     updated_at: datetime
+    delivery_charge: Decimal = Decimal("0.00")
+    handling_charge: Decimal = Decimal("0.00")
     items: list[OrderItemResponse] = []
     outlet: OutletInfoResponse | None = None
 

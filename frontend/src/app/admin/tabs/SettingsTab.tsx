@@ -250,6 +250,61 @@ export function SettingsTab({
                 />
               </label>
             </div>
+
+            <div className="grid gap-3 sm:grid-cols-2 mt-4">
+              {/* Outlet Email */}
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Outlet Email</span>
+                <input
+                  type="email"
+                  value={restaurantForm.email}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      email: event.target.value,
+                    }))
+                  }
+                  placeholder="store@apnagreenbasket.com"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+                />
+              </label>
+
+              {/* Place of Supply */}
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Place of Supply (State)</span>
+                <input
+                  type="text"
+                  value={restaurantForm.place_of_supply}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      place_of_supply: event.target.value,
+                    }))
+                  }
+                  placeholder="Jammu and Kashmir"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+                />
+                <span className="text-[10px] text-[var(--text-muted)] block">State name for GST compliance on bills</span>
+              </label>
+            </div>
+
+            {/* Bill QR URL */}
+            <label className="block space-y-1 mt-3">
+              <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Bill QR URL</span>
+              <input
+                type="url"
+                value={restaurantForm.bill_qr_url}
+                onChange={(event) =>
+                  setRestaurantForm((current) => ({
+                    ...current,
+                    bill_qr_url: event.target.value,
+                  }))
+                }
+                placeholder="https://apnagreenbasket.com"
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+              />
+              <span className="text-[10px] text-[var(--text-muted)] block">URL to encode as QR code on printed bills</span>
+            </label>
           </div>
 
           {(restaurantForm.payment_mode === "RAZORPAY_GATEWAY" || restaurantForm.payment_mode === "BOTH") && (

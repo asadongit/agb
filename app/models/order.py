@@ -99,6 +99,12 @@ class Order(Base, TimestampMixin):
     confirmed_offline: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    delivery_charge: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    handling_charge: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(

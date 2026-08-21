@@ -112,6 +112,9 @@ export function useSuperadminData() {
     fssai_no: "",
     session_duration_minutes: 30,
     verification_amount_cutoff: "",
+    email: "",
+    bill_qr_url: "",
+    place_of_supply: "",
   });
   const [isCreatingRestaurant, setIsCreatingRestaurant] = useState(false);
 
@@ -131,6 +134,9 @@ export function useSuperadminData() {
     fssai_no: "",
     session_duration_minutes: 30,
     verification_amount_cutoff: "",
+    email: "",
+    bill_qr_url: "",
+    place_of_supply: "",
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
@@ -354,6 +360,9 @@ export function useSuperadminData() {
         fssai_no: restaurantForm.fssai_no.trim() || null,
         session_duration_minutes: Number(restaurantForm.session_duration_minutes) || 30,
         verification_amount_cutoff: restaurantForm.verification_amount_cutoff ? Number(restaurantForm.verification_amount_cutoff) : null,
+        email: restaurantForm.email.trim() || null,
+        bill_qr_url: restaurantForm.bill_qr_url.trim() || null,
+        place_of_supply: restaurantForm.place_of_supply.trim() || null,
       };
 
       const created = await apiRequest<RestaurantWithUsers>(
@@ -379,6 +388,9 @@ export function useSuperadminData() {
         fssai_no: "",
         session_duration_minutes: 30,
         verification_amount_cutoff: "",
+        email: "",
+        bill_qr_url: "",
+        place_of_supply: "",
       });
       setNotice(`Outlet "${created.name}" created successfully! Now assign a user.`);
       setStep("create_admin");
@@ -410,6 +422,9 @@ export function useSuperadminData() {
       fssai_no: outlet.fssai_no || "",
       session_duration_minutes: outlet.session_duration_minutes ?? 30,
       verification_amount_cutoff: outlet.verification_amount_cutoff != null ? String(outlet.verification_amount_cutoff) : "",
+      email: outlet.email || "",
+      bill_qr_url: outlet.bill_qr_url || "",
+      place_of_supply: outlet.place_of_supply || "",
     });
   };
 
@@ -434,6 +449,9 @@ export function useSuperadminData() {
         fssai_no: settingsForm.fssai_no.trim() || null,
         session_duration_minutes: Number(settingsForm.session_duration_minutes) || 30,
         verification_amount_cutoff: settingsForm.verification_amount_cutoff ? Number(settingsForm.verification_amount_cutoff) : null,
+        email: settingsForm.email.trim() || null,
+        bill_qr_url: settingsForm.bill_qr_url.trim() || null,
+        place_of_supply: settingsForm.place_of_supply.trim() || null,
       };
 
       await apiRequest(`/api/admin/outlets/${settingsOutlet.id}`, {

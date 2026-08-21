@@ -11,7 +11,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 
-from app.dependencies import DBSession, RequireStaffOrAdmin
+from app.dependencies import DBSession, RequireStaffOrAdmin, RequireAdmin
 from app.models.sync_conflict_flag import SyncConflictFlag
 from app.schemas.sync import (
     SnapshotResponse,

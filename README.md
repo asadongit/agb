@@ -70,6 +70,8 @@ An enterprise-grade multi-tenant restaurant management SaaS platform featuring:
 # 1. Enter root directory
 cd restaurant-app
 
+python -m venv .venv
+
 # 2. Activate virtual environment
 .venv\Scripts\activate  # Windows
 # source .venv/bin/activate  # Linux/Mac

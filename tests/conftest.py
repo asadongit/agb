@@ -113,14 +113,14 @@ create_test_restaurant = create_test_outlet
 
 async def create_test_user(
     db: AsyncSession,
-    outlet: Outlet,
+    outlet: Outlet | None = None,
     email: str = "admin@test.com",
     password: str = "testpassword123",
     role: RoleEnum = RoleEnum.OUTLET_ADMIN,
 ) -> User:
     user = User(
         id=uuid.uuid4(),
-        outlet_id=outlet.id,
+        outlet_id=outlet.id if outlet else None,
         role=role,
         email=email,
         password_hash=hash_password(password),

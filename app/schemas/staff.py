@@ -33,7 +33,7 @@ class StaffUpdate(StrictSchema):
 
 class StaffResponse(BaseResponse):
     id: uuid.UUID
-    outlet_id: uuid.UUID
+    outlet_id: uuid.UUID | None = None
     name: str
     email: str
     phone: str | None

@@ -37,6 +37,9 @@ class OutletCreate(StrictSchema):
     evening_auto_end_time: str | None = None    # HH:MM IST
     near_expiry_threshold_days: int = Field(default=7, ge=1, le=180)
     notification_email: str | None = None
+    email: str | None = None
+    bill_qr_url: str | None = None
+    place_of_supply: str | None = None
 
 
 class OutletUpdate(StrictSchema):
@@ -62,6 +65,9 @@ class OutletUpdate(StrictSchema):
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int | None = Field(default=None, ge=1, le=180)
     notification_email: str | None = None
+    email: str | None = None
+    bill_qr_url: str | None = None
+    place_of_supply: str | None = None
 
 
 class OutletResponse(BaseResponse):
@@ -88,6 +94,9 @@ class OutletResponse(BaseResponse):
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int = 7
     notification_email: str | None = None
+    email: str | None = None
+    bill_qr_url: str | None = None
+    place_of_supply: str | None = None
     created_at: datetime
     updated_at: datetime
 

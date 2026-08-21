@@ -466,7 +466,7 @@ export function BillingTab({
                           <button
                             type="button"
                             onClick={() => {
-                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, "view");
+                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, restaurant || {}, "view");
                             }}
                             className="p-1.5 rounded-lg border border-cyan-500/40 bg-cyan-500/10 text-cyan-500 hover:border-cyan-400 transition"
                             title="View PDF Bill"
@@ -476,7 +476,7 @@ export function BillingTab({
                           <button
                             type="button"
                             onClick={() => {
-                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, "download");
+                              generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, restaurant || {}, "download");
                             }}
                             className="p-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition"
                             title="Download PDF Bill"

@@ -89,6 +89,15 @@ class Outlet(Base, TimestampMixin):
     notification_email: Mapped[str | None] = mapped_column(
         String(255), nullable=True, default=None
     )
+    email: Mapped[str | None] = mapped_column(
+        String(255), nullable=True, default=None
+    )
+    bill_qr_url: Mapped[str | None] = mapped_column(
+        String(500), nullable=True, default=None
+    )
+    place_of_supply: Mapped[str | None] = mapped_column(
+        String(100), nullable=True, default=None
+    )
 
     @property
     def is_evening_active(self) -> bool:

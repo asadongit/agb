@@ -40,6 +40,9 @@ export type RestaurantWithUsers = {
   session_duration_minutes?: number;
   verification_amount_cutoff?: string | number | null;
   flagged_item_ids?: string[];
+  email?: string | null;
+  bill_qr_url?: string | null;
+  place_of_supply?: string | null;
   created_at: string;
   updated_at: string;
   users: RestaurantUser[];
@@ -59,6 +62,9 @@ export type RestaurantCreateForm = {
   fssai_no: string;
   session_duration_minutes: number;
   verification_amount_cutoff: string;
+  email: string;
+  bill_qr_url: string;
+  place_of_supply: string;
 };
 
 export type AdminUserForm = {

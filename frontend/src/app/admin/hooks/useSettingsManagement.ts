@@ -39,6 +39,9 @@ export function useSettingsManagement({
     flagged_item_ids: [],
     near_expiry_threshold_days: 7,
     notification_email: "",
+    email: "",
+    bill_qr_url: "",
+    place_of_supply: "",
   });
   const [isSavingRestaurant, setIsSavingRestaurant] = useState(false);
 
@@ -65,6 +68,9 @@ export function useSettingsManagement({
         flagged_item_ids: restaurant.flagged_item_ids || [],
         near_expiry_threshold_days: restaurant.near_expiry_threshold_days ?? 7,
         notification_email: restaurant.notification_email || "",
+        email: restaurant.email || "",
+        bill_qr_url: restaurant.bill_qr_url || "",
+        place_of_supply: restaurant.place_of_supply || "",
       });
     }
   }, [restaurant]);
@@ -95,6 +101,9 @@ export function useSettingsManagement({
         flagged_item_ids: restaurantForm.flagged_item_ids || [],
         near_expiry_threshold_days: restaurantForm.near_expiry_threshold_days,
         notification_email: restaurantForm.notification_email?.trim() || null,
+        email: restaurantForm.email?.trim() || null,
+        bill_qr_url: restaurantForm.bill_qr_url?.trim() || null,
+        place_of_supply: restaurantForm.place_of_supply?.trim() || null,
       };
 
       const updated = await apiRequest<RestaurantProfile>(

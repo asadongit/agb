@@ -214,10 +214,10 @@ export function useOrdersManagement({
     ).length;
     const completionRate = orders.length
       ? Math.round(
-          (orders.filter((order) => order.status === "COMPLETED").length /
-            orders.length) *
-            100
-        )
+        (orders.filter((order) => order.status === "COMPLETED").length /
+          orders.length) *
+        100
+      )
       : 0;
 
     return {
