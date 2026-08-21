@@ -27,7 +27,7 @@ from app.models.qr_token import BasketQrToken
 from app.models.catalogue_batch import CatalogueBatch
 from app.models.sync_action_log import SyncActionLog
 from app.models.sync_conflict_flag import SyncConflictFlag
-#from app.models.local_action_queue import LocalActionQueue
+from app.models.local_action_queue import LocalActionQueue
 from app.models.user import User
 from app.models.webhook_event import WebhookEvent
 from app.models.enums import (
@@ -56,7 +56,7 @@ __all__ = [
     "CustomerReturn",
     "InventoryItem",
     "InventoryUnitEnum",
-    #"LocalActionQueue",
+    "LocalActionQueue",
     "MenuItem",
     "MenuItemRecipe",
     "MenuItemVariant",
