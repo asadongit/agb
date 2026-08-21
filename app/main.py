@@ -178,11 +178,9 @@ def create_app() -> FastAPI:
         app.include_router(sync_router)
 
     # ── Local-only routes (seed + action queue only) ─────────────────
-    if settings.RUNTIME_MODE == "local":
+    if settings.is_local:
         from app.routers.local.queue import router as local_queue_router
-        from app.routers.local.recache import router as local_recache_router
         app.include_router(local_queue_router)
-        app.include_router(local_recache_router)
 
     # ── Serve Uploaded Static Files ──────────────────────────────────
     from pathlib import Path
@@ -195,6 +193,11 @@ def create_app() -> FastAPI:
     @app.get("/health", tags=["health"])
     async def health():
         return {"status": "healthy", "version": "0.1.0"}
+
+    # ── Admin Dashboard (sqladmin) ───────────────────────────────────
+    from app.database import engine
+    from app.admin_setup import setup_admin
+    setup_admin(app, engine)
 
     return app
 

@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+import os
 from datetime import datetime, timezone
 import httpx
 
@@ -36,7 +37,7 @@ class LocalSyncWorker:
         self._worker_user_id = uuid.uuid4()
         
         # Get config
-        self._cloud_url = settings.CLOUD_BACKEND_URL.rstrip("/")
+        self._cloud_url = os.environ.get("NEXT_PUBLIC_CLOUD_API_URL", "http://127.0.0.1:8000")
         self._outlet_id = settings.LOCAL_OUTLET_ID
 
     def start(self):
@@ -65,7 +66,7 @@ class LocalSyncWorker:
         token = create_access_token(
             user_id=self._worker_user_id,
             outlet_id=uuid.UUID(self._outlet_id),
-            role="ADMIN"  # Needs to be Admin to hit sync endpoints
+            role="OUTLET_ADMIN"  # Needs to be a valid RoleEnum member like OUTLET_ADMIN
         )
         return {"Authorization": f"Bearer {token}"}
 
@@ -79,8 +80,10 @@ class LocalSyncWorker:
             try:
                 await self._push_actions()
                 
-                # Recache every 5 minutes
-                if self._last_snapshot_at:
+                # Recache every 5 minutes, or retry if we never got an initial snapshot
+                if not self._last_snapshot_at:
+                    await self._pull_snapshot()
+                else:
                     elapsed = (datetime.now(timezone.utc) - self._last_snapshot_at).total_seconds()
                     if elapsed > 300:
                         await self._pull_snapshot()
@@ -94,7 +97,7 @@ class LocalSyncWorker:
                 await asyncio.sleep(1)
 
     async def _push_actions(self):
-        async with async_session_maker() as db:
+        async with async_session_factory() as db:
             # Get pending actions
             result = await db.execute(
                 select(LocalActionQueue)
@@ -122,8 +125,9 @@ class LocalSyncWorker:
             }
 
             try:
+                assert self._client is not None
                 resp = await self._client.post(
-                    f"{self._cloud_url}/api/admin/sync/actions",
+                    f"{self._cloud_url.rstrip('/')}/api/admin/sync/outlets/{self._outlet_id}/sync/actions",
                     json=payload,
                     headers=self._get_auth_headers()
                 )
@@ -147,19 +151,22 @@ class LocalSyncWorker:
 
     async def _pull_snapshot(self):
         logger.info("Pulling latest snapshot from cloud...")
-        url = f"{self._cloud_url}/api/admin/sync/snapshot"
+        url = f"{self._cloud_url.rstrip('/')}/api/admin/sync/outlets/{self._outlet_id}/snapshot"
+        
+        params = {}
         if self._last_snapshot_at:
-            url += f"?since={self._last_snapshot_at.isoformat()}"
+            params["since"] = self._last_snapshot_at.isoformat()
             
         try:
-            resp = await self._client.get(url, headers=self._get_auth_headers())
+            assert self._client is not None
+            resp = await self._client.get(url, params=params, headers=self._get_auth_headers())
             if resp.status_code == 200:
                 data = resp.json()
                 snapshot_obj = SnapshotResponse(**data)
                 
-                # Natively call the local recache router logic
-                from app.routers.local.recache import receive_snapshot
-                async with async_session_maker() as db:
+                # Natively call the local recache logic
+                from app.services.recache_service import receive_snapshot
+                async with async_session_factory() as db:
                     result = await receive_snapshot(snapshot_obj, db)
                     await db.commit()
                     
