@@ -178,7 +178,11 @@ def create_app() -> FastAPI:
         app.include_router(sync_router)
 
     # ── Local-only routes (seed + action queue only) ─────────────────
+<<<<<<< HEAD
+    if settings.is_local:
+=======
     if settings.RUNTIME_MODE == "local":
+>>>>>>> main
         from app.routers.local.queue import router as local_queue_router
         app.include_router(local_queue_router)
 
