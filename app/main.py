@@ -180,9 +180,7 @@ def create_app() -> FastAPI:
     # ── Local-only routes (seed + action queue only) ─────────────────
     if settings.RUNTIME_MODE == "local":
         from app.routers.local.queue import router as local_queue_router
-        from app.routers.local.recache import router as local_recache_router
         app.include_router(local_queue_router)
-        app.include_router(local_recache_router)
 
     # ── Serve Uploaded Static Files ──────────────────────────────────
     from pathlib import Path
