@@ -18,6 +18,9 @@ import {
 import type { Customer } from "@/types";
 import type { RestaurantProfile } from "../adminTypes";
 import { AddCustomerModal } from "../components/AddCustomerModal";
+import { EditCustomerModal } from "../components/EditCustomerModal";
+import { ConfirmModal } from "../modals/ConfirmModal";
+import { BulkOperationsMenu } from "../components/BulkOperationsMenu";
 import { QrCodesTab } from "./QrCodesTab";
 
 interface CustomerServicesTabProps {
@@ -37,6 +40,9 @@ export function CustomerServicesTab({
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isAddCustomerModalOpen, setIsAddCustomerModalOpen] = useState(false);
+  const [customerToRemove, setCustomerToRemove] = useState<string | null>(null);
+  const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
+  const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
 
   const fetchCustomers = async () => {
     try {
@@ -83,8 +89,25 @@ export function CustomerServicesTab({
     await fetchCustomers();
   };
 
+  const handleEditCustomer = async (id: string, name: string, phone: string) => {
+    const res = await fetch(`/api/admin/customers/${id}`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${authToken}`,
+      },
+      body: JSON.stringify({ name, phone }),
+    });
+
+    if (!res.ok) {
+      const errData = await res.json().catch(() => ({}));
+      throw new Error(errData.detail || "Failed to edit customer.");
+    }
+
+    await fetchCustomers();
+  };
+
   const handleDeleteCustomer = async (id: string) => {
-    if (!window.confirm("Are you sure you want to remove this customer account?")) return;
     try {
       const res = await fetch(`/api/admin/customers/${id}`, {
         method: "DELETE",
@@ -214,14 +237,21 @@ export function CustomerServicesTab({
               />
             </div>
 
-            <button
-              type="button"
-              onClick={() => setIsAddCustomerModalOpen(true)}
-              className="flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
-            >
-              <UserPlus className="h-4 w-4" />
-              + Register Customer
-            </button>
+            <div className="flex items-center gap-3">
+              <BulkOperationsMenu 
+                entity="customers" 
+                authToken={authToken} 
+                onSuccess={fetchCustomers} 
+              />
+              <button
+                type="button"
+                onClick={() => setIsAddCustomerModalOpen(true)}
+                className="flex items-center gap-1.5 rounded-xl bg-purple-600 hover:bg-purple-700 text-white px-4 py-2 text-xs font-bold shadow-md transition active:scale-95 cursor-pointer"
+              >
+                <UserPlus className="h-4 w-4" />
+                + Register Customer
+              </button>
+            </div>
           </div>
 
           {/* Customers Directory Table */}
@@ -300,14 +330,27 @@ export function CustomerServicesTab({
                           </span>
                         </td>
                         <td className="py-3 px-4 text-center">
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteCustomer(c.id)}
-                            className="rounded-lg p-1.5 text-red-400 hover:bg-red-500/10 transition cursor-pointer"
-                            title="Delete customer"
-                          >
-                            <Trash2 className="h-4 w-4" />
-                          </button>
+                          <div className="flex items-center justify-center gap-1.5">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCustomerToEdit(c);
+                                setIsEditCustomerModalOpen(true);
+                              }}
+                              className="rounded-lg p-1.5 text-blue-400 hover:bg-blue-500/10 transition cursor-pointer"
+                              title="Edit customer"
+                            >
+                              <UserCheck className="h-4 w-4" />
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setCustomerToRemove(c.id)}
+                              className="rounded-lg p-1.5 text-red-400 hover:bg-red-500/10 transition cursor-pointer"
+                              title="Delete customer"
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))
@@ -329,6 +372,31 @@ export function CustomerServicesTab({
         isOpen={isAddCustomerModalOpen}
         onClose={() => setIsAddCustomerModalOpen(false)}
         onAddCustomer={handleAddCustomer}
+      />
+      
+      {/* Edit Customer Modal */}
+      <EditCustomerModal
+        isOpen={isEditCustomerModalOpen}
+        onClose={() => {
+          setIsEditCustomerModalOpen(false);
+          setCustomerToEdit(null);
+        }}
+        customer={customerToEdit}
+        onEditCustomer={handleEditCustomer}
+      />
+      
+      <ConfirmModal
+        isOpen={!!customerToRemove}
+        title="Remove Customer"
+        message="Are you sure you want to remove this customer account? This action cannot be undone."
+        confirmText="Remove"
+        onConfirm={() => {
+          if (customerToRemove) {
+            void handleDeleteCustomer(customerToRemove);
+          }
+          setCustomerToRemove(null);
+        }}
+        onClose={() => setCustomerToRemove(null)}
       />
     </div>
   );

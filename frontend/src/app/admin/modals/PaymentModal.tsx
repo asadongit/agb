@@ -8,7 +8,10 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { ArrowLeft, Bookmark, CheckCircle2, CreditCard, DollarSign, Percent, QrCode, X } from "lucide-react";
+import { apiRequest } from "../adminUtils";
 import type { ManualBill } from "@/types";
+import type { RestaurantProfile } from "../adminTypes";
+import type { CustomerAnalytics } from "./CustomerInsightsModal";
 
 type PaymentModalProps = {
   isOpen: boolean;
@@ -21,8 +24,9 @@ type PaymentModalProps = {
   setSelectedPaymentMethod: (method: "CASH" | "UPI") => void;
   cashTendered: string;
   setCashTendered: (val: string) => void;
-  handleMarkPaid: (cashDenominations?: Record<string, number>) => Promise<void>;
+  handleMarkPaid: (cashDenominations?: Record<string, number>, redeemLoyaltyPoints?: number) => Promise<void>;
   onOpenDiscountModal?: (bill: ManualBill) => void;
+  restaurant?: RestaurantProfile | null;
 };
 
 const DENOMINATIONS = [500, 200, 100, 50, 20, 10, 5, 2, 1] as const;
@@ -40,6 +44,7 @@ export function PaymentModal({
   setCashTendered,
   handleMarkPaid,
   onOpenDiscountModal,
+  restaurant,
 }: PaymentModalProps) {
   const [denomCounts, setDenomCounts] = useState<Record<number, number>>({
     500: 0,
@@ -54,12 +59,29 @@ export function PaymentModal({
   });
 
   const [isRestUpiConfirmed, setIsRestUpiConfirmed] = useState<boolean>(false);
+  const [customerAnalytics, setCustomerAnalytics] = useState<CustomerAnalytics | null>(null);
+  const [redeemPoints, setRedeemPoints] = useState<number>(0);
+
+  // Fetch analytics for loyalty points
+  useEffect(() => {
+    if (isOpen && paymentTargetBill?.customer_phone) {
+      const cleanPhone = paymentTargetBill.customer_phone.replace(/\D/g, "");
+      if (cleanPhone.length >= 10) {
+        apiRequest<CustomerAnalytics>(`/api/admin/customers/analytics?phone=${cleanPhone}&period=all_time`)
+          .then(data => setCustomerAnalytics(data))
+          .catch(() => setCustomerAnalytics(null));
+      }
+    } else {
+      setCustomerAnalytics(null);
+    }
+  }, [isOpen, paymentTargetBill?.customer_phone]);
 
   // Bug 5 fix: Reset denomination counts and state whenever modal opens or bill changes
   useEffect(() => {
     if (isOpen) {
       setDenomCounts({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
       setIsRestUpiConfirmed(false);
+      setRedeemPoints(0);
     }
   }, [isOpen, paymentTargetBill?.id]);
 
@@ -101,11 +123,20 @@ export function PaymentModal({
 
   const grandTotal = useMemo(() => {
     if (!paymentTargetBill) return 0;
+    
+    let base = paymentTargetBill.total_amount || 0;
     if (calculatedDiscountRupees > 0) {
-      return Math.max(0, subtotalAmount - calculatedDiscountRupees);
+      base = Math.max(0, subtotalAmount - calculatedDiscountRupees);
     }
-    return paymentTargetBill.total_amount || 0;
-  }, [paymentTargetBill, subtotalAmount, calculatedDiscountRupees]);
+    
+    // Apply Loyalty Points Discount
+    if (redeemPoints > 0 && restaurant?.loyalty_point_value_inr) {
+      const loyaltyDiscount = redeemPoints * (parseFloat(String(restaurant.loyalty_point_value_inr)) || 0);
+      base = Math.max(0, base - loyaltyDiscount);
+    }
+    
+    return base;
+  }, [paymentTargetBill, subtotalAmount, calculatedDiscountRupees, redeemPoints, restaurant]);
 
   const remainingNeeded = Math.max(0, grandTotal - targetCash);
 
@@ -200,10 +231,11 @@ export function PaymentModal({
     setDenomCounts({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
     setCashTendered("");
     setIsRestUpiConfirmed(false);
+    setRedeemPoints(0);
   };
 
   const onSettlePayment = async () => {
-    await handleMarkPaid(denomCounts);
+    await handleMarkPaid(denomCounts, redeemPoints);
     // Requirement 4: Once marked paid & settled, clear note denomination selection
     handleResetNotes();
     setCashTendered("");
@@ -339,6 +371,19 @@ export function PaymentModal({
                 <span>₹{subtotalAmount.toFixed(2)}</span>
               </div>
 
+              {/* Loyalty Discount Summary */}
+              {redeemPoints > 0 && restaurant?.loyalty_point_value_inr && (
+                <div className="flex justify-between text-xs text-emerald-400 font-mono font-bold">
+                  <span className="font-sans flex items-center gap-1.5">
+                    Loyalty Redemptions
+                    <span className="text-[10px] bg-emerald-500/10 px-1.5 py-0.5 rounded border border-emerald-500/20">
+                      ({redeemPoints} points)
+                    </span>
+                  </span>
+                  <span>- ₹{(redeemPoints * (parseFloat(String(restaurant.loyalty_point_value_inr)) || 0)).toFixed(2)}</span>
+                </div>
+              )}
+
               {calculatedDiscountRupees > 0 && (
                 <div className="flex justify-between text-xs text-sky-400 font-mono font-bold">
                   <span className="font-sans flex items-center gap-1.5">
@@ -375,6 +420,37 @@ export function PaymentModal({
                 <span className="text-xl font-black text-sky-400">₹{grandTotal.toFixed(2)}</span>
               </div>
             </div>
+
+            {/* Loyalty Points Input */}
+            {customerAnalytics && (customerAnalytics.loyalty_points || 0) > 0 && restaurant?.loyalty_point_value_inr && parseFloat(String(restaurant.loyalty_point_value_inr)) > 0 && (
+              <div className="flex-shrink-0 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 space-y-2 mt-3">
+                <div className="flex items-center justify-between text-emerald-400 text-xs font-bold">
+                  <span>Loyalty Points (Balance: {customerAnalytics.loyalty_points})</span>
+                  <span>{parseFloat(String(restaurant.loyalty_point_value_inr)).toFixed(2)} INR/pt</span>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    max={customerAnalytics.loyalty_points}
+                    value={redeemPoints || ""}
+                    onChange={(e) => {
+                      const val = parseInt(e.target.value) || 0;
+                      setRedeemPoints(Math.min(val, customerAnalytics.loyalty_points || 0));
+                    }}
+                    placeholder="Points to redeem"
+                    className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1.5 px-3 text-xs font-mono font-bold focus:border-emerald-500 outline-none"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setRedeemPoints(customerAnalytics.loyalty_points || 0)}
+                    className="px-3 py-1.5 rounded-lg bg-emerald-500/20 text-emerald-500 text-[10px] font-bold hover:bg-emerald-500/30 transition whitespace-nowrap"
+                  >
+                    Max
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Right Column: Settlement Method & Actions */}

@@ -8,9 +8,11 @@
 
 "use client";
 
-import { useMemo } from "react";
-import { Activity, FileText, Eye, Download } from "lucide-react";
+import { useState, useMemo } from "react";
+import { Activity, FileText, Eye, Download, Trash2 } from "lucide-react";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
+import { generateA4InvoicePDF } from "@/lib/invoiceGenerator";
+import { DeleteBillModal } from "../modals/DeleteBillModal";
 import type { OrderStatus } from "@/types";
 import type { AdminMenuItem, AdminOrder, RestaurantProfile } from "../adminTypes";
 import { lanes, LANE_NAMES } from "../adminTypes";
@@ -22,6 +24,7 @@ type OrdersTabProps = {
   restaurant: RestaurantProfile | null;
   onUpdateOrderStatus: (orderId: string, nextStatus: OrderStatus) => Promise<void>;
   onCancelOrder: (orderId: string) => Promise<void>;
+  onDeleteOrder: (orderId: string) => Promise<void>;
 };
 
 export function OrdersTab({
@@ -30,7 +33,10 @@ export function OrdersTab({
   restaurant,
   onUpdateOrderStatus,
   onCancelOrder,
+  onDeleteOrder,
 }: OrdersTabProps) {
+  const [orderToDelete, setOrderToDelete] = useState<AdminOrder | null>(null);
+
   const kpis = useMemo(() => {
     const openOrders = orders.filter(
       (order) =>
@@ -60,9 +66,9 @@ export function OrdersTab({
       {/* Header & KPI Summary */}
       <div className="flex flex-wrap items-center justify-between gap-4">
         <div>
-          <h1 className="font-display text-2xl font-bold tracking-tight">Live Service Board</h1>
+          <h1 className="font-display text-2xl font-bold tracking-tight">Checkout & Exit Dashboard</h1>
           <p className="text-sm text-[var(--text-secondary)]">
-            Shift-level basket order management and payment verification
+            Supermart queue and verification management
           </p>
         </div>
       </div>
@@ -103,7 +109,7 @@ export function OrdersTab({
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-2">
             <Activity className="h-5 w-5 text-[var(--accent-brand)]" />
-            <h2 className="font-display text-lg font-bold">Basket Columns</h2>
+            <h2 className="font-display text-lg font-bold">Checkout Queues</h2>
           </div>
           <p className="text-xs text-[var(--text-muted)]">
             Total Orders: {orders.length}
@@ -112,12 +118,7 @@ export function OrdersTab({
 
         <div className="grid gap-3 grid-cols-1 sm:grid-cols-2 xl:grid-cols-4">
           {lanes.map((status) => {
-            const laneOrders = orders.filter((order) => {
-              if (status === "PAID") {
-                return order.status === "PAID" || order.status === "PAYMENT_PENDING";
-              }
-              return order.status === status;
-            });
+            const laneOrders = orders.filter((order) => order.status === status);
             return (
               <section
                 key={status}
@@ -143,18 +144,22 @@ export function OrdersTab({
                         key={order.id}
                         className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-3 shadow-2xs space-y-2"
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            {order.is_auto_verified && (
-                              <span
-                                className="h-2.5 w-2.5 rounded-full bg-amber-400 shrink-0 inline-block"
-                                title="Auto-verified by rule (skipped manual check)"
-                              />
-                            )}
-                            <p className="font-bold text-sm text-[var(--text-primary)]">
-                              Basket #{order.basket_number}
-                            </p>
-                            <div className="flex items-center gap-1">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex flex-col gap-1.5">
+                            <div className="flex items-center gap-2">
+                              {!order.is_auto_verified && (
+                                <span
+                                  className="flex h-4 items-center rounded-full bg-amber-500/20 px-1.5 text-[9px] font-bold uppercase tracking-wider text-amber-500"
+                                  title="Verification Required"
+                                >
+                                  Verify
+                                </span>
+                              )}
+                              <p className="font-bold text-sm text-[var(--text-primary)] break-all">
+                                Basket #{order.basket_number}
+                              </p>
+                            </div>
+                            <div className="flex items-center gap-1 flex-wrap mt-0.5">
                               <button
                                 type="button"
                                 onClick={() => {
@@ -183,11 +188,26 @@ export function OrdersTab({
                                 title="Download Official Bill PDF"
                               >
                                 <Download className="h-3 w-3 text-[var(--accent-brand)]" />
-                                <span>PDF</span>
+                                <span>Bill</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const itemsMap: Record<string, { name: string; tax_rate?: number | string | null; tax_category?: string | null }> = {};
+                                  menuItems.forEach((m) => {
+                                    itemsMap[m.id] = { name: m.name, tax_rate: m.tax_rate, tax_category: m.tax_category };
+                                  });
+                                  generateA4InvoicePDF(order as any, restaurant?.name || "ApnaGreen Basket", itemsMap, restaurant || {}, "download");
+                                }}
+                                className="flex items-center gap-0.5 rounded-md border border-purple-500/30 bg-purple-500/10 px-1.5 py-0.5 text-[10px] font-bold text-purple-400 hover:border-purple-400 transition cursor-pointer"
+                                title="Download A4 Tax Invoice"
+                              >
+                                <Download className="h-3 w-3 text-purple-400" />
+                                <span>Invoice</span>
                               </button>
                             </div>
                           </div>
-                          <p className="font-mono text-xs font-bold text-[var(--accent-brand)]">
+                          <p className="font-mono text-xs font-bold text-[var(--accent-brand)] shrink-0">
                             {formatRupees(order.total_amount)}
                           </p>
                         </div>
@@ -219,31 +239,12 @@ export function OrdersTab({
                         {/* Actions */}
                         <div className="border-t border-[var(--border-subtle)] pt-2 flex flex-wrap gap-1.5">
                           {order.status === "PENDING_VERIFICATION" && (
-                            order.payment_method === "RAZORPAY_GATEWAY" || Boolean(order.payment_reference) ? (
-                              <button
-                                type="button"
-                                onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
-                                className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
-                              >
-                                Verify &amp; Complete (Paid Online)
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                onClick={() => void onUpdateOrderStatus(order.id, "PAYMENT_PENDING")}
-                                className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
-                              >
-                                Accept &amp; Verify (Payment Pending)
-                              </button>
-                            )
-                          )}
-                          {order.status === "PAID" && (
                             <button
                               type="button"
                               onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
                               className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
                             >
-                              Verify &amp; Complete (Paid Online)
+                              Verify Items &amp; Approve Exit (Paid Online)
                             </button>
                           )}
                           {order.status === "PAYMENT_PENDING" && (
@@ -252,7 +253,7 @@ export function OrdersTab({
                               onClick={() => void onUpdateOrderStatus(order.id, "COMPLETED")}
                               className="w-full rounded-lg bg-[var(--accent-brand)] px-2.5 py-1.5 text-xs font-bold text-white shadow-xs hover:bg-[var(--accent-brand-hover)] transition"
                             >
-                              Mark Paid &amp; Complete Basket
+                              {!order.is_auto_verified ? "Verify Items & Collect Payment" : "Collect Payment"}
                             </button>
                           )}
                           {order.status !== "COMPLETED" && order.status !== "CANCELLED" && order.status !== "REFUNDED" && (
@@ -262,6 +263,16 @@ export function OrdersTab({
                               className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2 py-1 text-xs font-bold text-[var(--text-secondary)] hover:text-rose-400 hover:border-rose-500/40 transition"
                             >
                               Cancel Order
+                            </button>
+                          )}
+                          {order.status !== "COMPLETED" && order.status !== "PAID" && order.status !== "REFUNDED" && (
+                            <button
+                              type="button"
+                              onClick={() => setOrderToDelete(order)}
+                              className="w-full rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-xs font-bold text-red-500 hover:bg-red-500 hover:text-white transition flex items-center justify-center gap-1.5"
+                            >
+                              <Trash2 className="h-3 w-3" />
+                              Delete Bill
                             </button>
                           )}
                         </div>
@@ -274,6 +285,18 @@ export function OrdersTab({
           })}
         </div>
       </section>
+
+      {orderToDelete && (
+        <DeleteBillModal
+          isOpen={true}
+          onClose={() => setOrderToDelete(null)}
+          order={orderToDelete}
+          onConfirm={async (id) => {
+            await onDeleteOrder(id);
+            setOrderToDelete(null);
+          }}
+        />
+      )}
     </div>
   );
 }

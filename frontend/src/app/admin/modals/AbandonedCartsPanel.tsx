@@ -9,6 +9,8 @@
 import { ArchiveX, CheckCheck, Loader2, Radio, ShoppingBag, ShoppingCart, X } from "lucide-react";
 import type { AbandonedCart, ActiveSession } from "@/types";
 import { parseUTCDate } from "../adminUtils";
+import { useState } from "react";
+import { ConfirmModal } from "./ConfirmModal";
 
 type AbandonedCartsPanelProps = {
   isOpen: boolean;
@@ -33,6 +35,18 @@ export function AbandonedCartsPanel({
   dismissAbandonedCart,
   onAssistSession,
 }: AbandonedCartsPanelProps) {
+  const [confirmState, setConfirmState] = useState<{
+    isOpen: boolean;
+    title: string;
+    message: string;
+    action: () => void;
+  }>({
+    isOpen: false,
+    title: "",
+    message: "",
+    action: () => {},
+  });
+
   if (!isOpen) return null;
 
   return (
@@ -88,9 +102,12 @@ export function AbandonedCartsPanel({
                           )}
                           <button
                             onClick={() => {
-                              if (confirm(`Terminate session for ${s.customer_name}?`)) {
-                                void terminateSession(s.id);
-                              }
+                              setConfirmState({
+                                isOpen: true,
+                                title: "Terminate Session",
+                                message: `Are you sure you want to terminate the session for ${s.customer_name}?`,
+                                action: () => void terminateSession(s.id),
+                              });
                             }}
                             className="text-xs font-semibold text-rose-500 hover:text-rose-400 transition"
                           >
@@ -153,9 +170,12 @@ export function AbandonedCartsPanel({
                       <button
                         type="button"
                         onClick={() => {
-                          if (confirm(`Dismiss abandoned cart for ${cart.customer_name}?`)) {
-                            void dismissAbandonedCart(cart.id);
-                          }
+                          setConfirmState({
+                            isOpen: true,
+                            title: "Dismiss Cart",
+                            message: `Are you sure you want to dismiss the abandoned cart for ${cart.customer_name}?`,
+                            action: () => void dismissAbandonedCart(cart.id),
+                          });
                         }}
                         className="flex items-center justify-center gap-1 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-muted)] hover:text-rose-400 hover:border-rose-400/40 transition"
                       >
@@ -192,6 +212,13 @@ export function AbandonedCartsPanel({
           )}
         </div>
       </div>
+      <ConfirmModal
+        isOpen={confirmState.isOpen}
+        title={confirmState.title}
+        message={confirmState.message}
+        onClose={() => setConfirmState((s) => ({ ...s, isOpen: false }))}
+        onConfirm={confirmState.action}
+      />
     </div>
   );
 }

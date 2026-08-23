@@ -216,7 +216,7 @@ export function useBillingManagement({
     }
   };
 
-  const handleMarkPaid = async (cashDenominations?: Record<string, number>) => {
+  const handleMarkPaid = async (cashDenominations?: Record<string, number>, redeemLoyaltyPoints?: number) => {
     if (!paymentTargetBill) return;
     try {
       await apiRequest<ManualBill>(`/api/billing/bills/${paymentTargetBill.id}/mark-paid`, {
@@ -224,6 +224,7 @@ export function useBillingManagement({
         body: JSON.stringify({
           payment_method: selectedPaymentMethod,
           cash_denominations: cashDenominations || null,
+          redeem_loyalty_points: redeemLoyaltyPoints || 0,
         }),
       });
       setPaymentModalOpen(false);
@@ -234,6 +235,18 @@ export function useBillingManagement({
       void loadBillingData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to mark bill paid.");
+    }
+  };
+
+  const handleDeleteBill = async (billId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/api/billing/bills/${billId}`, { method: "DELETE" });
+      setBillsList((current) => current.filter((b) => b.id !== billId));
+      setNotice(`Bill #${billId.slice(0, 8)} deleted permanently.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed.");
+      throw err;
     }
   };
 
@@ -353,5 +366,6 @@ export function useBillingManagement({
     handleApplyDiscount,
     handleResolveApproval,
     handleMarkPaid,
+    handleDeleteBill,
   };
 }

@@ -71,6 +71,7 @@ class SessionStatusEnum(str, enum.Enum):
 VALID_ORDER_TRANSITIONS: dict[OrderStatusEnum, set[OrderStatusEnum]] = {
     OrderStatusEnum.PENDING: {
         OrderStatusEnum.PENDING_VERIFICATION,
+        OrderStatusEnum.PAYMENT_PENDING,
         OrderStatusEnum.PAID,
         OrderStatusEnum.COMPLETED,
         OrderStatusEnum.CANCELLED,
@@ -110,6 +111,7 @@ class NotificationTypeEnum(str, enum.Enum):
     RETURN_REQUEST = "RETURN_REQUEST"
     ABANDONED_CART = "ABANDONED_CART"
     PRICE_ALERT = "PRICE_ALERT"
+    SHELF_LIFE_ALERT = "SHELF_LIFE_ALERT"
 
 
 class NotificationChannelEnum(str, enum.Enum):

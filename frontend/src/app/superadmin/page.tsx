@@ -10,6 +10,7 @@ import { Search, Store } from "lucide-react";
 import { useSuperadminData } from "./hooks/useSuperadminData";
 import { SuperadminLoginForm } from "./components/SuperadminLoginForm";
 import { SuperadminHeader } from "./components/SuperadminHeader";
+import { ToastNotification } from "../components/ToastNotification";
 import { CreateOutletWizard } from "./components/CreateOutletWizard";
 import { OutletCard } from "./components/OutletCard";
 import { EditOutletModal } from "./components/EditOutletModal";
@@ -34,7 +35,9 @@ export default function SuperadminPage() {
     isMounted,
     isAuthenticating,
     error,
+    setError,
     notice,
+    setNotice,
     theme,
     toggleTheme,
     restaurants,
@@ -63,6 +66,7 @@ export default function SuperadminPage() {
     setStep,
     filteredRestaurants,
     onLogin,
+    onImpersonateOutlet,
     onLogout,
     loadRestaurants,
     onCreateRestaurant,
@@ -112,17 +116,6 @@ export default function SuperadminPage() {
       />
 
       <main className="mx-auto max-w-5xl space-y-8 px-4 py-8 sm:px-6">
-        {notice && (
-          <p className="rounded-xl bg-emerald-100 px-4 py-2 text-sm text-emerald-800 font-medium">
-            {notice}
-          </p>
-        )}
-        {error && (
-          <p className="rounded-xl bg-rose-100 px-4 py-2 text-sm text-rose-800 font-medium">
-            {error}
-          </p>
-        )}
-
         {/* Action Stepper / Creator Widget */}
         <CreateOutletWizard
           step={step}
@@ -201,6 +194,7 @@ export default function SuperadminPage() {
                 onToggleExpand={() => toggleExpand(r.id)}
                 onCopyId={(id) => copyToClipboard(id, id)}
                 onOpenSettings={(outlet) => openOutletSettings(outlet)}
+                onImpersonateOutlet={onImpersonateOutlet}
                 onAddUser={(id) => startAddUserForRestaurant(id)}
                 onDeleteRestaurant={(id, name) => void deleteRestaurant(id, name)}
                 onDeleteUser={(id, userEmail) => void deleteUser(id, userEmail)}
@@ -221,7 +215,6 @@ export default function SuperadminPage() {
         onSaveOutletSettings={onSaveOutletSettings}
       />
 
-      {/* Centered TypeScript Confirm Delete Modal */}
       <ConfirmDeleteModal
         isOpen={Boolean(deleteTarget)}
         onClose={() => setDeleteTarget(null)}
@@ -234,6 +227,12 @@ export default function SuperadminPage() {
             : `Are you sure you want to delete user account "${deleteTarget?.name}"?`
         }
         isDeleting={isDeletingEntity}
+      />
+
+      <ToastNotification 
+        notice={notice} 
+        error={error} 
+        clear={() => { setNotice(null); setError(null); }} 
       />
     </div>
   );

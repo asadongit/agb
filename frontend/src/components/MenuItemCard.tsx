@@ -10,10 +10,11 @@ import { resolveImageUrl } from "@/lib/api";
 
 interface MenuItemCardProps {
   item: MenuItem;
+  isEveningOverrideActive?: boolean;
   onOpenVariantSheet: (item: MenuItem) => void;
 }
 
-export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
+export function MenuItemCard({ item, isEveningOverrideActive = false, onOpenVariantSheet }: MenuItemCardProps) {
   const { addToCart, cart } = useCart();
   const [justAdded, setJustAdded] = useState(false);
   const [showEveningTooltip, setShowEveningTooltip] = useState(false);
@@ -96,16 +97,28 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
         <div className="flex flex-1 flex-col justify-between">
           <div>
             <div className="flex items-start justify-between gap-1">
-              <h3 className="font-sans text-sm font-bold leading-tight text-[var(--text-primary)] flex items-center gap-1.5">
-                <span>{item.name}</span>
-                {eveningPrice > 0 && (
-                  <div className="relative inline-block">
+              <h3 className="font-display text-sm font-black text-[var(--text-primary)] leading-tight flex items-center gap-1.5 flex-wrap">
+                {item.name}
+              </h3>
+            </div>
+            {item.description && (
+              <p className="mt-1 line-clamp-2 text-xs text-[var(--text-secondary)] leading-relaxed">
+                {item.description}
+              </p>
+            )}
+          </div>
+
+          {/* Price & Action Button */}
+          <div className="mt-2.5 flex items-center justify-between">
+            <div className="flex flex-col relative">
+              <div className="flex items-center gap-1.5">
+                <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-semibold">
+                  {item.is_on_offer ? "Offer Price" : "Price"}
+                </span>
+                {isEveningOverrideActive && (
+                  <div className="relative inline-flex group">
                     <button
                       type="button"
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowEveningTooltip((prev) => !prev);
-                      }}
                       onMouseEnter={() => setShowEveningTooltip(true)}
                       onMouseLeave={() => setShowEveningTooltip(false)}
                       className="p-0.5 rounded hover:bg-amber-500/20 text-amber-400 transition cursor-pointer"
@@ -121,21 +134,7 @@ export function MenuItemCard({ item, onOpenVariantSheet }: MenuItemCardProps) {
                     )}
                   </div>
                 )}
-              </h3>
-            </div>
-            {item.description && (
-              <p className="mt-1 line-clamp-2 text-xs text-[var(--text-secondary)] leading-relaxed">
-                {item.description}
-              </p>
-            )}
-          </div>
-
-          {/* Price & Action Button */}
-          <div className="mt-2.5 flex items-center justify-between">
-            <div className="flex flex-col">
-              <span className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider font-semibold">
-                {item.is_on_offer ? "Offer Price" : "Price"}
-              </span>
+              </div>
               <div className="flex items-baseline gap-1.5 flex-wrap">
                 {item.is_on_offer && item.offer_price ? (
                   <>

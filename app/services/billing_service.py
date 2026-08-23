@@ -48,19 +48,22 @@ async def create_manual_bill(
 ) -> Order:
     """Create a draft manual bill with line items and snapshot pricing."""
     # Auto-register / link Customer account if phone number provided
+    cust_id = None
     if data.customer_phone and data.customer_phone.strip():
         from app.services.customer_service import create_customer
-        await create_customer(
+        cust = await create_customer(
             db,
             outlet_id,
             name=data.customer_name or "POS Customer",
             phone=data.customer_phone,
         )
+        cust_id = cust.id
 
     order = Order(
         id=order_id or uuid.uuid4(),
         outlet_id=outlet_id,
         basket_number=data.basket_number or "WALK-IN",
+        customer_id=cust_id,
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
         status=OrderStatusEnum.PENDING,
@@ -318,7 +321,7 @@ async def apply_discount(
     user_role_str = (user_role_raw.value if hasattr(user_role_raw, "value") else str(user_role_raw)).upper()
     is_manager_or_admin = any(r in user_role_str for r in ["SUPERADMIN", "ADMIN", "MANAGER", "OWNER"])
 
-    subtotal = order.subtotal_amount or Decimal("0.00")
+    subtotal = order.subtotal_amount or order.total_amount or Decimal("0.00")
     disc_val = Decimal(str(data.discount_value))
 
     if is_manager_or_admin:
@@ -465,6 +468,7 @@ async def mark_bill_paid(
     outlet_id: uuid.UUID,
     payment_method: str,
     cash_denominations: dict[str, int] | None = None,
+    redeem_loyalty_points: int = 0,
 ) -> Order:
     """Record cash/UPI payment method, set order status to COMPLETED for POS bills, and trigger inventory auto-deduction."""
     res = await db.execute(
@@ -496,6 +500,37 @@ async def mark_bill_paid(
     order.paid_at = datetime.utcnow()
     if not order.finalized_at:
         order.finalized_at = datetime.utcnow()
+
+    res_outlet = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+    outlet = res_outlet.scalar_one_or_none()
+
+    from app.models.customer import Customer
+    # Loyalty Points Redemption
+    if redeem_loyalty_points > 0 and outlet and (order.customer_id or order.customer_phone):
+        if order.customer_id:
+            res_cust = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.outlet_id == outlet_id))
+        else:
+            res_cust = await db.execute(select(Customer).where(Customer.phone == order.customer_phone, Customer.outlet_id == outlet_id))
+        cust = res_cust.scalar_one_or_none()
+        if cust and cust.loyalty_points >= redeem_loyalty_points:
+            cust.loyalty_points -= redeem_loyalty_points
+            order.loyalty_points_redeemed = redeem_loyalty_points
+            points_value_inr = Decimal(str(outlet.loyalty_point_value_inr or "0.00"))
+            discount_inr = Decimal(str(redeem_loyalty_points)) * points_value_inr
+            order.total_amount = max(Decimal("0.00"), (order.total_amount or Decimal("0.00")) - discount_inr)
+
+    # Loyalty Points Earning
+    if outlet and outlet.loyalty_points_per_100_inr > 0 and (order.customer_id or order.customer_phone):
+        if order.customer_id:
+            res_cust = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.outlet_id == outlet_id))
+        else:
+            res_cust = await db.execute(select(Customer).where(Customer.phone == order.customer_phone, Customer.outlet_id == outlet_id))
+        cust = res_cust.scalar_one_or_none()
+        if cust:
+            earned = round((float(order.total_amount or 0.0) / 100.0) * outlet.loyalty_points_per_100_inr)
+            if earned > 0:
+                cust.loyalty_points += earned
+                order.loyalty_points_earned = earned
 
     # Trigger recipe auto-deduction for stock management
     await process_order_auto_deduction(db, order)
@@ -760,3 +795,47 @@ async def discard_draft_bill(db: AsyncSession, bill_id: uuid.UUID, outlet_id: uu
         )
         await db.delete(order)
         await db.flush()
+
+
+async def delete_manual_bill(db: AsyncSession, bill_id: uuid.UUID, outlet_id: uuid.UUID, staff_user: Any) -> None:
+    """Explicitly delete a bill and log the action. Only allowed for non-completed/paid bills."""
+    res = await db.execute(
+        select(Order).where(Order.id == bill_id, Order.outlet_id == outlet_id)
+    )
+    order = res.scalar_one_or_none()
+    if not order:
+        raise HTTPException(status_code=404, detail="Bill not found")
+        
+    if order.status in [OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED, OrderStatusEnum.REFUNDED]:
+        raise HTTPException(status_code=400, detail="Cannot delete a paid, completed, or refunded bill.")
+
+    # Delete any pending discount approvals first
+    await db.execute(
+        delete(BillDiscountApproval).where(BillDiscountApproval.order_id == order.id)
+    )
+    
+    # Log the action
+    from app.services.staff_service import create_staff_audit_log
+    await create_staff_audit_log(
+        db=db,
+        outlet_id=outlet_id,
+        staff_id=_get_user_id(staff_user),
+        action_type="bill_deleted",
+        reference_type="Order",
+        reference_id=str(order.id),
+        details=f"Deleted manual bill {order.basket_number}. Status was {order.status.value}. Amount: {order.total_amount}"
+    )
+
+    # Sync action to outbox
+    append_to_outbox(
+        db=db,
+        action_type="bill_deleted",
+        payload={
+            "bill_id": str(order.id),
+            "basket_number": order.basket_number,
+            "deleted_by": str(_get_user_id(staff_user))
+        }
+    )
+
+    await db.delete(order)
+    await db.flush()

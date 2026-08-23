@@ -61,6 +61,12 @@ class Outlet(Base, TimestampMixin):
     public_basket_number: Mapped[str | None] = mapped_column(
         String(50), nullable=True, default=None
     )
+    loyalty_points_per_100_inr: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
+    loyalty_point_value_inr: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, server_default="0.00", default=Decimal("0.00")
+    )
     # Verification Rules (Anti-theft)
     verification_amount_cutoff: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True, default=None
@@ -86,8 +92,11 @@ class Outlet(Base, TimestampMixin):
     near_expiry_threshold_days: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="7", default=7
     )
-    notification_email: Mapped[str | None] = mapped_column(
-        String(255), nullable=True, default=None
+    notification_emails: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
+    )
+    notification_phones: Mapped[list[str]] = mapped_column(
+        JSON, nullable=False, default=list, server_default="[]"
     )
     email: Mapped[str | None] = mapped_column(
         String(255), nullable=True, default=None
@@ -97,6 +106,9 @@ class Outlet(Base, TimestampMixin):
     )
     place_of_supply: Mapped[str | None] = mapped_column(
         String(100), nullable=True, default=None
+    )
+    invoice_terms_conditions: Mapped[str | None] = mapped_column(
+        String(2000), nullable=True, default="1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction."
     )
 
     @property

@@ -11,6 +11,7 @@ export type CustomerAnalytics = {
   total_orders: number;
   best_categories: { category_name: string; total_quantity: number; total_amount: number }[];
   best_items: { item_name: string; total_quantity: number; total_amount: number }[];
+  loyalty_points?: number;
 };
 
 type CustomerInsightsModalProps = {
@@ -75,6 +76,14 @@ export function CustomerInsightsModal({
               </p>
               <span className="text-[10px] text-[var(--text-muted)] font-semibold">In selected timeframe ({analytics.period})</span>
             </div>
+          </div>
+
+          <div className="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4 space-y-1">
+            <span className="text-[10px] uppercase font-bold text-emerald-400">Loyalty Point Balance</span>
+            <p className="font-mono text-2xl font-black text-emerald-500">
+              {analytics.loyalty_points ?? 0} <span className="text-sm font-bold text-emerald-500/70">Points</span>
+            </p>
+            <span className="text-[10px] text-[var(--text-muted)] font-semibold">Available for redemption</span>
           </div>
 
           {/* Best Category Interest */}

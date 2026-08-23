@@ -30,6 +30,7 @@ interface BarcodeRegisterModalProps {
     reorder_threshold?: number;
     batch_number?: string;
     expiry_date?: string;
+    shelf_life_alert_hrs?: number;
     supplier_name?: string;
   }) => Promise<void>;
 }
@@ -70,6 +71,7 @@ export function BarcodeRegisterModal({
 
   const [batchNumber, setBatchNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
+  const [shelfLifeAlertHrs, setShelfLifeAlertHrs] = useState("");
   const [supplierName, setSupplierName] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -87,6 +89,7 @@ export function BarcodeRegisterModal({
     if (itm.cost_per_unit != null) setCostPerUnit(String(itm.cost_per_unit));
     if (itm.tax_category) setTaxCategory(itm.tax_category);
     if (itm.tax_rate != null) setTaxRate(String(itm.tax_rate));
+    if (itm.shelf_life_alert_hrs != null) setShelfLifeAlertHrs(String(itm.shelf_life_alert_hrs));
     const supp = (itm as any).supplier_name || (itm as any).batches?.[0]?.supplier_name || "";
     if (supp) setSupplierName(supp);
     setIsItemDropdownOpen(false);
@@ -118,6 +121,7 @@ export function BarcodeRegisterModal({
       setCustomTaxRate("");
       setBatchNumber(`BAT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
       setExpiryDate("");
+      setShelfLifeAlertHrs("");
       setError(null);
     }
   }, [isOpen, barcode, categories, prefillItem]);
@@ -197,6 +201,7 @@ export function BarcodeRegisterModal({
         tax_rate: finalTaxRate,
         batch_number: batchNumber.trim() || undefined,
         expiry_date: expiryDate ? new Date(expiryDate).toISOString() : undefined,
+        shelf_life_alert_hrs: shelfLifeAlertHrs.trim() ? parseInt(shelfLifeAlertHrs, 10) : undefined,
         supplier_name: supplierName.trim() || undefined,
       });
 
@@ -615,7 +620,7 @@ export function BarcodeRegisterModal({
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-2.5">
+            <div className="grid grid-cols-3 gap-2.5">
               <div>
                 <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1">
                   Batch / Lot #
@@ -637,6 +642,19 @@ export function BarcodeRegisterModal({
                   value={expiryDate}
                   onChange={(e) => setExpiryDate(e.target.value)}
                   className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-primary)]"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1 text-red-400">
+                  Shelf Life Alert (Hrs)
+                </label>
+                <input
+                  type="number"
+                  min="0"
+                  placeholder="Optional"
+                  value={shelfLifeAlertHrs}
+                  onChange={(e) => setShelfLifeAlertHrs(e.target.value)}
+                  className="w-full rounded-lg border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 text-xs font-mono text-red-300 focus:border-red-500 focus:outline-none placeholder:text-red-900/50"
                 />
               </div>
             </div>

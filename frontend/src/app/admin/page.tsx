@@ -370,6 +370,7 @@ export default function AdminDashboardPage() {
             restaurant={restaurant}
             onUpdateOrderStatus={ordersState.onUpdateOrderStatus}
             onCancelOrder={ordersState.onCancelOrder}
+            onDeleteOrder={ordersState.onDeleteOrder}
           />
         )}
 
@@ -391,6 +392,7 @@ export default function AdminDashboardPage() {
             onResumeDraft={billingState.handleResumeDraft}
             onOpenDiscountModal={billingState.openDiscountModal}
             onOpenPaymentModal={billingState.openPaymentModal}
+            onDeleteBill={billingState.handleDeleteBill}
           />
         )}
 
@@ -404,6 +406,7 @@ export default function AdminDashboardPage() {
             setSelectedCategory={menuState.setSelectedCategory}
             searchQuery={menuState.searchQuery}
             setSearchQuery={menuState.setSearchQuery}
+            authToken={accessToken || undefined}
             onSaveItem={menuState.handleSaveMenuItem}
             onSaveBatchItems={menuState.handleSaveBatchMenuItems}
             onDeleteItem={menuState.handleDeleteMenuItem}
@@ -424,6 +427,15 @@ export default function AdminDashboardPage() {
             staffList={staffState.staffList}
             staffAuditLogs={staffState.staffAuditLogs}
             isLoadingStaff={staffState.isLoadingStaff}
+            auditRoleFilter={staffState.auditRoleFilter}
+            setAuditRoleFilter={staffState.setAuditRoleFilter}
+            auditActionFilter={staffState.auditActionFilter}
+            setAuditActionFilter={staffState.setAuditActionFilter}
+            auditDateFilter={staffState.auditDateFilter}
+            setAuditDateFilter={staffState.setAuditDateFilter}
+            auditPage={staffState.auditPage}
+            setAuditPage={staffState.setAuditPage}
+            auditTotalPages={staffState.auditTotalPages}
             loadStaffMembers={staffState.loadStaffMembers}
             loadStaffAuditLogs={staffState.loadStaffAuditLogs}
             onDeactivateStaffMember={staffState.onDeactivateStaffMember}
@@ -512,6 +524,10 @@ export default function AdminDashboardPage() {
             setLedgerFilterType={inventoryState.setLedgerFilterType}
             isLoading={inventoryState.isLoading}
             error={inventoryState.error}
+            scanQty={inventoryState.scanQty}
+            setScanQty={inventoryState.setScanQty}
+            scanWeight={inventoryState.scanWeight}
+            setScanWeight={inventoryState.setScanWeight}
             scannedBarcode={inventoryState.scannedBarcode}
             setScannedBarcode={inventoryState.setScannedBarcode}
             isRegisterModalOpen={inventoryState.isRegisterModalOpen}
@@ -531,6 +547,8 @@ export default function AdminDashboardPage() {
             selectedWastageBatch={inventoryState.selectedWastageBatch}
             openWastageModal={inventoryState.openWastageModal}
             closeWastageModal={inventoryState.closeWastageModal}
+            deleteInventoryItem={inventoryState.deleteInventoryItem}
+            deleteBatch={inventoryState.deleteBatch}
             logWastage={inventoryState.logWastage}
             catalogCategories={menuState.categories}
             authToken={accessToken || undefined}

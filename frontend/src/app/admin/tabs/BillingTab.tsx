@@ -24,13 +24,16 @@ import {
   RotateCcw,
   Banknote,
   Calendar,
+  Trash2,
 } from "lucide-react";
 import { generateReceiptPDF } from "@/lib/pdfGenerator";
+import { generateA4InvoicePDF } from "@/lib/invoiceGenerator";
 import type { DiscountApproval, ManualBill, RolePermissions } from "@/types";
 import type { RestaurantProfile, AdminMenuItem } from "../adminTypes";
 import { apiRequest } from "../adminUtils";
 import { CustomerReturnsModal } from "../modals/CustomerReturnsModal";
 import { ReturnSuccessModal } from "../modals/ReturnSuccessModal";
+import { DeleteBillModal } from "../modals/DeleteBillModal";
 
 type BillingTabProps = {
   restaurant: RestaurantProfile | null;
@@ -51,6 +54,7 @@ type BillingTabProps = {
   onResumeDraft: (bill: ManualBill) => void;
   onOpenDiscountModal: (bill: ManualBill) => void;
   onOpenPaymentModal: (bill: ManualBill) => void;
+  onDeleteBill?: (billId: string) => Promise<void>;
 };
 
 export function BillingTab({
@@ -70,8 +74,10 @@ export function BillingTab({
   onResumeDraft,
   onOpenDiscountModal,
   onOpenPaymentModal,
+  onDeleteBill,
 }: BillingTabProps) {
   const [returnsModalOpen, setReturnsModalOpen] = useState(false);
+  const [billToDelete, setBillToDelete] = useState<ManualBill | null>(null);
   const [successReturnData, setSuccessReturnData] = useState<any | null>(null);
   const [showReturnSuccessModal, setShowReturnSuccessModal] = useState(false);
   const [denomDate, setDenomDate] = useState<string>(() => new Date().toISOString().split("T")[0]);
@@ -436,7 +442,8 @@ export function BillingTab({
                         )}
                       </td>
 
-                      <td className="p-3.5 text-right space-x-1">
+                      <td className="p-3.5 text-right">
+                        <div className="flex items-center justify-end gap-1.5">
                         {/* Resume / Edit Draft Button */}
                         {(b.status === "DRAFT" || b.status === "PENDING") && onResumeDraft && (
                           <button
@@ -446,6 +453,18 @@ export function BillingTab({
                             title="Resume / Edit Draft Bill"
                           >
                             <FileEdit className="h-4 w-4" />
+                          </button>
+                        )}
+                        
+                        {/* Delete Draft Button */}
+                        {onDeleteBill && b.status !== "PAID" && b.status !== "COMPLETED" && b.status !== "REFUNDED" && (
+                          <button
+                            type="button"
+                            onClick={() => setBillToDelete(b)}
+                            className="p-1.5 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 hover:bg-red-500 hover:text-white transition"
+                            title="Delete Bill Permanently"
+                          >
+                            <Trash2 className="h-4 w-4" />
                           </button>
                         )}
 
@@ -462,7 +481,6 @@ export function BillingTab({
                         )}
 
                         {/* View / Download PDF Receipt Buttons */}
-                        <div className="inline-flex items-center gap-1">
                           <button
                             type="button"
                             onClick={() => {
@@ -478,10 +496,21 @@ export function BillingTab({
                             onClick={() => {
                               generateReceiptPDF(b as any, restaurant?.name || "RESTAURANT", {}, restaurant || {}, "download");
                             }}
-                            className="p-1.5 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition"
-                            title="Download PDF Bill"
+                            className="flex items-center gap-1.5 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] px-3 py-1.5 text-xs font-bold text-[var(--accent-brand)] hover:border-[var(--accent-brand)] transition"
                           >
                             <Download className="h-4 w-4" />
+                            <span>Bill</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              generateA4InvoicePDF(b as any, restaurant?.name || "RESTAURANT", {}, restaurant || {}, "download");
+                            }}
+                            className="flex items-center gap-1.5 rounded-lg border border-purple-500/30 bg-purple-500/10 px-3 py-1.5 text-xs font-bold text-purple-400 hover:border-purple-400 transition"
+                          >
+                            <Download className="h-4 w-4" />
+                            <span>Invoice</span>
                           </button>
                         </div>
                       </td>
@@ -513,6 +542,19 @@ export function BillingTab({
         returnData={successReturnData}
         restaurantName={restaurant?.name || "ApnaGreen Basket"}
       />
+
+      {/* Delete Bill Modal */}
+      {billToDelete && onDeleteBill && (
+        <DeleteBillModal
+          isOpen={true}
+          onClose={() => setBillToDelete(null)}
+          order={billToDelete}
+          onConfirm={async (id) => {
+            await onDeleteBill(id);
+            setBillToDelete(null);
+          }}
+        />
+      )}
     </div>
   );
 }

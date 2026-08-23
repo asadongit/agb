@@ -334,18 +334,32 @@ async def list_staff_audit_log_endpoint(
     current_user: RequireAdmin,
     db: DBSession,
     staff_id: uuid.UUID | None = None,
+    action_type: str | None = None,
+    role: RoleEnum | None = None,
+    from_date: datetime | None = None,
+    to_date: datetime | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     """Get paginated staff audit trail."""
     stmt = (
         select(StaffAuditLog)
+        .join(StaffAuditLog.staff, isouter=True)
         .options(selectinload(StaffAuditLog.staff))
         .where(StaffAuditLog.outlet_id == current_user.outlet_id)
     )
 
     if staff_id:
         stmt = stmt.where(StaffAuditLog.staff_id == staff_id)
+    if action_type:
+        stmt = stmt.where(StaffAuditLog.action_type == action_type)
+    if role:
+        from app.models.user import User
+        stmt = stmt.where(User.role == role)
+    if from_date:
+        stmt = stmt.where(StaffAuditLog.created_at >= from_date)
+    if to_date:
+        stmt = stmt.where(StaffAuditLog.created_at <= to_date)
 
     count_stmt = select(func.count()).select_from(stmt.subquery())
     total_res = await db.execute(count_stmt)

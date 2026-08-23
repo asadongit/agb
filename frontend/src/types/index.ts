@@ -59,6 +59,7 @@ export interface OutletInfoResponse {
   session_duration_minutes?: number;
   session_grace_period_minutes?: number;
   basket_locking_enabled?: boolean;
+  invoice_terms_conditions?: string | null;
 }
 
 export type Outlet = OutletInfoResponse;
@@ -68,6 +69,7 @@ export interface PublicMenuResponse {
   outlet_slug: string;
   payment_mode: PaymentMode;
   logo_url?: string | null;
+  evening_price_active?: boolean;
   categories: Category[];
 }
 
@@ -107,6 +109,8 @@ export interface OrderResponse {
   updated_at: string;
   items: OrderItemResponse[];
   outlet?: OutletInfoResponse | null;
+  loyalty_points_earned?: number;
+  loyalty_points_redeemed?: number;
 }
 
 export interface RazorpayCheckoutResponse {
@@ -245,6 +249,7 @@ export interface Customer {
   phone: string;
   total_orders?: number;
   total_spent?: number;
+  loyalty_points?: number;
   created_at: string;
   updated_at?: string;
 }
@@ -539,6 +544,8 @@ export interface ManualBill {
   finalized_at?: string | null;
   paid_at?: string | null;
   items: ManualBillItem[];
+  loyalty_points_earned?: number;
+  loyalty_points_redeemed?: number;
 }
 
 export interface DiscountApproval {

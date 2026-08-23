@@ -20,6 +20,7 @@ class CatalogueItemSchema(StrictSchema):
     mrp: float = 0
     price: float = 0
     discount_pct: int = 0
+    evening_price: float | None = None
 
 
 class CatalogueCategorySchema(StrictSchema):

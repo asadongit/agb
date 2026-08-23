@@ -120,6 +120,7 @@ async def create_order(
         basket_number=data.basket_number,
         customer_name=data.customer_name,
         customer_phone=data.customer_phone,
+        subtotal_amount=total,
         total_amount=total,
         status=OrderStatusEnum.PENDING,
         is_auto_verified=not requires_verification,

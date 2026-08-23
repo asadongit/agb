@@ -36,6 +36,6 @@ class NotificationListResponse(BaseResponse):
 class NotificationDispatchResponse(BaseResponse):
     notification_id: uuid.UUID
     dispatched_channels: list[str]
-    recipient_email: str | None = None
-    recipient_phone: str | None = None
+    recipient_emails: list[str] = Field(default_factory=list)
+    recipient_phones: list[str] = Field(default_factory=list)
     status: str = "SUCCESS"

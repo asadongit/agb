@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import {
@@ -184,7 +184,36 @@ export default function OrderTrackingPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [order?.status, orderId]);
 
-  const statusConfig = order ? STATUS_CONFIG[order.status] : null;
+  const statusConfig = useMemo(() => {
+    if (!order) return null;
+    const base = STATUS_CONFIG[order.status];
+    if (!base) return null;
+
+    if (order.status === "PENDING_VERIFICATION") {
+      return {
+        ...base,
+        label: "Pending Exit Check",
+        description: "Payment Successful! Please show this screen to staff at the exit for a quick item check.",
+      };
+    }
+    if (order.status === "PAYMENT_PENDING") {
+      return {
+        ...base,
+        label: "Counter Queue",
+        description: order.is_auto_verified
+          ? "Please proceed to the billing counter to pay."
+          : "Please proceed to the billing counter to pay and verify your items.",
+      };
+    }
+    if (order.status === "COMPLETED") {
+      return {
+        ...base,
+        label: "Paid & Verified",
+        description: "You are verified and good to go. Thank you for shopping!",
+      };
+    }
+    return base;
+  }, [order]);
   const StatusIcon = statusConfig?.icon || Clock;
 
   // Check if order is paid (download & detailed cash memo only appear when paid)

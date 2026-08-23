@@ -20,6 +20,7 @@ export interface CatalogueItem {
   mrp: number;
   price: number;
   discount_pct: number;
+  evening_price?: number;
 }
 
 export interface CatalogueCategory {
@@ -48,6 +49,7 @@ export interface OutletPrintHeader {
   phone?: string;
   gstin?: string;
   fssai_no?: string;
+  bill_qr_url?: string;
 }
 
 export interface TemplateProps {

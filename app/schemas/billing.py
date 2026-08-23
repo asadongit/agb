@@ -50,6 +50,7 @@ class ApproveDiscountRequest(StrictSchema):
 class MarkPaidRequest(StrictSchema):
     payment_method: str = Field(..., pattern="^(CASH|UPI)$")
     cash_denominations: dict[str, int] | None = None
+    redeem_loyalty_points: int = 0
 
 
 class CustomerReturnItemInput(StrictSchema):
@@ -115,6 +116,8 @@ class BillResponse(BaseResponse):
     discount_status: str | None = None
     payment_method: str | None = None
     cash_denominations: dict[str, int] | None = None
+    loyalty_points_earned: int = 0
+    loyalty_points_redeemed: int = 0
     created_by_staff_id: str | None = None
     created_at: str
     finalized_at: str | None = None

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 import { Plus, Minus, Trash2, Search, Loader2, X, ShoppingCart, UserCheck, Barcode } from "lucide-react";
 import type { ActiveSession, MenuItem } from "@/types";
 import { getApiBaseUrl } from "@/lib/api";
@@ -29,6 +29,7 @@ export function StaffAssistBasketModal({
   authToken,
 }: StaffAssistBasketModalProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [selectedItems, setSelectedItems] = useState<SelectedCartItem[]>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -165,10 +166,29 @@ export function StaffAssistBasketModal({
             <div className="relative">
               <Search className="absolute left-3 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
               <input
+                ref={searchInputRef}
                 type="text"
                 placeholder="Search products by name or scan barcode..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const query = searchQuery.trim().toLowerCase();
+                    if (!query) return;
+
+                    let match = menuItems.find((m) => m.barcode?.toLowerCase() === query);
+                    if (!match && filteredMenuItems.length === 1) {
+                      match = filteredMenuItems[0];
+                    }
+
+                    if (match) {
+                      handleAddItem(match);
+                      setSearchQuery("");
+                      setTimeout(() => searchInputRef.current?.focus(), 0);
+                    }
+                  }
+                }}
                 className="w-full rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] pl-9 pr-3 py-2 text-xs text-[var(--text-primary)] focus:outline-none focus:ring-1 focus:ring-[var(--accent-brand)]"
               />
             </div>

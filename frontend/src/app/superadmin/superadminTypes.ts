@@ -43,6 +43,7 @@ export type RestaurantWithUsers = {
   email?: string | null;
   bill_qr_url?: string | null;
   place_of_supply?: string | null;
+  invoice_terms_conditions?: string | null;
   created_at: string;
   updated_at: string;
   users: RestaurantUser[];
@@ -65,6 +66,7 @@ export type RestaurantCreateForm = {
   email: string;
   bill_qr_url: string;
   place_of_supply: string;
+  invoice_terms_conditions: string;
 };
 
 export type AdminUserForm = {

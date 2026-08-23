@@ -308,6 +308,7 @@ async def create_inventory_item(
         mrp=getattr(data, "mrp", None),
         tax_category=getattr(data, "tax_category", "GST 0%"),
         tax_rate=getattr(data, "tax_rate", Decimal("0.00")),
+        shelf_life_alert_hrs=getattr(data, "shelf_life_alert_hrs", None),
         is_active=True,
     )
     db.add(item)
@@ -354,6 +355,8 @@ async def update_inventory_item(
         item.tax_category = data.tax_category
     if getattr(data, "tax_rate", None) is not None:
         item.tax_rate = data.tax_rate
+    if getattr(data, "shelf_life_alert_hrs", None) is not None:
+        item.shelf_life_alert_hrs = data.shelf_life_alert_hrs
     if data.is_active is not None:
         item.is_active = data.is_active
 
@@ -566,6 +569,7 @@ async def onboard_scanned_item(
     total_billed_amount: Decimal | None = None,
     item_id: uuid.UUID | None = None,
     wholesale_price: Decimal | None = None,
+    shelf_life_alert_hrs: int | None = None,
 ) -> tuple[InventoryItem, StockIntake | None]:
     """
     Scan / Manual Inward Stock: Registers a new item or appends a new batch to an existing item.
@@ -618,6 +622,8 @@ async def onboard_scanned_item(
             item.tax_category = tax_category
         if tax_rate is not None:
             item.tax_rate = tax_rate
+        if shelf_life_alert_hrs is not None:
+            item.shelf_life_alert_hrs = shelf_life_alert_hrs
         if clean_barcode and not item.barcode:
             item.barcode = clean_barcode
     else:
@@ -649,6 +655,7 @@ async def onboard_scanned_item(
             wholesale_price=wholesale_price,
             tax_category=tax_category,
             tax_rate=tax_rate,
+            shelf_life_alert_hrs=shelf_life_alert_hrs,
             is_active=True,
         )
         db.add(item)

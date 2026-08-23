@@ -106,7 +106,7 @@ async def _build_menu_tree(db: AsyncSession, slug: str) -> dict:
                         "id": str(item.id),
                         "name": item.name,
                         "description": item.description,
-                        "price": str(item.resolve_price(evening_active)),
+                        "price": str(item.base_price(evening_active)),
                         "evening_price": str(item.evening_price) if (evening_active and getattr(item, "evening_price", None) is not None) else None,
                         "mrp": str(item.mrp) if getattr(item, "mrp", None) is not None else None,
                         "image_url": item.image_url,

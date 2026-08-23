@@ -76,3 +76,47 @@ async def delete_user(
 
     await db.delete(target_user)
     await db.flush()
+
+@router.post("/impersonate/{outlet_id}", response_model=TokenResponse)
+async def impersonate_outlet(
+    outlet_id: uuid.UUID,
+    current_user: RequireSuperadmin,
+    db: DBSession,
+):
+    """
+    Generate a new access token that acts as SUPERADMIN but scoped to a specific outlet_id.
+    """
+    from app.models.outlet import Outlet
+    from app.core.security import create_access_token, create_refresh_token
+    
+    result = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+    outlet = result.scalar_one_or_none()
+    
+    if not outlet:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Outlet not found",
+        )
+
+    access_token = create_access_token(
+        user_id=current_user.user_id,
+        outlet_id=outlet_id,
+        role=RoleEnum.SUPERADMIN.value,
+    )
+    refresh_token = create_refresh_token(
+        user_id=current_user.user_id,
+        outlet_id=outlet_id,
+        role=RoleEnum.SUPERADMIN.value,
+    )
+
+    user_res = await db.execute(select(User).where(User.id == current_user.user_id))
+    user_obj = user_res.scalar_one()
+
+    from app.services.staff_service import to_staff_response
+    
+    return TokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        role=RoleEnum.SUPERADMIN.value,
+        user=to_staff_response(user_obj)
+    )

@@ -6,9 +6,10 @@ outlet_id ALWAYS comes from JWT, never from client input.
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
@@ -28,7 +29,16 @@ async def list_catalogues(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """List all catalogue batches for the current user's outlet."""
+    """List all catalogue batches for the current user's outlet and clean up old ones."""
+    # Lazy cleanup: delete catalogues older than 7 days
+    cutoff = datetime.now(timezone.utc) - timedelta(days=7)
+    cleanup_stmt = delete(CatalogueBatch).where(
+        CatalogueBatch.outlet_id == current_user.outlet_id,
+        CatalogueBatch.created_at < cutoff
+    )
+    await db.execute(cleanup_stmt)
+    await db.commit()
+
     stmt = select(CatalogueBatch).order_by(CatalogueBatch.updated_at.desc())
     stmt = outlet_scoped_query(stmt, CatalogueBatch, current_user.outlet_id)
     result = await db.execute(stmt)

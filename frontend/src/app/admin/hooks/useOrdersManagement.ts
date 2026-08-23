@@ -228,6 +228,18 @@ export function useOrdersManagement({
     };
   }, [orders]);
 
+  const onDeleteOrder = async (orderId: string) => {
+    setError(null);
+    try {
+      await apiRequest(`/api/billing/bills/${orderId}`, { method: "DELETE" });
+      setOrders((current) => current.filter((o) => o.id !== orderId));
+      setNotice(`Order #${orderId.slice(0, 8)} deleted permanently.`);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Delete failed.");
+      throw err; // So caller can handle failure if needed
+    }
+  };
+
   return {
     orders,
     setOrders,
@@ -235,5 +247,6 @@ export function useOrdersManagement({
     kpis,
     onUpdateOrderStatus,
     onCancelOrder,
+    onDeleteOrder,
   };
 }

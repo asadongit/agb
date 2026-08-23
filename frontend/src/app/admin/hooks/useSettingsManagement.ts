@@ -38,10 +38,13 @@ export function useSettingsManagement({
     verification_amount_cutoff: "",
     flagged_item_ids: [],
     near_expiry_threshold_days: 7,
-    notification_email: "",
+    notification_emails: "",
+    notification_phones: "",
     email: "",
     bill_qr_url: "",
     place_of_supply: "",
+    loyalty_points_per_100_inr: 0,
+    loyalty_point_value_inr: "0.00",
   });
   const [isSavingRestaurant, setIsSavingRestaurant] = useState(false);
 
@@ -67,10 +70,16 @@ export function useSettingsManagement({
             : "",
         flagged_item_ids: restaurant.flagged_item_ids || [],
         near_expiry_threshold_days: restaurant.near_expiry_threshold_days ?? 7,
-        notification_email: restaurant.notification_email || "",
+        notification_emails: (restaurant.notification_emails || []).join(", "),
+        notification_phones: (restaurant.notification_phones || []).join(", "),
         email: restaurant.email || "",
         bill_qr_url: restaurant.bill_qr_url || "",
         place_of_supply: restaurant.place_of_supply || "",
+        loyalty_points_per_100_inr: restaurant.loyalty_points_per_100_inr ?? 0,
+        loyalty_point_value_inr: restaurant.loyalty_point_value_inr !== null && restaurant.loyalty_point_value_inr !== undefined
+          ? String(restaurant.loyalty_point_value_inr)
+          : "0.00",
+        invoice_terms_conditions: restaurant.invoice_terms_conditions || "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
       });
     }
   }, [restaurant]);
@@ -100,10 +109,14 @@ export function useSettingsManagement({
         verification_amount_cutoff: restaurantForm.verification_amount_cutoff?.trim() ? parseFloat(restaurantForm.verification_amount_cutoff) : null,
         flagged_item_ids: restaurantForm.flagged_item_ids || [],
         near_expiry_threshold_days: restaurantForm.near_expiry_threshold_days,
-        notification_email: restaurantForm.notification_email?.trim() || null,
+        notification_emails: restaurantForm.notification_emails.split(",").map(e => e.trim()).filter(Boolean),
+        notification_phones: restaurantForm.notification_phones.split(",").map(p => p.trim()).filter(Boolean),
         email: restaurantForm.email?.trim() || null,
         bill_qr_url: restaurantForm.bill_qr_url?.trim() || null,
         place_of_supply: restaurantForm.place_of_supply?.trim() || null,
+        loyalty_points_per_100_inr: restaurantForm.loyalty_points_per_100_inr,
+        loyalty_point_value_inr: restaurantForm.loyalty_point_value_inr?.trim() ? parseFloat(restaurantForm.loyalty_point_value_inr) : 0,
+        invoice_terms_conditions: restaurantForm.invoice_terms_conditions?.trim() || null,
       };
 
       const updated = await apiRequest<RestaurantProfile>(

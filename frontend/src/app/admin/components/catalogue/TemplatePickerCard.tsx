@@ -19,12 +19,14 @@ const TEMPLATES: { id: TemplateId; name: string; desc: string; palette: string[]
     desc: "Paper-toned, serif headings, hanging tag cards with ink-stamp discount badges. Best for daily rate lists.",
     palette: ["#1F3D2B", "#F4EEDD", "#E0A03B", "#AD3A2C"],
   },
+  /* 
   {
     id: "aisle-grid",
     name: "Aisle Grid",
     desc: "Clean white layout, colored aisle rail labels, rounded cards with accent badge chips. Best for flyers.",
     palette: ["#1B6B45", "#FAFAF6", "#C1613D", "#7C4B72", "#D64545"],
   },
+  */
 ];
 
 export function TemplatePickerCard({ selected, onChange }: TemplatePickerCardProps) {

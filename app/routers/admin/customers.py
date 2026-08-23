@@ -9,10 +9,11 @@ import uuid
 from fastapi import APIRouter, Query, status
 
 from app.dependencies import DBSession, RequireAdmin
-from app.schemas.customer import CustomerCreate, CustomerResponse
+from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
 from app.services.audit_service import log_action
 from app.services.customer_service import (
     create_customer,
+    update_customer,
     delete_customer,
     get_customer_analytics,
     list_customers,
@@ -65,6 +66,35 @@ async def create_customer_route(
         current_user.outlet_id,
         current_user.user_id,
         "CREATE",
+        "Customer",
+        str(cust.id),
+        details={"name": cust.name, "phone": cust.phone},
+    )
+
+    return cust
+
+
+@router.patch("/{customer_id}", response_model=CustomerResponse)
+async def update_customer_route(
+    customer_id: uuid.UUID,
+    data: CustomerUpdate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Update a customer's details (name, phone) for current outlet."""
+    cust = await update_customer(
+        db,
+        current_user.outlet_id,
+        customer_id,
+        name=data.name,
+        phone=data.phone,
+    )
+
+    await log_action(
+        db,
+        current_user.outlet_id,
+        current_user.user_id,
+        "UPDATE",
         "Customer",
         str(cust.id),
         details={"name": cust.name, "phone": cust.phone},

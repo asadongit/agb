@@ -55,7 +55,7 @@ export function useSessionsManagement({
     try {
       await apiRequest(`/api/admin/sessions/${sessionId}/terminate`, {
         method: "POST",
-        body: JSON.stringify({ reason: reason || null }),
+        body: JSON.stringify(reason ? { reason } : {}),
       });
       setNotice("Session terminated.");
       void fetchActiveSessions();

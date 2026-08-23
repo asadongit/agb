@@ -39,23 +39,23 @@ async def list_customers(
     # Pre-fetch order stats for all customers in this outlet
     stats_stmt = (
         select(
-            Order.customer_phone,
+            Order.customer_id,
             func.count(Order.id).label("total_orders"),
             func.coalesce(func.sum(Order.total_amount), 0).label("total_spent"),
         )
         .where(
             Order.outlet_id == outlet_id,
-            Order.customer_phone.isnot(None),
-            Order.status == OrderStatusEnum.PAID,
+            Order.customer_id.isnot(None),
+            Order.status.in_([OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]),
         )
-        .group_by(Order.customer_phone)
+        .group_by(Order.customer_id)
     )
     stats_res = await db.execute(stats_stmt)
-    stats_map = {row.customer_phone: (row.total_orders, float(row.total_spent)) for row in stats_res}
+    stats_map = {row.customer_id: (row.total_orders, float(row.total_spent)) for row in stats_res}
 
     result = []
     for c in customers:
-        orders_count, spent = stats_map.get(c.phone, (0, 0.0))
+        orders_count, spent = stats_map.get(c.id, (0, 0.0))
         result.append({
             "id": c.id,
             "outlet_id": c.outlet_id,
@@ -63,6 +63,7 @@ async def list_customers(
             "phone": c.phone,
             "total_orders": orders_count,
             "total_spent": spent,
+            "loyalty_points": c.loyalty_points,
             "created_at": c.created_at,
             "updated_at": c.updated_at,
         })
@@ -89,6 +90,7 @@ async def create_customer(
     if cust:
         cust.name = clean_name
         await db.flush()
+        await db.refresh(cust)
         return cust
 
     cust = Customer(
@@ -99,6 +101,49 @@ async def create_customer(
     )
     db.add(cust)
     await db.flush()
+    await db.refresh(cust)
+    return cust
+
+
+async def update_customer(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    customer_id: uuid.UUID,
+    name: str | None = None,
+    phone: str | None = None,
+) -> Customer:
+    """Update a customer's details (name, phone)."""
+    res = await db.execute(
+        select(Customer).where(
+            Customer.id == customer_id,
+            Customer.outlet_id == outlet_id,
+        )
+    )
+    cust = res.scalar_one_or_none()
+    if not cust:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Customer not found")
+
+    if name is not None:
+        cust.name = name
+    if phone is not None:
+        # Check if new phone is already taken by another customer
+        if phone != cust.phone:
+            existing = await db.execute(
+                select(Customer).where(
+                    Customer.outlet_id == outlet_id,
+                    Customer.phone == phone,
+                    Customer.id != customer_id
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Phone number already in use by another customer"
+                )
+        cust.phone = phone
+
+    await db.flush()
+    await db.refresh(cust)
     return cust
 
 
@@ -147,13 +192,17 @@ async def get_customer_analytics(
     )
     cust = cust_res.scalar_one_or_none()
     cust_name = cust.name if cust else "Walk-In Customer"
+    loyalty_points = cust.loyalty_points if cust else 0
 
     # Base query for paid or completed orders
     order_stmt = select(Order.id, Order.total_amount, Order.created_at).where(
         Order.outlet_id == outlet_id,
-        Order.customer_phone == clean_phone,
         Order.status.in_([OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]),
     )
+    if cust:
+        order_stmt = order_stmt.where(Order.customer_id == cust.id)
+    else:
+        order_stmt = order_stmt.where(Order.customer_phone == clean_phone)
 
     now = datetime.utcnow()
     if period == "this_week":
@@ -245,6 +294,7 @@ async def get_customer_analytics(
         "period": period,
         "total_volume": total_volume,
         "total_orders": total_orders,
+        "loyalty_points": loyalty_points,
         "best_categories": best_categories,
         "best_items": best_items,
     }

@@ -367,13 +367,20 @@ export async function generateReceiptPDF(
     extraDiscountLabel = `Extra Discount (Complimentary)`;
   }
 
-  const amountPayable = Math.max(0, totalSellingSubtotal - extraDiscountRupees);
+  const pointsRedeemed = (order as any).loyalty_points_redeemed || 0;
+  let loyaltyDiscountRupees = 0;
+  if (pointsRedeemed > 0) {
+    const pointValue = getOutletField("loyalty_point_value_inr") || storeDetails?.loyalty_point_value_inr || (order as any).restaurant?.loyalty_point_value_inr || 1;
+    loyaltyDiscountRupees = pointsRedeemed * parseFloat(String(pointValue));
+  }
+
+  const amountPayable = Math.max(0, totalSellingSubtotal - extraDiscountRupees - loyaltyDiscountRupees);
 
   doc.setFont("courier", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
 
-  if (mrpSavings > 0 || extraDiscountRupees > 0) {
+  if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
     doc.text("Total MRP Value", margin, summaryY);
     doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
     summaryY += 3.5;
@@ -387,6 +394,12 @@ export async function generateReceiptPDF(
     if (extraDiscountRupees > 0) {
       doc.text(extraDiscountLabel, margin, summaryY);
       doc.text(`- INR ${extraDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+
+    if (loyaltyDiscountRupees > 0) {
+      doc.text(`Loyalty Redemption (${pointsRedeemed} pts)`, margin, summaryY);
+      doc.text(`- INR ${loyaltyDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       summaryY += 3.5;
     }
     

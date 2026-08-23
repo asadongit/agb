@@ -83,7 +83,7 @@ async def sync_near_expiry_notifications(
                 "cost_per_unit": float(intake.unit_cost or 0),
                 "mrp": float(item.mrp) if item.mrp is not None else None,
                 "selling_price": float(getattr(item, "selling_price", 0)) if getattr(item, "selling_price", None) is not None else None,
-                "supplier_name": intake.supplier_name or item.supplier_name or "N/A",
+                "supplier_name": intake.supplier_name or getattr(item, "supplier_name", None) or "N/A",
                 "expiry_date": intake.expiry_date.isoformat(),
                 "days_until_expiry": days_left,
                 "status": status_text,
@@ -125,6 +125,75 @@ async def sync_near_expiry_notifications(
     await db.commit()
 
 
+async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) -> None:
+    """
+    Syncs shelf life alerts into the DB 'notifications' table.
+    Checks if intake_date + shelf_life_alert_hrs <= NOW() for active batches.
+    """
+    now = datetime.now(timezone.utc)
+    
+    stmt = (
+        select(StockIntake, InventoryItem)
+        .join(InventoryItem, StockIntake.item_id == InventoryItem.id)
+        .where(
+            StockIntake.outlet_id == outlet_id,
+            StockIntake.remaining_quantity > 0,
+            InventoryItem.shelf_life_alert_hrs.is_not(None)
+        )
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    for intake, item in rows:
+        alert_hrs = item.shelf_life_alert_hrs
+        intake_date = intake.intake_date
+        
+        if intake_date.tzinfo is None:
+            intake_date = intake_date.replace(tzinfo=timezone.utc)
+            
+        elapsed_hours = (now - intake_date).total_seconds() / 3600
+        
+        if elapsed_hours >= alert_hrs:
+            details_payload = {
+                "batch_id": str(intake.id),
+                "item_id": str(item.id),
+                "item_name": item.name,
+                "unit": item.unit,
+                "remaining_quantity": float(intake.remaining_quantity),
+                "shelf_life_alert_hrs": alert_hrs,
+            }
+            
+            title = f"{item.name} — Shelf Life Reached"
+            message = f"The item shelf life has reached and its current count is {float(intake.remaining_quantity)} {item.unit}."
+            
+            existing_stmt = select(Notification).where(
+                Notification.outlet_id == outlet_id,
+                Notification.type == NotificationTypeEnum.SHELF_LIFE_ALERT,
+                func.json_extract(Notification.details, "$.batch_id") == str(intake.id),
+            )
+            existing_res = await db.execute(existing_stmt)
+            existing_notif = existing_res.scalar_one_or_none()
+
+            if existing_notif:
+                existing_notif.title = title
+                existing_notif.message = message
+                existing_notif.details = details_payload
+            else:
+                new_notif = Notification(
+                    id=uuid.uuid4(),
+                    outlet_id=outlet_id,
+                    type=NotificationTypeEnum.SHELF_LIFE_ALERT,
+                    title=title,
+                    message=message,
+                    details=details_payload,
+                    is_read=False,
+                    channels_sent=["IN_APP"],
+                )
+                db.add(new_notif)
+
+    await db.commit()
+
+
 async def get_outlet_notifications(
     db: AsyncSession, outlet_id: uuid.UUID, unread_only: bool = False
 ) -> dict[str, Any]:
@@ -132,6 +201,7 @@ async def get_outlet_notifications(
     Returns stored notifications for an outlet along with live unread badge count.
     """
     await sync_near_expiry_notifications(db, outlet_id)
+    await sync_shelf_life_notifications(db, outlet_id)
 
     outlet = await db.get(Outlet, outlet_id)
     threshold_days = outlet.near_expiry_threshold_days if outlet else 7
@@ -192,28 +262,30 @@ async def dispatch_notification_channels(
     if not outlet:
         raise ValueError("Outlet not found")
 
-    # Resolve recipient email (custom alert email > outlet admin email)
-    recipient_email = outlet.notification_email
-    if not recipient_email:
+    # Resolve recipient emails and phones
+    recipient_emails = outlet.notification_emails or []
+    recipient_phones = outlet.notification_phones or []
+    
+    if not recipient_emails:
         user_stmt = select(User).where(
             User.outlet_id == outlet_id, User.role == RoleEnum.OUTLET_ADMIN
         )
         user_res = await db.execute(user_stmt)
         admin_user = user_res.scalar_one_or_none()
-        if admin_user:
-            recipient_email = admin_user.email
-
-    recipient_phone = outlet.phone or "N/A"
+        if admin_user and admin_user.email:
+            recipient_emails = [admin_user.email]
 
     # Simulate Email & WhatsApp dispatch formatting
     dispatched_channels = ["IN_APP"]
 
-    if recipient_email:
-        print(f"📧 [Email Dispatch] Sent to '{recipient_email}': {notif.title} - {notif.message}")
+    for email in recipient_emails:
+        print(f"📧 [Email Dispatch] Sent to '{email}': {notif.title} - {notif.message}")
+    if recipient_emails:
         dispatched_channels.append("EMAIL")
 
-    if recipient_phone and recipient_phone != "N/A":
-        print(f"💬 [WhatsApp Dispatch] Sent to '{recipient_phone}': {notif.title} - {notif.message}")
+    for phone in recipient_phones:
+        print(f"💬 [WhatsApp Dispatch] Sent to '{phone}': {notif.title} - {notif.message}")
+    if recipient_phones:
         dispatched_channels.append("WHATSAPP")
 
     notif.channels_sent = list(set(notif.channels_sent or []).union(dispatched_channels))
@@ -222,8 +294,8 @@ async def dispatch_notification_channels(
     return {
         "notification_id": notif.id,
         "dispatched_channels": dispatched_channels,
-        "recipient_email": recipient_email,
-        "recipient_phone": recipient_phone,
+        "recipient_emails": recipient_emails,
+        "recipient_phones": recipient_phones,
         "status": "SUCCESS",
     }
 
@@ -239,6 +311,7 @@ async def sync_all_outlets_notifications(db_session_factory) -> None:
         for outlet_id in outlet_ids:
             try:
                 await sync_near_expiry_notifications(db, outlet_id)
+                await sync_shelf_life_notifications(db, outlet_id)
             except Exception as err:
                 print(f"⚠️ [Notification Sweep Warning] Outlet {outlet_id}: {err}")
 

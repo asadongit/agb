@@ -1,10 +1,9 @@
 import {
   ChevronDown,
   ChevronUp,
-  Copy,
-  CreditCard,
-  Crown,
+  ExternalLink,
   Settings2,
+  Store,
   Trash2,
   UserCheck,
   UserPlus,
@@ -21,6 +20,7 @@ type OutletCardProps = {
   onToggleExpand: () => void;
   onCopyId: (id: string) => void;
   onOpenSettings: (outlet: RestaurantWithUsers) => void;
+  onImpersonateOutlet: (id: string) => void;
   onAddUser: (restaurantId: string) => void;
   onDeleteRestaurant: (restaurantId: string, name: string) => void;
   onDeleteUser: (userId: string, email: string) => void;
@@ -35,6 +35,7 @@ export function OutletCard({
   onToggleExpand,
   onCopyId,
   onOpenSettings,
+  onImpersonateOutlet,
   onAddUser,
   onDeleteRestaurant,
   onDeleteUser,
@@ -52,37 +53,52 @@ export function OutletCard({
             <h3 className="font-display text-lg font-bold text-[var(--text-primary)] sm:text-xl">
               {r.name}
             </h3>
-            <span className="rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] px-2.5 py-0.5 font-mono text-[11px] font-semibold text-[var(--accent-brand)] sm:text-xs">
-              /{r.slug}
-            </span>
-            <span
-              className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold sm:px-2.5 sm:text-xs ${
-                r.payment_mode === "RAZORPAY_GATEWAY"
-                  ? "bg-emerald-100 text-emerald-800"
-                  : "bg-amber-100 text-amber-800"
-              }`}
+            <button
+              onClick={() => onCopyId(r.id)}
+              className="group flex items-center gap-1.5 rounded-full bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-[10px] font-mono text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition"
+              title="Click to copy Outlet ID"
             >
-              <CreditCard className="h-3 w-3" />
-              {r.payment_mode === "RAZORPAY_GATEWAY" ? "Razorpay" : "Counter"}
-            </span>
+              <span>/{r.slug}</span>
+            </button>
           </div>
           <p className="text-xs text-[var(--text-muted)]">
             Onboarded on {formatDateTime(r.created_at)}
           </p>
         </div>
 
+        {/* Action Buttons */}
         <div className="flex items-center gap-2 flex-wrap">
+          <div className="flex items-center gap-1 mr-2 px-3 py-1 rounded-full bg-amber-500/10 text-amber-600 text-[10px] font-bold">
+            <Store className="h-3 w-3" />
+            {r.payment_mode === "PAY_AT_COUNTER" ? "Counter" : "Online"}
+          </div>
+
           <button
             type="button"
             onClick={() => onCopyId(r.id)}
-            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 text-[11px] font-semibold hover:border-[var(--accent-brand)] transition sm:text-xs sm:px-3"
-            title="Copy Outlet ID"
+            className="hidden sm:inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 text-xs text-[var(--text-secondary)] hover:text-[var(--text-primary)] transition font-mono"
+            title="Copy ID"
           >
-            <Copy className="h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <span className="font-mono hidden sm:inline">
-              {copiedId === r.id ? "Copied ID!" : `${r.id.substring(0, 8)}...`}
-            </span>
-            <span className="font-mono sm:hidden">{copiedId === r.id ? "Copied!" : "ID"}</span>
+            {copiedId === r.id ? (
+              <span className="text-emerald-500 font-bold">Copied!</span>
+            ) : (
+              <>
+                <svg className="h-3.5 w-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                </svg>
+                {r.id.substring(0, 8)}...
+              </>
+            )}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => onImpersonateOutlet(r.id)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-indigo-500/30 bg-indigo-500/10 px-2.5 py-1.5 text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:bg-indigo-500/20 transition sm:text-xs sm:px-3"
+            title="Open Outlet Dashboard"
+          >
+            <ExternalLink className="h-3.5 w-3.5" />
+            <span className="hidden sm:inline">Dashboard ↗</span>
           </button>
 
           <button
@@ -129,19 +145,15 @@ export function OutletCard({
       <div className="mt-3 flex items-center justify-between text-xs text-[var(--text-secondary)]">
         <div className="flex items-center gap-4">
           <span className="inline-flex items-center gap-1.5 font-semibold">
-            <Crown className="h-4 w-4 text-amber-600" />
-            {admins.length} {admins.length === 1 ? "Admin" : "Admins"}
-          </span>
-          <span className="inline-flex items-center gap-1.5 font-semibold">
-            <Users className="h-4 w-4 text-sky-600" />
-            {staffUsers.length} {staffUsers.length === 1 ? "Staff Member" : "Staff Members"}
+            <Users className="h-4 w-4 text-[var(--accent-brand)]" />
+            {r.users.length} {r.users.length === 1 ? "Team Member" : "Team Members"}
           </span>
         </div>
 
         <button
           type="button"
           onClick={onToggleExpand}
-          className="text-xs font-semibold text-[var(--accent-brand)] hover:underline"
+          className="font-bold text-[var(--accent-brand)] hover:underline"
         >
           {isExpanded ? "Hide Team Directory" : "View Team Directory"}
         </button>
@@ -153,14 +165,14 @@ export function OutletCard({
           {/* Admins Group */}
           <div>
             <div className="mb-2 flex items-center gap-1.5">
-              <Crown className="h-4 w-4 text-amber-600" />
+              <Users className="h-4 w-4 text-amber-600" />
               <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 Outlet Admins ({admins.length})
               </h4>
             </div>
 
             {admins.length === 0 ? (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800">
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/5 p-3 text-xs text-amber-600 dark:text-amber-500">
                 ⚠️ No admin user assigned to this outlet yet. Click &quot;Add User&quot; above to create one.
               </div>
             ) : (
@@ -168,7 +180,7 @@ export function OutletCard({
                 {admins.map((u) => (
                   <div
                     key={u.id}
-                    className="flex items-center justify-between rounded-xl border border-amber-200/60 bg-amber-50/40 p-3"
+                    className="flex items-center justify-between rounded-xl border border-amber-500/30 bg-amber-500/5 p-3"
                   >
                     <div className="space-y-0.5 min-w-0">
                       <p className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 truncate">
@@ -179,19 +191,19 @@ export function OutletCard({
                         {u.email} {u.phone ? `• ${u.phone}` : ""}
                       </p>
                     </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {u.has_pin && (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
+                    <div className="flex items-center gap-2">
+                      {u.pin_hash && (
+                        <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
                           PIN Set
                         </span>
                       )}
-                      <span className="rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+                      <span className="rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-600 dark:text-amber-400">
                         Admin
                       </span>
                       <button
                         type="button"
                         onClick={() => onDeleteUser(u.id, u.email)}
-                        className="p-1 rounded-lg text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition"
+                        className="p-1 rounded-lg text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 transition"
                         title="Delete Admin Account"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
@@ -203,57 +215,64 @@ export function OutletCard({
             )}
           </div>
 
-          {/* Staff & Team Roster */}
+          {/* Staff Group */}
           <div>
-            <div className="mb-2 flex items-center justify-between">
-              <div className="flex items-center gap-1.5">
-                <Users className="h-4 w-4 text-[var(--accent-brand)]" />
-                <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                  Outlet Staff &amp; Team Roster ({staffUsers.length})
-                </h4>
-              </div>
+            <div className="mb-2 flex items-center gap-1.5 mt-6">
+              <Users className="h-4 w-4 text-sky-600" />
+              <h4 className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Outlet Staff & Team Roster ({staffUsers.length})
+              </h4>
             </div>
 
             {staffUsers.length === 0 ? (
-              <p className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 text-xs text-[var(--text-muted)]">
-                No staff members provisioned for this outlet yet.
-              </p>
+              <div className="rounded-xl border border-sky-500/20 bg-sky-500/5 p-3 text-xs text-sky-700 dark:text-sky-400">
+                ℹ️ No floor staff, cashiers, or managers have been created for this outlet yet.
+              </div>
             ) : (
               <div className="grid gap-2 sm:grid-cols-2">
-                {staffUsers.map((u) => (
-                  <div
-                    key={u.id}
-                    className="flex items-center justify-between rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3"
-                  >
-                    <div className="space-y-0.5 truncate min-w-0">
-                      <p className="text-xs font-bold text-[var(--text-primary)] truncate flex items-center gap-1.5">
-                        <UserCheck className="h-3.5 w-3.5 text-[var(--accent-brand)] shrink-0" />
-                        <span className="truncate">{u.name || u.email.split("@")[0]}</span>
-                      </p>
-                      <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">
-                        {u.email} {u.phone ? `• ${u.phone}` : ""}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {u.has_pin && (
-                        <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-bold text-emerald-800">
-                          PIN Set
+                {staffUsers.map((u) => {
+                  const s = staffList.find((st) => st.id === u.id);
+                  const isManager = u.role === "MANAGER";
+                  const borderColor = isManager ? "border-purple-500/30" : "border-sky-500/30";
+                  const bgColor = isManager ? "bg-purple-500/5" : "bg-sky-500/5";
+                  const textColor = isManager ? "text-purple-600 dark:text-purple-400" : "text-sky-600 dark:text-sky-400";
+                  const badgeBg = isManager ? "bg-purple-500/10" : "bg-sky-500/10";
+
+                  return (
+                    <div
+                      key={u.id}
+                      className={`flex items-center justify-between rounded-xl border ${borderColor} ${bgColor} p-3`}
+                    >
+                      <div className="space-y-0.5 min-w-0">
+                        <p className="text-xs font-bold text-[var(--text-primary)] flex items-center gap-1.5 truncate">
+                          <UserCheck className={`h-3.5 w-3.5 ${textColor} shrink-0`} />
+                          <span>{s?.name || u.name || "Unnamed"}</span>
+                        </p>
+                        <p className="text-[11px] text-[var(--text-muted)] font-mono truncate">
+                          {u.email} {s?.phone ? `• ${s.phone}` : ""}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {u.pin_hash && (
+                          <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+                            PIN Set
+                          </span>
+                        )}
+                        <span className={`rounded-full ${badgeBg} px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${textColor}`}>
+                          {u.role.replace("_", " ")}
                         </span>
-                      )}
-                      <span className="rounded-full bg-sky-100 px-2 py-0.5 text-[10px] font-bold text-sky-800 uppercase">
-                        {u.role.replace("_", " ")}
-                      </span>
-                      <button
-                        type="button"
-                        onClick={() => onDeleteUser(u.id, u.email)}
-                        className="p-1 rounded-lg text-rose-500 hover:bg-rose-100 hover:text-rose-700 transition"
-                        title="Delete User Account"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => onDeleteUser(u.id, u.email)}
+                          className="p-1 rounded-lg text-rose-500 hover:bg-rose-500/10 hover:text-rose-600 transition"
+                          title="Delete Staff Account"
+                        >
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      </div>
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             )}
           </div>

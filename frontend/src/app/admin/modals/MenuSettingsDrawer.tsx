@@ -45,6 +45,7 @@ export function MenuSettingsDrawer({
     phone: restaurant?.phone || undefined,
     gstin: restaurant?.gstin || undefined,
     fssai_no: restaurant?.fssai_no || undefined,
+    bill_qr_url: restaurant?.bill_qr_url || undefined,
   };
 
   const tabs: { id: SettingsTab; label: string; icon: React.ReactNode }[] = [

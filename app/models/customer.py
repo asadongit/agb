@@ -8,7 +8,7 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint
+from sqlalchemy import ForeignKey, String, UniqueConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -16,6 +16,7 @@ from app.database import Base, TimestampMixin
 
 if TYPE_CHECKING:
     from app.models.basket_session import BasketSession
+    from app.models.order import Order
     from app.models.outlet import Outlet
 
 
@@ -36,6 +37,9 @@ class Customer(Base, TimestampMixin):
     )
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=False)
+    loyalty_points: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default="0", default=0
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(
@@ -43,4 +47,7 @@ class Customer(Base, TimestampMixin):
     )
     sessions: Mapped[list[BasketSession]] = relationship(
         "BasketSession", back_populates="customer"
+    )
+    orders: Mapped[list[Order]] = relationship(
+        "Order", back_populates="customer"
     )

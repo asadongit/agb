@@ -25,6 +25,7 @@ interface BatchHistoryDrawerProps {
   onLogWastageClick: (item: InventoryItem) => void;
   onAddStockClick: (item: InventoryItem) => void;
   onAdjustBatchClick?: (batch: BatchDetail) => void;
+  onDeleteBatchClick?: (batch: BatchDetail) => void;
 }
 
 export function BatchHistoryDrawer({
@@ -35,6 +36,7 @@ export function BatchHistoryDrawer({
   onLogWastageClick,
   onAddStockClick,
   onAdjustBatchClick,
+  onDeleteBatchClick,
 }: BatchHistoryDrawerProps) {
   const [batches, setBatches] = useState<BatchDetail[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -272,20 +274,37 @@ export function BatchHistoryDrawer({
                         </td>
 
                         <td className="px-3 py-3 text-right">
-                          {onAdjustBatchClick && (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                onClose();
-                                onAdjustBatchClick(b);
-                              }}
-                              className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
-                              title="Adjust stock, return to supplier, or void batch"
-                            >
-                              <RotateCcw className="h-3 w-3" />
-                              Adjust
-                            </button>
-                          )}
+                          <div className="flex items-center justify-end gap-2">
+                            {onAdjustBatchClick && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  onClose();
+                                  onAdjustBatchClick(b);
+                                }}
+                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
+                                title="Adjust stock, return to supplier, or void batch"
+                              >
+                                <RotateCcw className="h-3 w-3" />
+                                Adjust
+                              </button>
+                            )}
+
+                            {onDeleteBatchClick && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (window.confirm(`Are you sure you want to completely delete batch "${b.batch_number}"?\n\nThis will permanently remove it and deduct ${Number(b.remaining_quantity).toFixed(2)} ${b.unit} from the current stock.`)) {
+                                    onDeleteBatchClick(b);
+                                  }
+                                }}
+                                className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-transparent px-2 py-1 text-red-500 hover:bg-red-500/10 hover:text-red-400 transition cursor-pointer"
+                                title="Delete this batch completely"
+                              >
+                                <Trash2 className="h-3 w-3" />
+                              </button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     ))}

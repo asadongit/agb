@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, JSON, Numeric, String
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, JSON, Numeric, String, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -18,6 +18,7 @@ from app.models.enums import OrderStatusEnum
 
 if TYPE_CHECKING:
     from app.models.basket_session import BasketSession
+    from app.models.customer import Customer
     from app.models.order_item import OrderItem
     from app.models.outlet import Outlet
 
@@ -37,6 +38,12 @@ class Order(Base, TimestampMixin):
     session_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("basket_sessions.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", ondelete="SET NULL"),
         nullable=True,
         index=True,
     )
@@ -105,6 +112,12 @@ class Order(Base, TimestampMixin):
     handling_charge: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )
+    loyalty_points_earned: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    loyalty_points_redeemed: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(
@@ -113,7 +126,9 @@ class Order(Base, TimestampMixin):
     session: Mapped[BasketSession | None] = relationship(
         "BasketSession", back_populates="orders"
     )
+    customer: Mapped[Customer | None] = relationship(
+        "Customer", back_populates="orders"
+    )
     items: Mapped[list[OrderItem]] = relationship(
         "OrderItem", back_populates="order", cascade="all, delete-orphan"
     )
-

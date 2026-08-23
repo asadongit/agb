@@ -75,6 +75,9 @@ export function useInventoryManagement(
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [scanQty, setScanQty] = useState<number>(1);
+  const [scanWeight, setScanWeight] = useState<number | "">("");
+  
   // Batch History Drawer state
   const [selectedBatchItem, setSelectedBatchItem] = useState<InventoryItem | null>(null);
   const [isBatchDrawerOpen, setIsBatchDrawerOpen] = useState(false);
@@ -205,6 +208,40 @@ export function useInventoryManagement(
     setSelectedBatchItem(null);
   };
 
+  const deleteInventoryItem = useCallback(
+    async (itemId: string) => {
+      try {
+        await apiRequest(`/api/admin/inventory/items/${itemId}`, {
+          method: "DELETE",
+        });
+        setItems((prev) => prev.filter((it) => it.id !== itemId));
+        return true;
+      } catch (err: any) {
+        setError(err?.message || "Failed to delete item");
+        throw err;
+      }
+    },
+    [apiRequest]
+  );
+
+  const deleteBatch = useCallback(
+    async (batchId: string) => {
+      try {
+        await apiRequest(`/api/admin/inventory/batches/${batchId}`, {
+          method: "DELETE",
+        });
+        // We also need to refresh batches and items since stock might have changed
+        fetchBatches();
+        fetchItems();
+        return true;
+      } catch (err: any) {
+        setError(err?.message || "Failed to delete batch");
+        throw err;
+      }
+    },
+    [apiRequest, fetchBatches, fetchItems]
+  );
+
   useEffect(() => {
     if (activeSubTab === "ledger") {
       fetchLedger();
@@ -218,6 +255,8 @@ export function useInventoryManagement(
       if (!trimmed) return;
       setScannedBarcode(trimmed);
 
+      const effectiveQty = (scanWeight !== "" && scanWeight > 0) ? scanQty * scanWeight : scanQty;
+
       try {
         // First, check if barcode exists in inventory
         const lookup = await apiRequest<ScanLookupResponse>(
@@ -225,13 +264,13 @@ export function useInventoryManagement(
         );
 
         if (lookup.found && lookup.item) {
-          // Recognized barcode -> Rapid auto-increment (+1)
+          // Recognized barcode -> Rapid auto-increment
           const updatedItem = await apiRequest<InventoryItem>(
             "/api/admin/inventory/scan-increment",
             {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ barcode: trimmed, quantity: 1 }),
+              body: JSON.stringify({ barcode: trimmed, quantity: effectiveQty }),
             }
           );
 
@@ -248,7 +287,7 @@ export function useInventoryManagement(
               id: Math.random().toString(36).substring(2, 9),
               barcode: trimmed,
               name: updatedItem.name,
-              quantity: 1,
+              quantity: effectiveQty,
               unit: updatedItem.unit,
               newStock: updatedItem.current_stock,
               timestamp: new Date().toLocaleTimeString(),
@@ -267,7 +306,7 @@ export function useInventoryManagement(
         setError(err?.message || "Failed to process barcode scan");
       }
     },
-    [apiRequest, playBeep, fetchBatches]
+    [apiRequest, playBeep, fetchBatches, scanQty, scanWeight]
   );
 
   // First-time scan onboarding submission
@@ -414,6 +453,10 @@ export function useInventoryManagement(
     isAddSupplierModalOpen,
     setIsAddSupplierModalOpen,
     // Scanner
+    scanQty,
+    setScanQty,
+    scanWeight,
+    setScanWeight,
     scannedBarcode,
     setScannedBarcode,
     isRegisterModalOpen,
@@ -422,6 +465,9 @@ export function useInventoryManagement(
     scanFeed,
     handleBarcodeScan,
     onboardScannedItem,
+    // Operations
+    deleteInventoryItem,
+    deleteBatch,
     // Wastage
     isWastageModalOpen,
     selectedWastageItem,

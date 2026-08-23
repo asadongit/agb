@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef, useCallback } from "react";
 import { Barcode, CreditCard, Minus, Moon, Plus, Receipt, ScanLine, Search, Trash2, X } from "lucide-react";
 import type { AdminMenuItem, AdminVariant } from "../adminTypes";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
@@ -54,6 +54,7 @@ export function CreateBillDrawer({
   eveningPriceActive = false,
 }: CreateBillDrawerProps) {
   const [searchQuery, setSearchQuery] = useState("");
+  const searchInputRef = useRef<HTMLInputElement>(null);
   const [pricingMode, setPricingMode] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
 
   // Customer Auto-suggest & Analytics state
@@ -162,6 +163,45 @@ export function CreateBillDrawer({
     });
   }, [menuItems, searchQuery]);
 
+  const addItemToCart = useCallback((item: MenuItem, v?: AdminVariant) => {
+    const rawPriceNum = parseFloat(item.price) || 0;
+    const eveningPriceNum = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
+    const retailPriceNum = (eveningPriceActive && eveningPriceNum > 0) ? eveningPriceNum : rawPriceNum;
+    const wholesalePriceNum = item.wholesale_price ? parseFloat(item.wholesale_price) : null;
+    const activePriceNum = (pricingMode === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
+    const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
+
+    const variantPriceNum = v ? activePriceNum + (parseFloat(v.price_delta) || 0) : activePriceNum;
+    const itemMrpNum = item.mrp ? parseFloat(String(item.mrp)) + (v ? parseFloat(v.price_delta) || 0 : 0) : variantPriceNum;
+    const itemTaxRateNum = taxRate;
+    const itemName = v ? `${item.name} (${v.name})` : item.name;
+
+    setDraftCartItems((prev) => {
+      const existingIdx = prev.findIndex(
+        (ci) => ci.menu_item_id === item.id && ci.variant_id === (v ? v.id : null)
+      );
+      if (existingIdx >= 0) {
+        return prev.map((ci, i) =>
+          i === existingIdx ? { ...ci, quantity: ci.quantity + 1 } : ci
+        );
+      }
+      return [
+        ...prev,
+        {
+          menu_item_id: item.id,
+          variant_id: v ? v.id : null,
+          item_name: itemName,
+          unit_price: variantPriceNum,
+          mrp: itemMrpNum,
+          tax_rate: itemTaxRateNum,
+          quantity: 1,
+          pricing_type: pricingMode,
+          is_complimentary: false,
+        },
+      ];
+    });
+  }, [eveningPriceActive, pricingMode]);
+
   if (!isOpen) return null;
 
   const subtotal = draftCartItems.reduce(
@@ -184,6 +224,7 @@ export function CreateBillDrawer({
   }, 0);
 
   const grandTotalPayable = subtotal;
+
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
@@ -247,10 +288,38 @@ export function CreateBillDrawer({
               <div className="relative flex-1 max-w-[200px]">
                 <Search className="absolute left-2.5 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
                 <input
+                  ref={searchInputRef}
                   type="text"
                   placeholder="Search name or barcode..."
                   value={searchQuery}
                   onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      const query = searchQuery.trim().toLowerCase();
+                      if (!query) return;
+                      
+                      let match = menuItems.find((m) => m.barcode?.toLowerCase() === query);
+                      if (!match && filteredMenuItems.length === 1) {
+                        match = filteredMenuItems[0];
+                      }
+                      
+                      if (match) {
+                        const itemVariants = variantsByItem[match.id] || [];
+                        if (itemVariants.length === 0) {
+                          addItemToCart(match);
+                          setSearchQuery("");
+                          setTimeout(() => searchInputRef.current?.focus(), 0);
+                        } else if (itemVariants.length === 1) {
+                          addItemToCart(match, itemVariants[0]);
+                          setSearchQuery("");
+                          setTimeout(() => searchInputRef.current?.focus(), 0);
+                        } else {
+                          // Let user click variant manually
+                        }
+                      }
+                    }
+                  }}
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 pl-8 pr-2.5 text-xs text-[var(--text-primary)]"
                 />
               </div>
@@ -271,46 +340,14 @@ export function CreateBillDrawer({
                 const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
                 const cartQtyForItem = draftCartItems.filter((ci) => ci.menu_item_id === item.id).reduce((sum, ci) => sum + ci.quantity, 0);
 
-                const handleAddItem = (v?: AdminVariant) => {
-                  const variantPriceNum = v ? activePriceNum + (parseFloat(v.price_delta) || 0) : activePriceNum;
-                  const itemMrpNum = item.mrp ? parseFloat(String(item.mrp)) + (v ? parseFloat(v.price_delta) || 0 : 0) : variantPriceNum;
-                  const itemTaxRateNum = taxRate;
-                  const itemName = v ? `${item.name} (${v.name})` : item.name;
-
-                  setDraftCartItems((prev) => {
-                    const existingIdx = prev.findIndex(
-                      (ci) => ci.menu_item_id === item.id && ci.variant_id === (v ? v.id : null)
-                    );
-                    if (existingIdx >= 0) {
-                      return prev.map((ci, i) =>
-                        i === existingIdx ? { ...ci, quantity: ci.quantity + 1 } : ci
-                      );
-                    }
-                    return [
-                      ...prev,
-                      {
-                        menu_item_id: item.id,
-                        variant_id: v ? v.id : null,
-                        item_name: itemName,
-                        unit_price: variantPriceNum,
-                        mrp: itemMrpNum,
-                        tax_rate: itemTaxRateNum,
-                        quantity: 1,
-                        pricing_type: pricingMode,
-                        is_complimentary: false,
-                      },
-                    ];
-                  });
-                };
-
                 return (
                   <div
                     key={item.id}
                     onClick={() => {
                       if (itemVariants.length === 0) {
-                        handleAddItem();
+                        addItemToCart(item);
                       } else if (itemVariants.length === 1) {
-                        handleAddItem(itemVariants[0]);
+                        addItemToCart(item, itemVariants[0]);
                       }
                     }}
                     className={`group relative rounded-md border p-3 h-[110px] flex flex-col justify-between transition-all duration-150 cursor-pointer select-none ${

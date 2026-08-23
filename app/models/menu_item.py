@@ -89,20 +89,22 @@ class MenuItem(Base, TimestampMixin):
 
     @property
     def effective_price(self) -> Decimal:
-        """Base effective price — does NOT include evening override.
-        Evening price priority is controlled at the outlet level via evening_price_active.
-        """
+        """Legacy property for backward compatibility."""
         if self.is_on_offer and self.offer_price is not None and self.offer_price > Decimal("0.00"):
             return self.offer_price
         return self.price
 
-    def resolve_price(self, evening_active: bool = False) -> Decimal:
-        """Compute the final price considering the outlet's evening toggle.
-        Use this in services/routers where you have access to the outlet.
-        """
+    def base_price(self, evening_active: bool = False) -> Decimal:
+        """The pre-offer regular price (handles evening surge logic)."""
         if evening_active and self.evening_price is not None and self.evening_price > Decimal("0.00"):
             return self.evening_price
-        return self.effective_price
+        return self.price
+
+    def resolve_price(self, evening_active: bool = False) -> Decimal:
+        """Compute the final checkout price. Offer price is the absolute highest priority."""
+        if self.is_on_offer and self.offer_price is not None and self.offer_price > Decimal("0.00"):
+            return self.offer_price
+        return self.base_price(evening_active)
 
     # ── Dual pricing fields ──────────────────────────────────────────
     # WEIGHT_BASED: price is ₹ per kg/g, quantity entered as weight

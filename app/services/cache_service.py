@@ -53,6 +53,18 @@ async def invalidate_menu_cache(slug: str) -> None:
     await r.delete(f"menu:{slug}")
 
 
+async def invalidate_menu_cache_by_outlet_id(db: Any, outlet_id: Any) -> None:
+    """
+    Helper to invalidate the cache when only the outlet_id is known.
+    """
+    from sqlalchemy import select
+    from app.models.outlet import Outlet
+    res = await db.execute(select(Outlet.slug).where(Outlet.id == outlet_id))
+    slug = res.scalar_one_or_none()
+    if slug:
+        await invalidate_menu_cache(slug)
+
+
 async def acquire_menu_lock(slug: str) -> bool:
     """
     Acquire a short Redis lock for thundering-herd protection.

@@ -26,6 +26,7 @@ import type {
   RestaurantProfile,
 } from "../adminTypes";
 import { MenuSettingsDrawer } from "../modals/MenuSettingsDrawer";
+import { BulkOperationsMenu } from "../components/BulkOperationsMenu";
 import { resolveImageUrl } from "@/lib/api";
 import { uploadImageFile } from "../adminUtils";
 
@@ -47,6 +48,7 @@ interface MenuTabProps {
   inventoryItems?: { id: string; name: string; barcode?: string | null }[];
   restaurant?: RestaurantProfile | null;
   onRestaurantUpdate?: (r: RestaurantProfile) => void;
+  authToken?: string;
 }
 
 export function MenuTab({
@@ -67,6 +69,7 @@ export function MenuTab({
   inventoryItems,
   restaurant,
   onRestaurantUpdate,
+  authToken,
 }: MenuTabProps) {
   const [isItemModalOpen, setIsItemModalOpen] = useState(false);
   const [editingItem, setEditingItem] = useState<AdminMenuItem | null>(null);
@@ -314,6 +317,8 @@ export function MenuTab({
             Add Item
           </button>
 
+          <BulkOperationsMenu entity="menu-items" authToken={authToken} />
+
           <button
             type="button"
             onClick={() => setIsSettingsDrawerOpen(true)}
@@ -379,11 +384,6 @@ export function MenuTab({
                     <div className="flex items-start justify-between gap-1">
                       <h4 className="font-bold text-sm text-[var(--text-primary)] flex items-center gap-1.5 truncate">
                         <span className="truncate">{item.name}</span>
-                        {isEveningActive && eveningPriceVal > 0 && (
-                          <span title={`Evening Price Active: ₹${eveningPriceVal.toFixed(2)}`}>
-                            <Moon className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0 cursor-pointer" />
-                          </span>
-                        )}
                       </h4>
                       <div className="text-right shrink-0">
                         {hasDiscount && (
@@ -391,7 +391,12 @@ export function MenuTab({
                             ₹{mrpVal.toFixed(2)}
                           </span>
                         )}
-                        <span className="font-mono text-sm font-bold text-[var(--text-primary)]">
+                        <span className="font-mono text-sm font-bold text-[var(--text-primary)] flex items-center gap-1 justify-end">
+                          {isEveningActive && eveningPriceVal > 0 && (
+                            <span title={`Evening Price Active: ₹${eveningPriceVal.toFixed(2)}`}>
+                              <Moon className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0 cursor-pointer" />
+                            </span>
+                          )}
                           ₹{priceVal.toFixed(2)}
                         </span>
                         {item.pricing_mode === "WEIGHT_BASED" && (

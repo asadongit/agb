@@ -8,7 +8,8 @@
 
 "use client";
 
-import { FormEvent } from "react";
+import { FormEvent, useState } from "react";
+import { ConfirmModal } from "../modals/ConfirmModal";
 import {
   Activity,
   CheckCircle2,
@@ -38,6 +39,17 @@ type StaffTabProps = {
   staffAuditLogs: StaffAuditEntry[];
   isLoadingStaff: boolean;
 
+  // Audit Filters
+  auditRoleFilter: string;
+  setAuditRoleFilter: (val: string) => void;
+  auditActionFilter: string;
+  setAuditActionFilter: (val: string) => void;
+  auditDateFilter: string;
+  setAuditDateFilter: (val: string) => void;
+  auditPage: number;
+  setAuditPage: (val: number | ((prev: number) => number)) => void;
+  auditTotalPages: number;
+
   // Actions
   loadStaffMembers: () => Promise<void>;
   loadStaffAuditLogs: () => Promise<void>;
@@ -55,6 +67,15 @@ export function StaffTab({
   staffList,
   staffAuditLogs,
   isLoadingStaff,
+  auditRoleFilter,
+  setAuditRoleFilter,
+  auditActionFilter,
+  setAuditActionFilter,
+  auditDateFilter,
+  setAuditDateFilter,
+  auditPage,
+  setAuditPage,
+  auditTotalPages,
   loadStaffMembers,
   loadStaffAuditLogs,
   onDeactivateStaffMember,
@@ -63,6 +84,8 @@ export function StaffTab({
   onOpenPinSetup,
   onOpenPinSwitch,
 }: StaffTabProps) {
+  const [staffToDeactivate, setStaffToDeactivate] = useState<{ id: string; name: string } | null>(null);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -226,7 +249,7 @@ export function StaffTab({
                       </button>
                       <button
                         type="button"
-                        onClick={() => void onDeactivateStaffMember(member.id, member.name)}
+                        onClick={() => setStaffToDeactivate({ id: member.id, name: member.name })}
                         className="p-1.5 rounded-lg hover:bg-rose-100 text-rose-600"
                         title="Deactivate Account"
                       >
@@ -248,14 +271,53 @@ export function StaffTab({
             <Activity className="h-5 w-5 text-[var(--accent-brand)]" />
             <h2 className="font-display text-lg font-bold">Staff Action Audit Trail</h2>
           </div>
-          <button
-            type="button"
-            onClick={() => void loadStaffAuditLogs()}
-            className="p-1.5 rounded-lg hover:bg-[var(--bg-surface-elevated)] text-[var(--text-muted)]"
-            title="Refresh Audit Logs"
-          >
-            <RefreshCw className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-3">
+            <select
+              value={auditRoleFilter}
+              onChange={(e) => setAuditRoleFilter(e.target.value)}
+              className="text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 font-medium text-[var(--text-primary)]"
+            >
+              <option value="">All Roles</option>
+              <option value="SUPERADMIN">Superadmin</option>
+              <option value="OUTLET_ADMIN">Outlet Admin</option>
+              <option value="MANAGER">Manager</option>
+              <option value="FLOOR_STAFF">Floor Staff</option>
+              <option value="CASHIER">Cashier</option>
+              <option value="WAITER">Waiter</option>
+              <option value="DELIVERY_BOY">Delivery Boy</option>
+              <option value="STAFF">General Staff</option>
+            </select>
+            <select
+              value={auditActionFilter}
+              onChange={(e) => setAuditActionFilter(e.target.value)}
+              className="text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 font-medium text-[var(--text-primary)]"
+            >
+              <option value="">All Actions</option>
+              <option value="STAFF CREATED">Staff Created</option>
+              <option value="STAFF PIN_LOGGED_IN">PIN Login</option>
+              <option value="BILL DELETED">Bill Deleted</option>
+              <option value="ORDER CREATED">Order Created</option>
+              <option value="INVENTORY UPDATED">Inventory Updated</option>
+            </select>
+            <select
+              value={auditDateFilter}
+              onChange={(e) => setAuditDateFilter(e.target.value)}
+              className="text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 font-medium text-[var(--text-primary)]"
+            >
+              <option value="">All Time</option>
+              <option value="today">Today</option>
+              <option value="7days">Last 7 Days</option>
+              <option value="30days">Last 30 Days</option>
+            </select>
+            <button
+              type="button"
+              onClick={() => void loadStaffAuditLogs()}
+              className="p-1.5 rounded-lg hover:bg-[var(--bg-surface-elevated)] text-[var(--text-muted)]"
+              title="Refresh Audit Logs"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="overflow-x-auto">
@@ -298,7 +360,45 @@ export function StaffTab({
             </tbody>
           </table>
         </div>
+
+        {/* Pagination Controls */}
+        <div className="p-4 border-t border-[var(--border-subtle)] flex items-center justify-between">
+          <p className="text-xs text-[var(--text-muted)]">
+            Page {auditPage} of {auditTotalPages}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              disabled={auditPage <= 1}
+              onClick={() => setAuditPage((p) => Math.max(1, p - 1))}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-subtle)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Previous
+            </button>
+            <button
+              type="button"
+              disabled={auditPage >= auditTotalPages}
+              onClick={() => setAuditPage((p) => p + 1)}
+              className="px-3 py-1.5 text-xs font-bold rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] hover:bg-[var(--border-subtle)] transition disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              Next
+            </button>
+          </div>
+        </div>
       </article>
+
+      <ConfirmModal
+        isOpen={!!staffToDeactivate}
+        title="Deactivate Staff Member"
+        message={`Are you sure you want to deactivate staff member "${staffToDeactivate?.name}"?`}
+        confirmText="Deactivate"
+        onConfirm={() => {
+          if (staffToDeactivate) {
+            void onDeactivateStaffMember(staffToDeactivate.id, staffToDeactivate.name);
+          }
+        }}
+        onClose={() => setStaffToDeactivate(null)}
+      />
     </div>
   );
 }

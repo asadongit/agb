@@ -137,6 +137,7 @@ export function useSuperadminData() {
     email: "",
     bill_qr_url: "",
     place_of_supply: "",
+    invoice_terms_conditions: "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
   });
   const [isSavingSettings, setIsSavingSettings] = useState(false);
 
@@ -340,6 +341,36 @@ export function useSuperadminData() {
     setNotice("Signed out.");
   };
 
+  const onImpersonateOutlet = async (outletId: string) => {
+    if (!accessToken) return;
+    try {
+      const apiBase = getApiBaseUrl();
+      const res = await fetch(`${apiBase}/api/auth/impersonate/${outletId}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${accessToken}`,
+        },
+      });
+
+      if (!res.ok) {
+        throw new Error("Failed to impersonate outlet.");
+      }
+
+      const data = await res.json();
+      if (data.access_token) {
+        localStorage.setItem("admin_access_token", data.access_token);
+        localStorage.setItem("admin_refresh_token", data.refresh_token);
+        window.open("/admin", "_blank");
+      } else {
+        throw new Error("Invalid token received from server.");
+      }
+    } catch (err: any) {
+      setError(err.message || "An error occurred while impersonating.");
+      setTimeout(() => setError(null), 3000);
+    }
+  };
+
   const onCreateRestaurant = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsCreatingRestaurant(true);
@@ -363,6 +394,7 @@ export function useSuperadminData() {
         email: restaurantForm.email.trim() || null,
         bill_qr_url: restaurantForm.bill_qr_url.trim() || null,
         place_of_supply: restaurantForm.place_of_supply.trim() || null,
+        invoice_terms_conditions: restaurantForm.invoice_terms_conditions.trim() || null,
       };
 
       const created = await apiRequest<RestaurantWithUsers>(
@@ -391,6 +423,7 @@ export function useSuperadminData() {
         email: "",
         bill_qr_url: "",
         place_of_supply: "",
+        invoice_terms_conditions: "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
       });
       setNotice(`Outlet "${created.name}" created successfully! Now assign a user.`);
       setStep("create_admin");
@@ -425,6 +458,7 @@ export function useSuperadminData() {
       email: outlet.email || "",
       bill_qr_url: outlet.bill_qr_url || "",
       place_of_supply: outlet.place_of_supply || "",
+      invoice_terms_conditions: outlet.invoice_terms_conditions || "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
     });
   };
 
@@ -452,6 +486,7 @@ export function useSuperadminData() {
         email: settingsForm.email.trim() || null,
         bill_qr_url: settingsForm.bill_qr_url.trim() || null,
         place_of_supply: settingsForm.place_of_supply.trim() || null,
+        invoice_terms_conditions: settingsForm.invoice_terms_conditions.trim() || null,
       };
 
       await apiRequest(`/api/admin/outlets/${settingsOutlet.id}`, {
@@ -629,6 +664,7 @@ export function useSuperadminData() {
     setStep,
     filteredRestaurants,
     onLogin,
+    onImpersonateOutlet,
     onLogout,
     loadRestaurants,
     onCreateRestaurant,

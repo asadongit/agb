@@ -57,6 +57,13 @@ export function useStaffManagement({
   const [pinSwitchInput, setPinSwitchInput] = useState("");
   const [isSwitchingPin, setIsSwitchingPin] = useState(false);
 
+  // Audit Filters & Pagination
+  const [auditRoleFilter, setAuditRoleFilter] = useState<string>("");
+  const [auditActionFilter, setAuditActionFilter] = useState<string>("");
+  const [auditDateFilter, setAuditDateFilter] = useState<string>("");
+  const [auditPage, setAuditPage] = useState<number>(1);
+  const [auditTotalPages, setAuditTotalPages] = useState<number>(1);
+
   // Load Staff Data
   const loadStaffMembers = useCallback(async () => {
     if (!authHeaders) return;
@@ -99,23 +106,51 @@ export function useStaffManagement({
     }
   }, [apiRequest, authHeaders]);
 
-  useEffect(() => {
-    if (authHeaders) {
-      void loadStaffPermissions();
-      void loadMyProfile();
-    }
-  }, [authHeaders, loadStaffPermissions, loadMyProfile]);
-
   const loadStaffAuditLogs = useCallback(async () => {
     if (!authHeaders) return;
     try {
-      const logRes = await apiRequest<{ items: StaffAuditEntry[] }>("/api/staff/audit-log");
+      const params = new URLSearchParams();
+      if (auditRoleFilter) params.append("role", auditRoleFilter);
+      if (auditActionFilter) params.append("action_type", auditActionFilter);
+      params.append("page", auditPage.toString());
+      
+      if (auditDateFilter === "today") {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        params.append("from_date", today.toISOString());
+      } else if (auditDateFilter === "7days") {
+        const d = new Date();
+        d.setDate(d.getDate() - 7);
+        params.append("from_date", d.toISOString());
+      } else if (auditDateFilter === "30days") {
+        const d = new Date();
+        d.setDate(d.getDate() - 30);
+        params.append("from_date", d.toISOString());
+      }
+
+      const qs = params.toString();
+      const logRes = await apiRequest<{ items: StaffAuditEntry[], total_pages: number }>(`/api/staff/audit-log${qs ? `?${qs}` : ""}`);
       setStaffAuditLogs(logRes.items || []);
+      setAuditTotalPages(logRes.total_pages || 1);
     } catch (err) {
       if (isAuthError(err)) return;
       console.error("Staff audit log fetch error:", err);
     }
-  }, [apiRequest, authHeaders]);
+  }, [apiRequest, authHeaders, auditRoleFilter, auditActionFilter, auditDateFilter, auditPage]);
+
+  useEffect(() => {
+    if (authHeaders) {
+      void loadStaffPermissions();
+      void loadMyProfile();
+      void loadStaffMembers();
+      void loadStaffAuditLogs();
+    }
+  }, [authHeaders, loadStaffPermissions, loadMyProfile, loadStaffMembers, loadStaffAuditLogs]);
+
+  // Reset page to 1 whenever filters change
+  useEffect(() => {
+    setAuditPage(1);
+  }, [auditRoleFilter, auditActionFilter, auditDateFilter]);
 
   const onSubmitStaffMember = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -167,7 +202,6 @@ export function useStaffManagement({
   };
 
   const onDeactivateStaffMember = async (id: string, name: string) => {
-    if (!window.confirm(`Deactivate staff member "${name}"?`)) return;
     setError(null);
     try {
       await apiRequest<void>(`/api/staff/${id}`, { method: "DELETE" });
@@ -267,6 +301,17 @@ export function useStaffManagement({
     pinSwitchInput,
     setPinSwitchInput,
     isSwitchingPin,
+    // Filters
+    auditRoleFilter,
+    setAuditRoleFilter,
+    auditActionFilter,
+    setAuditActionFilter,
+    auditDateFilter,
+    setAuditDateFilter,
+    auditPage,
+    setAuditPage,
+    auditTotalPages,
+    // Handlers
     loadStaffMembers,
     loadStaffPermissions,
     loadStaffAuditLogs,

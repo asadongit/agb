@@ -8,7 +8,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, UniqueConstraint
+from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, UniqueConstraint, Integer
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -53,6 +53,9 @@ class InventoryItem(Base, TimestampMixin):
     )
     reorder_threshold: Mapped[Decimal] = mapped_column(
         Numeric(12, 3), nullable=False, default=Decimal("5.000")
+    )
+    shelf_life_alert_hrs: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=None
     )
     cost_per_unit: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00")

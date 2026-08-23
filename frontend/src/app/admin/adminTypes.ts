@@ -74,10 +74,14 @@ export interface RestaurantProfile {
   evening_auto_start_time?: string | null;  // "HH:MM" IST
   evening_auto_end_time?: string | null;    // "HH:MM" IST
   near_expiry_threshold_days?: number;
-  notification_email?: string | null;
+  notification_emails?: string[] | null;
+  notification_phones?: string[] | null;
   email?: string | null;
   bill_qr_url?: string | null;
   place_of_supply?: string | null;
+  loyalty_points_per_100_inr?: number;
+  loyalty_point_value_inr?: string | number;
+  invoice_terms_conditions?: string | null;
   created_at?: string;
   updated_at?: string;
 }
@@ -102,10 +106,14 @@ export interface RestaurantFormState {
   verification_cutoff_amount?: string;
   flagged_item_ids: string[];
   near_expiry_threshold_days: number;
-  notification_email: string;
+  notification_emails: string;
+  notification_phones: string;
   email: string;
   bill_qr_url: string;
   place_of_supply: string;
+  loyalty_points_per_100_inr: number;
+  loyalty_point_value_inr: string;
+  invoice_terms_conditions: string;
 }
 
 export interface AdminCategory {
@@ -180,17 +188,17 @@ export interface AdminOrder {
 
 export const lanes: OrderStatus[] = [
   "PENDING_VERIFICATION",
-  "PAID",
+  "PAYMENT_PENDING",
   "COMPLETED",
   "CANCELLED",
 ];
 
 export const LANE_NAMES: Record<OrderStatus, string> = {
   PENDING: "Pending",
-  PENDING_VERIFICATION: "Pending Verification",
+  PENDING_VERIFICATION: "Pending Exit Check",
   PAID: "Paid Orders",
-  PAYMENT_PENDING: "Payment Pending",
-  COMPLETED: "Completed",
+  PAYMENT_PENDING: "Counter Queue",
+  COMPLETED: "Exited / Settled",
   CANCELLED: "Cancelled",
   REFUNDED: "Refunded",
 };

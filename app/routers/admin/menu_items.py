@@ -22,6 +22,7 @@ from app.schemas.menu import (
     MenuItemUpdate,
 )
 from app.services.audit_service import log_action
+from app.services.menu_service import invalidate_outlet_menu
 
 router = APIRouter(prefix="/api/admin/menu-items", tags=["admin-menu-items"])
 
@@ -166,6 +167,8 @@ async def create_menu_item(
         str(item.id),
         details={"name": item.name, "price": str(item.price)},
     )
+    
+    await invalidate_outlet_menu(db, current_user.outlet_id)
     return item_loaded
 
 
@@ -289,6 +292,8 @@ async def update_menu_item(
         str(item.id),
         details={"name": item.name},
     )
+    
+    await invalidate_outlet_menu(db, current_user.outlet_id)
     return item
 
 
@@ -323,3 +328,5 @@ async def delete_menu_item(
         "MenuItem",
         str(item_id),
     )
+    
+    await invalidate_outlet_menu(db, current_user.outlet_id)

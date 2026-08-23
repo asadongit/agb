@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo, useRef } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -48,6 +48,7 @@ import type {
 import { BarcodeRegisterModal } from "../components/BarcodeRegisterModal";
 import { LogWastageModal } from "../modals/LogWastageModal";
 import { BatchHistoryDrawer } from "../components/BatchHistoryDrawer";
+import { BulkOperationsMenu } from "../components/BulkOperationsMenu";
 import { AddSupplierModal } from "../components/AddSupplierModal";
 import { AdjustBatchStockModal } from "../components/AdjustBatchStockModal";
 import { ReturnBillModal } from "../components/ReturnBillModal";
@@ -75,19 +76,25 @@ interface InventoryTabProps {
   setLedgerFilterType: (type: StockChangeType | "") => void;
   isLoading: boolean;
   error: string | null;
+  scanQty: number;
+  setScanQty: (m: number) => void;
+  scanWeight: number | "";
+  setScanWeight: (w: number | "") => void;
   scannedBarcode: string;
   setScannedBarcode: (code: string) => void;
   isRegisterModalOpen: boolean;
   setIsRegisterModalOpen: (open: boolean) => void;
   unregisteredBarcode: string;
   scanFeed: ScanFeedItem[];
-  handleBarcodeScan: (code: string) => Promise<void>;
-  onboardScannedItem: (data: any) => Promise<void>;
+  handleBarcodeScan: (code: string) => void;
+  onboardScannedItem: (data: any) => Promise<any>;
   // Batch Drawer & Supplier Modal
   selectedBatchItem?: InventoryItem | null;
   isBatchDrawerOpen?: boolean;
   openBatchDrawer?: (item: InventoryItem) => void;
   closeBatchDrawer?: () => void;
+  deleteInventoryItem?: (itemId: string) => Promise<boolean>;
+  deleteBatch?: (batchId: string) => Promise<boolean>;
   isAddSupplierModalOpen?: boolean;
   setIsAddSupplierModalOpen?: (open: boolean) => void;
   // Wastage
@@ -129,6 +136,10 @@ export function InventoryTab({
   setLedgerFilterType,
   isLoading,
   error,
+  scanQty,
+  setScanQty,
+  scanWeight,
+  setScanWeight,
   scannedBarcode,
   setScannedBarcode,
   isRegisterModalOpen,
@@ -141,6 +152,8 @@ export function InventoryTab({
   isBatchDrawerOpen = false,
   openBatchDrawer,
   closeBatchDrawer,
+  deleteInventoryItem,
+  deleteBatch,
   isAddSupplierModalOpen = false,
   setIsAddSupplierModalOpen,
   isWastageModalOpen,
@@ -156,6 +169,7 @@ export function InventoryTab({
   const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState<string>("ALL");
   const [manualBarcodeInput, setManualBarcodeInput] = useState("");
+  const manualBarcodeRef = useRef<HTMLInputElement>(null);
 
   // Prefill Item state for adding a batch to an existing product
   const [prefillItem, setPrefillItem] = useState<InventoryItem | null>(null);
@@ -211,6 +225,7 @@ export function InventoryTab({
     if (manualBarcodeInput.trim()) {
       handleBarcodeScan(manualBarcodeInput.trim());
       setManualBarcodeInput("");
+      setTimeout(() => manualBarcodeRef.current?.focus(), 0);
     }
   };
 
@@ -326,6 +341,7 @@ export function InventoryTab({
         </div>
 
         <div className="flex items-center gap-2">
+          <BulkOperationsMenu entity="inventory" authToken={authToken} />
           <button
             type="button"
             onClick={() => {
@@ -335,7 +351,7 @@ export function InventoryTab({
             className="flex items-center gap-2 rounded-xl bg-emerald-600 px-4 py-2 text-xs font-bold text-white hover:bg-emerald-500 shadow-md transition active:scale-95 cursor-pointer"
           >
             <Plus className="h-4 w-4" />
-            + Add Stock / Register Product
+            Add Stock / Register Product
           </button>
         </div>
       </div>
@@ -371,9 +387,33 @@ export function InventoryTab({
                 onSubmit={handleManualScanSubmit}
                 className="flex items-center gap-2 min-w-[280px]"
               >
+                <div className="flex items-center gap-1 border border-[var(--border-strong)] rounded-xl bg-[var(--bg-surface-elevated)] h-9 px-1">
+                  <span className="pl-2 text-xs text-[var(--text-muted)] font-bold">Qty:</span>
+                  <input
+                    type="number"
+                    min="1"
+                    value={scanQty}
+                    onChange={(e) => setScanQty(parseInt(e.target.value) || 1)}
+                    className="w-10 bg-transparent py-1 text-xs text-center text-[var(--text-primary)] font-mono font-bold focus:outline-none"
+                    title="Batch count multiplier for next scan"
+                  />
+                  <span className="text-[var(--border-strong)]">|</span>
+                  <span className="text-xs text-[var(--text-muted)] font-bold">Wgt:</span>
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    value={scanWeight}
+                    onChange={(e) => setScanWeight(e.target.value === "" ? "" : parseFloat(e.target.value))}
+                    placeholder="Auto"
+                    className="w-14 bg-transparent py-1 text-xs text-center text-[var(--text-primary)] font-mono font-bold focus:outline-none"
+                    title="Optional: Weight per unit (kg). If provided, it multiplies with Qty."
+                  />
+                </div>
                 <div className="relative flex-1">
                   <Barcode className="absolute left-3 top-2.5 h-4 w-4 text-[var(--text-muted)]" />
                   <input
+                    ref={manualBarcodeRef}
                     type="text"
                     placeholder="Scan or type barcode..."
                     value={manualBarcodeInput}
@@ -568,6 +608,24 @@ export function InventoryTab({
                                   </button>
                                 );
                               })()}
+
+                              {/* Delete Item Button */}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  if (window.confirm(`Are you sure you want to completely delete "${item.name}" from the inventory?\\n\\nThis will fail if any batches have remaining quantity > 0.`)) {
+                                    try {
+                                      if (deleteInventoryItem) await deleteInventoryItem(item.id);
+                                    } catch (err: any) {
+                                      alert(err.message || "Failed to delete item.");
+                                    }
+                                  }
+                                }}
+                                className="inline-flex items-center justify-center rounded-lg border border-red-500/30 bg-transparent px-2 py-1 text-red-500 hover:bg-red-500/10 hover:text-red-400 transition cursor-pointer"
+                                title="Delete this item entirely"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
                             </div>
                           </td>
                         </tr>
@@ -976,6 +1034,16 @@ export function InventoryTab({
           onAdjustBatchClick={(b) => {
             setSelectedAdjustBatch(b);
             setIsAdjustModalOpen(true);
+          }}
+          onDeleteBatchClick={async (b) => {
+            if (deleteBatch) {
+              try {
+                await deleteBatch(b.id);
+                closeBatchDrawer?.();
+              } catch (err: any) {
+                alert(err.message || "Failed to delete batch");
+              }
+            }
           }}
         />
       )}

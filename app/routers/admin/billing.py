@@ -99,6 +99,8 @@ def _format_bill_response(order: Order) -> BillResponse:
         discount_status=order.discount_status,
         payment_method=order.payment_method,
         cash_denominations=order.cash_denominations,
+        loyalty_points_earned=order.loyalty_points_earned,
+        loyalty_points_redeemed=order.loyalty_points_redeemed,
         created_by_staff_id=str(order.created_by_staff_id) if order.created_by_staff_id else None,
         created_at=order.created_at.isoformat() if hasattr(order.created_at, "isoformat") else str(order.created_at),
         finalized_at=order.finalized_at.isoformat() if order.finalized_at and hasattr(order.finalized_at, "isoformat") else None,
@@ -132,6 +134,20 @@ async def update_bill_endpoint(
         raise HTTPException(status_code=400, detail="outlet_id required")
     order = await update_manual_bill(db, bill_id, current_user.outlet_id, data)
     return _format_bill_response(order)
+
+
+@router.delete("/bills/{bill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bill_endpoint(
+    bill_id: uuid.UUID,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """Explicitly delete a non-completed bill."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from app.services.billing_service import delete_manual_bill
+    await delete_manual_bill(db, bill_id, current_user.outlet_id, current_user)
+    return None
 
 
 @router.post("/bills/{bill_id}/apply-discount", response_model=BillResponse)
@@ -191,6 +207,7 @@ async def mark_paid_endpoint(
         current_user.outlet_id,
         data.payment_method,
         cash_denominations=data.cash_denominations,
+        redeem_loyalty_points=data.redeem_loyalty_points,
     )
     return _format_bill_response(order)
 

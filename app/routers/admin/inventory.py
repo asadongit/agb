@@ -98,7 +98,7 @@ async def create_item(
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "CREATE", "InventoryItem", str(item.id),
+        "INVENTORY UPDATED", "InventoryItem", str(item.id),
         details={"name": item.name, "unit": item.unit.value},
     )
 
@@ -117,7 +117,7 @@ async def update_item(
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "UPDATE", "InventoryItem", str(item.id),
+        "INVENTORY UPDATED", "InventoryItem", str(item.id),
         details={"name": item.name},
     )
 
@@ -143,13 +143,61 @@ async def deactivate_item(
             detail="Inventory item not found",
         )
 
-    item.is_active = False
+    # Check if there are any batches with remaining_quantity > 0
+    stmt_batch = select(func.count(StockIntake.id)).where(
+        StockIntake.item_id == item_id,
+        StockIntake.remaining_quantity > 0
+    )
+    res_batch = await db.execute(stmt_batch)
+    active_batches = res_batch.scalar_one()
+
+    if active_batches > 0:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Cannot delete item. Existing batches have remaining quantity > 0. Remove them first.",
+        )
+
+    await db.delete(item)
     await db.flush()
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "DELETE", "InventoryItem", str(item.id),
-        details={"name": item.name},
+        "INVENTORY UPDATED", "InventoryItem", str(item_id),
+        details={"name": item.name, "event": "ITEM_DELETED"},
+    )
+
+
+@router.delete("/batches/{batch_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_batch(
+    batch_id: uuid.UUID,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Hard-delete a batch and adjust parent item's stock."""
+    stmt = select(StockIntake).options(selectinload(StockIntake.item)).where(
+        StockIntake.id == batch_id,
+        StockIntake.outlet_id == current_user.outlet_id,
+    )
+    res = await db.execute(stmt)
+    batch = res.scalar_one_or_none()
+    
+    if not batch:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Batch not found",
+        )
+
+    # Adjust parent item stock
+    if batch.item and batch.remaining_quantity > 0:
+        batch.item.current_stock -= batch.remaining_quantity
+    
+    await db.delete(batch)
+    await db.flush()
+
+    await log_action(
+        db, current_user.outlet_id, current_user.user_id,
+        "INVENTORY UPDATED", "StockIntake", str(batch_id),
+        details={"event": "BATCH_DELETED", "batch_number": batch.batch_number, "deducted_qty": float(batch.remaining_quantity)},
     )
 
 
@@ -166,7 +214,7 @@ async def record_stock_intake(
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "CREATE", "StockIntake", str(intake.id),
+        "INVENTORY UPDATED", "StockIntake", str(intake.id),
         details={"quantity": str(intake.quantity), "unit_cost": str(intake.unit_cost)},
     )
 
@@ -375,7 +423,7 @@ async def scan_increment_count(
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "INTAKE_SCAN", "InventoryItem", str(item.id),
+        "INVENTORY UPDATED", "InventoryItem", str(item.id),
         details={"barcode": data.barcode, "quantity": str(data.quantity), "batch_number": intake.batch_number},
     )
 
@@ -413,11 +461,12 @@ async def scan_onboard_item(
         total_billed_amount=data.total_billed_amount,
         item_id=data.item_id,
         wholesale_price=data.wholesale_price,
+        shelf_life_alert_hrs=data.shelf_life_alert_hrs,
     )
 
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
-        "ONBOARD_SCAN", "InventoryItem", str(item.id),
+        "INVENTORY UPDATED", "InventoryItem", str(item.id),
         details=data.model_dump(mode="json"),
     )
 
@@ -482,7 +531,7 @@ async def log_inventory_wastage(
         db,
         current_user.outlet_id,
         current_user.user_id,
-        "LOG_WASTAGE",
+        "INVENTORY UPDATED",
         "InventoryItem",
         str(data.item_id),
         details=data.model_dump(mode="json"),

@@ -36,10 +36,14 @@ class OutletCreate(StrictSchema):
     evening_auto_start_time: str | None = None  # HH:MM IST
     evening_auto_end_time: str | None = None    # HH:MM IST
     near_expiry_threshold_days: int = Field(default=7, ge=1, le=180)
-    notification_email: str | None = None
+    notification_emails: list[str] = Field(default_factory=list)
+    notification_phones: list[str] = Field(default_factory=list)
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
+    loyalty_points_per_100_inr: int = 0
+    loyalty_point_value_inr: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0"))
+    invoice_terms_conditions: str | None = None
 
 
 class OutletUpdate(StrictSchema):
@@ -64,10 +68,14 @@ class OutletUpdate(StrictSchema):
     evening_auto_start_time: str | None = None
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int | None = Field(default=None, ge=1, le=180)
-    notification_email: str | None = None
+    notification_emails: list[str] | None = None
+    notification_phones: list[str] | None = None
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
+    loyalty_points_per_100_inr: int | None = None
+    loyalty_point_value_inr: Decimal | None = Field(default=None, ge=Decimal("0"))
+    invoice_terms_conditions: str | None = None
 
 
 class OutletResponse(BaseResponse):
@@ -93,10 +101,14 @@ class OutletResponse(BaseResponse):
     evening_auto_start_time: str | None = None
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int = 7
-    notification_email: str | None = None
+    notification_emails: list[str] = Field(default_factory=list)
+    notification_phones: list[str] = Field(default_factory=list)
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
+    loyalty_points_per_100_inr: int = 0
+    loyalty_point_value_inr: Decimal = Decimal("0.00")
+    invoice_terms_conditions: str | None = None
     created_at: datetime
     updated_at: datetime
 

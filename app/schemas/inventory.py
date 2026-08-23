@@ -28,6 +28,7 @@ class InventoryItemCreate(StrictSchema):
     wholesale_price: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
+    shelf_life_alert_hrs: int | None = Field(None, ge=1)
 
 
 class InventoryItemUpdate(StrictSchema):
@@ -43,6 +44,7 @@ class InventoryItemUpdate(StrictSchema):
     tax_category: str | None = Field(None, max_length=100)
     tax_rate: Decimal | None = Field(None, ge=0)
     is_active: bool | None = None
+    shelf_life_alert_hrs: int | None = Field(None, ge=1)
 
 
 class InventoryItemResponse(BaseResponse):
@@ -60,6 +62,7 @@ class InventoryItemResponse(BaseResponse):
     tax_category: str | None = "GST 0%"
     tax_rate: Decimal | None = Decimal("0.00")
     is_active: bool
+    shelf_life_alert_hrs: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -121,6 +124,7 @@ class ScanOnboardRequest(StrictSchema):
     batch_number: str | None = Field(None, max_length=100)
     expiry_date: datetime | None = None
     supplier_name: str | None = Field(None, max_length=255)
+    shelf_life_alert_hrs: int | None = Field(None, ge=1)
 
     @field_validator("barcode", "tax_category", mode="before")
     @classmethod

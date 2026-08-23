@@ -86,14 +86,15 @@ function DigitalMenuApp() {
   const [tokenError, setTokenError] = useState<string | null>(null);
 
   const loadMenuForSlug = useCallback(
-    async (slug: string) => {
-      setIsLoading(true);
+    async (slug: string, silent = false) => {
+      if (!silent) setIsLoading(true);
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 15000); // 15s timeout for slow network/cold starts
 
       try {
         const apiBase = getApiBaseUrl();
         const res = await fetch(`${apiBase}/api/public/menu/${slug}`, {
+          cache: "no-store",
           signal: controller.signal,
           headers: {
             "bypass-tunnel-reminder": "true",
@@ -108,18 +109,29 @@ function DigitalMenuApp() {
           }
           setShowWelcomeSelector(false);
         } else if (res.status === 404) {
-          setMenuData(null);
-          setShowWelcomeSelector(true);
+          if (!silent) {
+            setMenuData(null);
+            setShowWelcomeSelector(true);
+          }
         }
       } catch (err) {
         clearTimeout(timeoutId);
         console.warn("Menu fetch error/timeout:", err);
       } finally {
-        setIsLoading(false);
+        if (!silent) setIsLoading(false);
       }
     },
     []
   );
+
+  // Background auto-refresh polling (60s)
+  useEffect(() => {
+    if (!restaurantSlug || !menuData) return;
+    const interval = setInterval(() => {
+      loadMenuForSlug(restaurantSlug, true); // silent refresh
+    }, 60000);
+    return () => clearInterval(interval);
+  }, [restaurantSlug, !!menuData, loadMenuForSlug]);
 
   useEffect(() => {
     async function initMenuAndSession() {
@@ -390,6 +402,7 @@ function DigitalMenuApp() {
             <div className="space-y-3">
               {filteredOfferItems.map((item) => (
                 <MenuItemCard
+                    isEveningOverrideActive={menuData?.evening_price_active || false}
                   key={`offer-${item.id}`}
                   item={item}
                   onOpenVariantSheet={(selectedItem) =>
@@ -427,6 +440,7 @@ function DigitalMenuApp() {
                 <div className="space-y-3">
                   {visibleItems.map((item) => (
                     <MenuItemCard
+                    isEveningOverrideActive={menuData?.evening_price_active || false}
                       key={item.id}
                       item={item}
                       onOpenVariantSheet={(selectedItem) =>

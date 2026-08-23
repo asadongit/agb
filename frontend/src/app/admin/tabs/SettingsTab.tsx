@@ -50,7 +50,7 @@ export function SettingsTab({
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight">Outlet Settings</h1>
         <p className="text-sm text-[var(--text-secondary)]">
-          Manage restaurant profile, payment modes, Razorpay keys, and UPI details
+          Manage outlet profile, payment modes, Razorpay keys, and UPI details
         </p>
       </div>
 
@@ -60,14 +60,14 @@ export function SettingsTab({
             <Settings2 className="h-5 w-5" />
           </div>
           <div>
-            <h2 className="font-display text-lg font-bold">Restaurant Profile &amp; Payment Gateway</h2>
+            <h2 className="font-display text-lg font-bold">Outlet Profile &amp; Payment Gateway</h2>
             <p className="text-xs text-[var(--text-secondary)]">Configure outlet payment mode and info</p>
           </div>
         </div>
 
         <form onSubmit={onSubmitRestaurantSettings} className="space-y-4">
           <label className="block space-y-1">
-            <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Restaurant Name</span>
+            <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Outlet Name</span>
             <input
               value={restaurantForm.name}
               onChange={(event) =>
@@ -303,7 +303,25 @@ export function SettingsTab({
                 placeholder="https://apnagreenbasket.com"
                 className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
               />
-              <span className="text-[10px] text-[var(--text-muted)] block">URL to encode as QR code on printed bills</span>
+              <span className="text-[10px] text-[var(--text-muted)] block">URL encoded in the printed receipt QR code. (e.g., website or app store link)</span>
+            </label>
+
+            {/* Invoice Terms & Conditions */}
+            <label className="block space-y-1 mt-3">
+              <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Invoice Terms & Conditions</span>
+              <textarea
+                value={restaurantForm.invoice_terms_conditions}
+                onChange={(event) =>
+                  setRestaurantForm((current) => ({
+                    ...current,
+                    invoice_terms_conditions: event.target.value,
+                  }))
+                }
+                placeholder="1. Goods once sold will not be taken back."
+                rows={3}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm"
+              />
+              <span className="text-[10px] text-[var(--text-muted)] block">These terms will be dynamically printed at the bottom of the A4 Tax Invoice.</span>
             </label>
           </div>
 
@@ -323,6 +341,54 @@ export function SettingsTab({
               />
             </label>
           )}
+
+          {/* Loyalty Program Settings */}
+          <div className="space-y-3 rounded-2xl border border-sky-500/30 bg-sky-500/5 p-4">
+            <h3 className="text-xs font-bold uppercase tracking-wider text-sky-400 flex items-center gap-1.5">
+              <span>Customer Loyalty Program</span>
+            </h3>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Points Earned Per ₹100 Spent</span>
+                <input
+                  type="number"
+                  min={0}
+                  value={restaurantForm.loyalty_points_per_100_inr}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      loyalty_points_per_100_inr: parseInt(event.target.value) || 0,
+                    }))
+                  }
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-bold text-sky-400"
+                />
+                <span className="text-[10px] text-[var(--text-muted)] block">
+                  e.g. 5 means ₹350 bill earns 18 points (rounded). Set to 0 to disable point accrual.
+                </span>
+              </label>
+
+              <label className="block space-y-1">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">INR Value Per Point (₹)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  value={restaurantForm.loyalty_point_value_inr}
+                  onChange={(event) =>
+                    setRestaurantForm((current) => ({
+                      ...current,
+                      loyalty_point_value_inr: event.target.value,
+                    }))
+                  }
+                  placeholder="1.00"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+                />
+                <span className="text-[10px] text-[var(--text-muted)] block">
+                  e.g. 1.00 means 10 points = ₹10 discount during redemption.
+                </span>
+              </label>
+            </div>
+          </div>
 
           {/* Basket Session Duration */}
           <div className="space-y-2 rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4">
@@ -393,24 +459,45 @@ export function SettingsTab({
                 </span>
               </label>
 
-              <label className="block space-y-1">
-                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Notification Email</span>
-                <input
-                  type="email"
-                  value={restaurantForm.notification_email}
-                  onChange={(event) =>
-                    setRestaurantForm((current) => ({
-                      ...current,
-                      notification_email: event.target.value,
-                    }))
-                  }
-                  placeholder="admin@apnagreenbasket.com"
-                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
-                />
-                <span className="text-[10px] text-[var(--text-muted)] block">
-                  Email for near-expiry &amp; inventory alert dispatches (defaults to account admin email).
-                </span>
-              </label>
+              <div className="grid grid-cols-2 gap-3">
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Emails (Comma Separated)</span>
+                  <input
+                    type="text"
+                    value={restaurantForm.notification_emails}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        notification_emails: event.target.value,
+                      }))
+                    }
+                    placeholder="admin1@example.com, admin2@example.com"
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+                  />
+                  <span className="text-[10px] text-[var(--text-muted)] block">
+                    Emails for near-expiry & shelf-life alerts.
+                  </span>
+                </label>
+
+                <label className="block space-y-1">
+                  <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Phones (Comma Separated)</span>
+                  <input
+                    type="text"
+                    value={restaurantForm.notification_phones}
+                    onChange={(event) =>
+                      setRestaurantForm((current) => ({
+                        ...current,
+                        notification_phones: event.target.value,
+                      }))
+                    }
+                    placeholder="+919876543210, +919998887776"
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
+                  />
+                  <span className="text-[10px] text-[var(--text-muted)] block">
+                    WhatsApp/SMS numbers for alerts.
+                  </span>
+                </label>
+              </div>
             </div>
           </div>
 

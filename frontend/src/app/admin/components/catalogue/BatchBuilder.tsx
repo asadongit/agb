@@ -18,6 +18,8 @@ import {
   FileText,
   Moon,
   Loader2,
+  RefreshCw,
+  Copy,
 } from "lucide-react";
 import type { AdminMenuItem, AdminCategory } from "../../adminTypes";
 import type {
@@ -49,6 +51,7 @@ function resolveItemForPrint(item: AdminMenuItem): CatalogueItem {
   const mrp = item.mrp ? parseFloat(String(item.mrp)) : 0;
   const price = parseFloat(String(item.price)) || 0;
   const disc = mrp > price ? Math.round(((mrp - price) / mrp) * 100) : 0;
+  const eveningPrice = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
   return {
     id: item.id,
     name_en: item.name,
@@ -56,6 +59,7 @@ function resolveItemForPrint(item: AdminMenuItem): CatalogueItem {
     mrp,
     price,
     discount_pct: disc,
+    evening_price: eveningPrice > 0 ? eveningPrice : undefined,
   };
 }
 
@@ -77,6 +81,53 @@ export function BatchBuilder({
   const [statusMsg, setStatusMsg] = useState<{ type: "ok" | "err"; text: string } | null>(null);
 
   const menuItemMap = useMemo(() => new Map(menuItems.map((i) => [i.id, i])), [menuItems]);
+
+  const handleFetchLiveCopy = useCallback(() => {
+    setBatch((prev) => {
+      let changed = false;
+      const newCategories = prev.categories.map((cat) => {
+        const newItems = cat.items
+          .map((item) => {
+            const freshItem = menuItemMap.get(item.id);
+            // Drop items that are deleted or unavailable
+            if (!freshItem || !freshItem.is_available) {
+              changed = true;
+              return null;
+            }
+            
+            const resolved = resolveItemForPrint(freshItem);
+            if (
+              resolved.price !== item.price ||
+              resolved.mrp !== item.mrp ||
+              resolved.evening_price !== item.evening_price ||
+              resolved.name_en !== item.name_en ||
+              resolved.name_hi !== item.name_hi ||
+              resolved.image_url !== item.image_url
+            ) {
+              changed = true;
+              return { ...item, ...resolved };
+            }
+            return item;
+          })
+          .filter(Boolean) as CatalogueItem[]; // Remove nulls (dropped items)
+          
+        if (newItems.length !== cat.items.length) {
+          changed = true;
+        }
+        return { ...cat, items: newItems };
+      });
+
+      if (changed) {
+        setStatusMsg({ type: "ok", text: "Live copy fetched & updated!" });
+        setTimeout(() => setStatusMsg(null), 2000);
+        return { ...prev, categories: newCategories };
+      } else {
+        setStatusMsg({ type: "ok", text: "Already up to date!" });
+        setTimeout(() => setStatusMsg(null), 2000);
+        return prev;
+      }
+    });
+  }, [menuItemMap]);
 
   // ── helpers ──────────────────────────────────────────────────────
   const updateField = <K extends keyof CatalogueBatch>(key: K, val: CatalogueBatch[K]) => {
@@ -100,6 +151,31 @@ export function BatchBuilder({
       setBatch(updated);
       onBatchUpdated(updated);
       setStatusMsg({ type: "ok", text: "Saved!" });
+      setTimeout(() => setStatusMsg(null), 2000);
+    } catch (err: any) {
+      setStatusMsg({ type: "err", text: err.message || "Save failed" });
+    } finally {
+      setIsSaving(false);
+    }
+  }, [batch, onBatchUpdated]);
+
+  const handleSaveAsNew = useCallback(async () => {
+    setIsSaving(true);
+    setStatusMsg(null);
+    try {
+      const newBatch = await apiRequest<CatalogueBatch>(`/api/admin/catalogues`, {
+        method: "POST",
+        body: JSON.stringify({
+          name: `${batch.name} (Copy)`,
+          template: batch.template,
+          show_evening_price: batch.show_evening_price,
+          show_evening_special_label: batch.show_evening_special_label,
+          categories: batch.categories,
+        }),
+      });
+      setBatch(newBatch);
+      onBatchUpdated(newBatch);
+      setStatusMsg({ type: "ok", text: "Saved as New Copy!" });
       setTimeout(() => setStatusMsg(null), 2000);
     } catch (err: any) {
       setStatusMsg({ type: "err", text: err.message || "Save failed" });
@@ -476,30 +552,50 @@ export function BatchBuilder({
       )}
 
       {/* Bottom actions */}
-      <div className="flex gap-2 pt-2 border-t border-[var(--border-subtle)]">
-        <button
-          type="button"
-          onClick={handleSave}
-          disabled={isSaving}
-          className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-4 py-2.5 text-xs font-bold text-[var(--text-on-accent)] disabled:opacity-50 transition"
-        >
-          {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
-          {isSaving ? "Saving..." : "Save"}
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePrintOrPreview(false)}
-          className="flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
-        >
-          <Eye className="h-3.5 w-3.5" /> Preview
-        </button>
-        <button
-          type="button"
-          onClick={() => handlePrintOrPreview(true)}
-          className="flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
-        >
-          <Printer className="h-3.5 w-3.5" /> Print
-        </button>
+      <div className="flex flex-col gap-2 pt-2 border-t border-[var(--border-subtle)]">
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleFetchLiveCopy}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-2 text-xs font-bold text-sky-600 hover:bg-sky-500/20 transition"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Fetch Live Copy
+          </button>
+          <button
+            type="button"
+            onClick={handleSaveAsNew}
+            disabled={isSaving}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] px-4 py-2 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] disabled:opacity-50 transition"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Copy className="h-3.5 w-3.5" />}
+            Save as New
+          </button>
+        </div>
+        <div className="flex gap-2">
+          <button
+            type="button"
+            onClick={handleSave}
+            disabled={isSaving}
+            className="flex-1 flex items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-brand)] px-4 py-2.5 text-xs font-bold text-[var(--text-on-accent)] disabled:opacity-50 transition"
+          >
+            {isSaving ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Save className="h-3.5 w-3.5" />}
+            {isSaving ? "Saving..." : "Save"}
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePrintOrPreview(false)}
+            className="flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
+          >
+            <Eye className="h-3.5 w-3.5" /> Preview
+          </button>
+          <button
+            type="button"
+            onClick={() => handlePrintOrPreview(true)}
+            className="flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition"
+          >
+            <Printer className="h-3.5 w-3.5" /> Print
+          </button>
+        </div>
       </div>
     </div>
   );

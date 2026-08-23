@@ -192,7 +192,7 @@ async def _handle_order_paid(db: AsyncSession, payload: dict) -> None:
     if not order:
         return  # Order not found — log and skip
 
-    target_status = OrderStatusEnum.COMPLETED if order.is_auto_verified else OrderStatusEnum.PAID
+    target_status = OrderStatusEnum.COMPLETED if order.is_auto_verified else OrderStatusEnum.PENDING_VERIFICATION
 
     # Enforce state machine: only transition if current status is a valid predecessor
     if not is_valid_transition(order.status, target_status):
