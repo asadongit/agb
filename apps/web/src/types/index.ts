@@ -214,7 +214,7 @@ export interface FunnelAnalytics {
 export type ProfitBucket = components["schemas"]["ProfitBucket"];
 
 export interface ProfitMarginAnalytics {
-  granularity: "hourly" | "daily" | "weekly" | "monthly";
+  granularity: string;
   from_date: string;
   to_date: string;
   total_revenue: number;
