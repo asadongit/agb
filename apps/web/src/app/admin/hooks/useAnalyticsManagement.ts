@@ -9,6 +9,7 @@ import type {
   CategorySalesResponse,
   ItemSalesResponse,
   BillProfitResponse,
+  ProfitMarginResponse,
   AovAnalyticsResponse,
   StockIntakeReportResponse,
   WastageReportResponse,
