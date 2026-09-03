@@ -335,7 +335,6 @@ export type FinancialSubTab =
   | "tax_summary"
   | "cash_denominations";
 
-
 export type DatePreset = "today" | "yesterday" | "last_7" | "last_30" | "this_month" | "last_month" | "custom";
 
 export type ProfitMarginResponse = components["schemas"]["ProfitMarginResponse"];
