@@ -306,6 +306,7 @@ export type AnalyticsMainTab =
   | "day_book";
 
 export type SalesSubTab =
+  | "master_view"
   | "category"
   | "item"
   | "aov"
@@ -313,6 +314,7 @@ export type SalesSubTab =
   | "discount";
 
 export type InventorySubTab =
+  | "master_view"
   | "stock_movement"
   | "intake"
   | "wastage"
@@ -320,16 +322,23 @@ export type InventorySubTab =
   | "supplier_spend";
 
 export type CustomersSubTab =
+  | "master_view"
   | "new_customers"
   | "returns"
   | "loyalty"
   | "abandoned_carts";
 
 export type FinancialSubTab =
+  | "master_view"
   | "profit_margin"
   | "bill_profit"
   | "tax_summary"
   | "cash_denominations";
 
+
 export type DatePreset = "today" | "yesterday" | "last_7" | "last_30" | "this_month" | "last_month" | "custom";
 
+export type ProfitReportResponse = components["schemas"]["ProfitMarginReportResponse"];
+export type CashDenomResponse = components["schemas"]["CashDenominationResponse"];
+export type AbandonedCartResponse = components["schemas"]["AbandonedCartStatsResponse"];
+export type RestockItem = components["schemas"]["RestockItem"];

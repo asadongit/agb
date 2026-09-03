@@ -192,7 +192,7 @@ export function InventoryTab({
     onScan: (barcode) => {
       setSearchQuery(barcode);
     },
-    enabled: activeSubTab === "master_view", // only listen when looking at the products table
+    enabled: activeSubTab === "items", // only listen when looking at the products table
   });
 
   // Prefill Item state for adding a batch to an existing product
