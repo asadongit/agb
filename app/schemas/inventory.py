@@ -12,7 +12,7 @@ from typing import Any
 
 from pydantic import Field, computed_field, field_validator
 
-from app.models.enums import InventoryUnitEnum, StockChangeTypeEnum
+from app.models.enums import InventoryUnitEnum, StockChangeTypeEnum, MarginTypeEnum
 from app.schemas.common import BaseResponse, StrictSchema
 
 
@@ -26,6 +26,11 @@ class InventoryItemCreate(StrictSchema):
     cost_per_unit: Decimal = Field(default=Decimal("0.00"), ge=0)
     mrp: Decimal | None = Field(None, ge=0)
     wholesale_price: Decimal | None = Field(None, ge=0)
+    retail_price: Decimal | None = Field(None, ge=0)
+    margin_type: MarginTypeEnum = Field(default=MarginTypeEnum.MARKUP)
+    retail_margin_pct: Decimal | None = Field(None, ge=0)
+    mrp_margin_pct: Decimal | None = Field(None, ge=0)
+    wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
@@ -41,6 +46,11 @@ class InventoryItemUpdate(StrictSchema):
     cost_per_unit: Decimal | None = Field(None, ge=0)
     mrp: Decimal | None = Field(None, ge=0)
     wholesale_price: Decimal | None = Field(None, ge=0)
+    retail_price: Decimal | None = Field(None, ge=0)
+    margin_type: MarginTypeEnum | None = None
+    retail_margin_pct: Decimal | None = Field(None, ge=0)
+    mrp_margin_pct: Decimal | None = Field(None, ge=0)
+    wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(None, max_length=100)
     tax_rate: Decimal | None = Field(None, ge=0)
     is_active: bool | None = None
@@ -59,6 +69,11 @@ class InventoryItemResponse(BaseResponse):
     cost_per_unit: Decimal
     mrp: Decimal | None = None
     wholesale_price: Decimal | None = None
+    retail_price: Decimal | None = None
+    margin_type: MarginTypeEnum
+    retail_margin_pct: Decimal | None = None
+    mrp_margin_pct: Decimal | None = None
+    wholesale_margin_pct: Decimal | None = None
     tax_category: str | None = "GST 0%"
     tax_rate: Decimal | None = Decimal("0.00")
     is_active: bool
@@ -72,10 +87,14 @@ class StockIntakeCreate(StrictSchema):
     batch_number: str | None = Field(None, max_length=100)
     quantity: Decimal = Field(gt=0)
     unit_cost: Decimal = Field(ge=0)
-    supplier_name: str | None = Field(None, max_length=255)
+    supplier_id: uuid.UUID | None = None
     intake_date: datetime = Field(default_factory=datetime.utcnow)
     expiry_date: datetime | None = None
     notes: str | None = None
+    margin_type: MarginTypeEnum | None = None
+    retail_margin_pct: Decimal | None = Field(None, ge=0)
+    mrp_margin_pct: Decimal | None = Field(None, ge=0)
+    wholesale_margin_pct: Decimal | None = Field(None, ge=0)
 
 
 class StockIntakeResponse(BaseResponse):
@@ -86,7 +105,8 @@ class StockIntakeResponse(BaseResponse):
     quantity: Decimal
     remaining_quantity: Decimal = Decimal("0.000")
     unit_cost: Decimal
-    supplier_name: str | None
+    supplier_id: uuid.UUID | None = None
+    supplier_name: str | None = None
     intake_date: datetime
     expiry_date: datetime | None = None
     added_by: uuid.UUID | None
@@ -118,12 +138,16 @@ class ScanOnboardRequest(StrictSchema):
     selling_price: Decimal | None = Field(None, ge=0)
     mrp: Decimal | None = Field(None, ge=0)
     wholesale_price: Decimal | None = Field(None, ge=0)
+    margin_type: MarginTypeEnum = Field(default=MarginTypeEnum.MARKUP)
+    retail_margin_pct: Decimal | None = Field(None, ge=0)
+    mrp_margin_pct: Decimal | None = Field(None, ge=0)
+    wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
     reorder_threshold: Decimal = Field(default=Decimal("5.000"), ge=0)
     batch_number: str | None = Field(None, max_length=100)
     expiry_date: datetime | None = None
-    supplier_name: str | None = Field(None, max_length=255)
+    supplier_id: uuid.UUID | None = None
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
 
     @field_validator("barcode", "tax_category", mode="before")
@@ -139,6 +163,22 @@ class SupplierCreate(StrictSchema):
     phone: str | None = Field(None, max_length=50)
     email: str | None = Field(None, max_length=255)
     address: str | None = Field(None, max_length=1000)
+    gstin: str | None = Field(None, max_length=50)
+    contact_person: str | None = Field(None, max_length=100)
+    payment_terms: str | None = Field(None, max_length=100)
+    notes: str | None = Field(None)
+
+
+class SupplierUpdate(StrictSchema):
+    name: str | None = Field(None, min_length=1, max_length=255)
+    phone: str | None = Field(None, max_length=50)
+    email: str | None = Field(None, max_length=255)
+    address: str | None = Field(None, max_length=1000)
+    gstin: str | None = Field(None, max_length=50)
+    contact_person: str | None = Field(None, max_length=100)
+    payment_terms: str | None = Field(None, max_length=100)
+    notes: str | None = Field(None)
+    is_active: bool | None = Field(None)
 
 
 class SupplierResponse(BaseResponse):
@@ -148,6 +188,10 @@ class SupplierResponse(BaseResponse):
     phone: str | None = None
     email: str | None = None
     address: str | None = None
+    gstin: str | None = None
+    contact_person: str | None = None
+    payment_terms: str | None = None
+    notes: str | None = None
     is_active: bool
     created_at: datetime
 
@@ -269,4 +313,5 @@ BatchExpiryAlertResponse.model_rebuild()
 StockWastageRequest.model_rebuild()
 StockWastageResponse.model_rebuild()
 SupplierCreate.model_rebuild()
+SupplierUpdate.model_rebuild()
 SupplierResponse.model_rebuild()

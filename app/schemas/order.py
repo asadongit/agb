@@ -64,6 +64,7 @@ class OrderItemResponse(BaseResponse):
     is_complimentary: bool = False
     tax_rate: Decimal | None = Decimal("0.00")
     tax_category: str | None = "GST 0%"
+    mrp: Decimal | None = None
 
 
 class OrderResponse(BaseResponse):

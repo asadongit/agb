@@ -9,7 +9,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Numeric, String, func
+from sqlalchemy import JSON, DateTime, ForeignKey, Numeric, String, func
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -59,6 +59,9 @@ class BillDiscountApproval(Base):
     )
     resolved_at: Mapped[datetime | None] = mapped_column(
         DateTime, nullable=True
+    )
+    complimentary_items: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
     )
 
     # Relationships

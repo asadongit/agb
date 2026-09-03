@@ -13,9 +13,9 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
-from app.models.enums import InventoryUnitEnum, StockChangeTypeEnum
+from app.models.enums import InventoryUnitEnum, StockChangeTypeEnum, MarginTypeEnum
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item_recipe import MenuItemRecipe
 from app.models.order import Order
@@ -384,7 +384,7 @@ async def update_inventory_item(
 
 def generate_batch_number(prefix: str = "BAT") -> str:
     """Generate a unique batch number, e.g. BAT-20260810-AB12."""
-    date_str = datetime.utcnow().strftime("%Y%m%d")
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
     random_suffix = uuid.uuid4().hex[:4].upper()
     return f"{prefix}-{date_str}-{random_suffix}"
 
@@ -436,7 +436,7 @@ async def log_stock_intake(
         initial_quantity=data.quantity,
         remaining_quantity=remaining_qty,
         unit_cost=data.unit_cost,
-        supplier_name=data.supplier_name.strip() if data.supplier_name else None,
+        supplier_id=data.supplier_id,
         intake_date=data.intake_date,
         expiry_date=data.expiry_date,
         added_by=user_id,
@@ -460,6 +460,63 @@ async def log_stock_intake(
     # Increment stock and update cost per unit
     item.current_stock = item.current_stock + data.quantity
     item.cost_per_unit = data.unit_cost
+
+    # Update item margin config if provided in the intake request
+    if data.margin_type is not None:
+        item.margin_type = data.margin_type
+    if data.retail_margin_pct is not None:
+        item.retail_margin_pct = data.retail_margin_pct
+    if data.mrp_margin_pct is not None:
+        item.mrp_margin_pct = data.mrp_margin_pct
+    if data.wholesale_margin_pct is not None:
+        item.wholesale_margin_pct = data.wholesale_margin_pct
+
+    # Auto-calculate prices based on new cost_per_unit and margins
+    cost = item.cost_per_unit
+    
+    def calc_price(margin_pct: Decimal | None) -> Decimal | None:
+        if margin_pct is None or cost == Decimal("0.00"):
+            return None
+        if item.margin_type == MarginTypeEnum.MARKUP:
+            return (cost + (cost * margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+        elif item.margin_type == MarginTypeEnum.MARGIN:
+            if margin_pct >= Decimal("100"):
+                return None # Avoid division by zero or negative
+            return (cost / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+        return None
+
+    new_retail_price = calc_price(item.retail_margin_pct)
+    new_mrp = calc_price(item.mrp_margin_pct)
+    new_wholesale_price = calc_price(item.wholesale_margin_pct)
+
+    price_changed = False
+    if new_retail_price is not None and item.retail_price != new_retail_price:
+        item.retail_price = new_retail_price
+        price_changed = True
+    if new_mrp is not None and item.mrp != new_mrp:
+        item.mrp = new_mrp
+        price_changed = True
+    if new_wholesale_price is not None and item.wholesale_price != new_wholesale_price:
+        item.wholesale_price = new_wholesale_price
+        price_changed = True
+
+    if price_changed:
+        # Also update linked MenuItem if it exists
+        from app.models.menu_item import MenuItem
+        menu_res = await db.execute(
+            select(MenuItem).where(MenuItem.inventory_item_id == item.id)
+        )
+        menu_item = menu_res.scalar_one_or_none()
+        if menu_item:
+            if new_retail_price is not None:
+                menu_item.price = new_retail_price
+            if new_mrp is not None:
+                menu_item.mrp = new_mrp
+            if new_wholesale_price is not None:
+                menu_item.wholesale_price = new_wholesale_price
+
+            from app.services.menu_service import invalidate_outlet_menu
+            await invalidate_outlet_menu(db, outlet_id)
 
     ledger = StockLedger(
         id=uuid.uuid4(),
@@ -519,7 +576,7 @@ async def quick_scan_increment(
         quantity=quantity,
         remaining_quantity=quantity,
         unit_cost=effective_cost,
-        intake_date=datetime.utcnow(),
+        intake_date=datetime.now(timezone.utc),
         expiry_date=expiry_date,
         added_by=user_id,
         notes="Quick barcode scan inward",
@@ -561,7 +618,7 @@ async def onboard_scanned_item(
     reorder_threshold: Decimal = Decimal("5.000"),
     batch_number: str | None = None,
     expiry_date: datetime | None = None,
-    supplier_name: str | None = None,
+    supplier_id: uuid.UUID | None = None,
     mrp: Decimal | None = None,
     tax_category: str | None = "GST 0%",
     tax_rate: Decimal | None = Decimal("0.00"),
@@ -570,6 +627,10 @@ async def onboard_scanned_item(
     item_id: uuid.UUID | None = None,
     wholesale_price: Decimal | None = None,
     shelf_life_alert_hrs: int | None = None,
+    margin_type: MarginTypeEnum = MarginTypeEnum.MARKUP,
+    retail_margin_pct: Decimal | None = None,
+    mrp_margin_pct: Decimal | None = None,
+    wholesale_margin_pct: Decimal | None = None,
 ) -> tuple[InventoryItem, StockIntake | None]:
     """
     Scan / Manual Inward Stock: Registers a new item or appends a new batch to an existing item.
@@ -616,8 +677,19 @@ async def onboard_scanned_item(
             item.cost_per_unit = computed_unit_cost
         if mrp is not None and mrp > Decimal("0.00"):
             item.mrp = mrp
-        if wholesale_price is not None and wholesale_price > Decimal("0.00"):
+        if wholesale_price is not None:
             item.wholesale_price = wholesale_price
+        if selling_price is not None:
+            item.retail_price = selling_price
+        
+        item.margin_type = margin_type
+        if retail_margin_pct is not None:
+            item.retail_margin_pct = retail_margin_pct
+        if mrp_margin_pct is not None:
+            item.mrp_margin_pct = mrp_margin_pct
+        if wholesale_margin_pct is not None:
+            item.wholesale_margin_pct = wholesale_margin_pct
+
         if tax_category:
             item.tax_category = tax_category
         if tax_rate is not None:
@@ -653,6 +725,11 @@ async def onboard_scanned_item(
             cost_per_unit=computed_unit_cost,
             mrp=mrp,
             wholesale_price=wholesale_price,
+            retail_price=selling_price,
+            margin_type=margin_type,
+            retail_margin_pct=retail_margin_pct,
+            mrp_margin_pct=mrp_margin_pct,
+            wholesale_margin_pct=wholesale_margin_pct,
             tax_category=tax_category,
             tax_rate=tax_rate,
             shelf_life_alert_hrs=shelf_life_alert_hrs,
@@ -673,8 +750,8 @@ async def onboard_scanned_item(
             initial_quantity=initial_stock,
             remaining_quantity=effective_stock,
             unit_cost=computed_unit_cost,
-            supplier_name=supplier_name.strip() if supplier_name else None,
-            intake_date=datetime.utcnow(),
+            supplier_id=supplier_id,
+            intake_date=datetime.now(timezone.utc),
             expiry_date=expiry_date,
             added_by=user_id,
             notes="Initial barcode onboarding batch",
@@ -752,10 +829,13 @@ async def get_all_batches(
     Get list of all intake batches for an outlet with FEFO / expiry status.
     Optionally filter by item_id.
     """
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     stmt = (
         select(StockIntake)
-        .options(selectinload(StockIntake.item))
+        .options(
+            selectinload(StockIntake.item),
+            selectinload(StockIntake.supplier)
+        )
         .where(StockIntake.outlet_id == outlet_id)
     )
     if item_id:
@@ -794,9 +874,10 @@ async def get_all_batches(
             "remaining_quantity": b.remaining_quantity,
             "unit_cost": b.unit_cost,
             "purchase_unit_cost": purchase_cost,
-            "supplier_name": b.supplier_name,
-            "intake_date": b.intake_date,
-            "expiry_date": b.expiry_date,
+            "supplier_id": b.supplier_id,
+            "supplier_name": b.supplier.name if b.supplier else None,
+            "intake_date": b.intake_date.replace(tzinfo=timezone.utc) if b.intake_date else None,
+            "expiry_date": b.expiry_date.replace(tzinfo=timezone.utc) if b.expiry_date else None,
             "status": status_str,
         })
     return result
@@ -846,7 +927,7 @@ async def get_near_expiry_alerts(
         outlet = await db.get(Outlet, outlet_id)
         threshold_days = outlet.near_expiry_threshold_days if outlet else 7
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     cutoff_date = now + timedelta(days=threshold_days)
 
     res = await db.execute(
@@ -1019,9 +1100,42 @@ async def create_supplier(
         phone=data.phone.strip() if data.phone else None,
         email=data.email.strip() if data.email else None,
         address=data.address.strip() if data.address else None,
+        gstin=data.gstin.strip() if data.gstin else None,
+        contact_person=data.contact_person.strip() if data.contact_person else None,
+        payment_terms=data.payment_terms.strip() if data.payment_terms else None,
+        notes=data.notes.strip() if data.notes else None,
         is_active=True,
     )
     db.add(supplier)
+    await db.flush()
+    await db.refresh(supplier)
+    return supplier
+
+
+async def update_supplier(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    supplier_id: uuid.UUID,
+    data: Any,
+):
+    """Update an existing vendor/supplier record."""
+    from app.models.supplier import Supplier
+
+    stmt = select(Supplier).where(
+        Supplier.id == supplier_id,
+        Supplier.outlet_id == outlet_id,
+    )
+    res = await db.execute(stmt)
+    supplier = res.scalar_one_or_none()
+    if not supplier:
+        return None
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        setattr(supplier, field, value)
+
     await db.flush()
     await db.refresh(supplier)
     return supplier
@@ -1063,7 +1177,9 @@ async def adjust_batch_stock(
 
     # Fetch target batch
     intake_res = await db.execute(
-        select(StockIntake).where(
+        select(StockIntake)
+        .options(selectinload(StockIntake.supplier))
+        .where(
             StockIntake.id == intake_id,
             StockIntake.outlet_id == outlet_id,
         )
@@ -1129,11 +1245,11 @@ async def adjust_batch_stock(
         item.current_stock = max(Decimal("0.000"), item.current_stock - qty_change)
 
         # Generate Return Bill Number (e.g. PR-YYYYMMDD-XXXX)
-        now_str = datetime.utcnow().strftime("%Y%m%d")
+        now_str = datetime.now(timezone.utc).strftime("%Y%m%d")
         rand_str = uuid.uuid4().hex[:4].upper()
         return_number = f"PR-{now_str}-{rand_str}"
 
-        supplier_name = data.supplier_name or batch.supplier_name or "General Supplier"
+        supplier_name = data.supplier_name or (batch.supplier.name if batch.supplier else "General Supplier")
         
         # Calculate Purchase/Billed Unit Cost
         init_q = float(batch.initial_quantity) if (batch.initial_quantity is not None and float(batch.initial_quantity) > 0) else float(batch.quantity)

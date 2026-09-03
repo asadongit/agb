@@ -87,27 +87,63 @@ async def export_inventory(db: AsyncSession, outlet_id: uuid.UUID, format: Expor
     items = res.scalars().all()
     
     data = []
-    for item in items:
+    for i, item in enumerate(items, start=2): # Row 1 is header, data starts at row 2
+        exist_cost = str(item.cost_per_unit) if item.cost_per_unit else '""'
+        exist_retail = str(item.retail_price) if item.retail_price else '""'
+        exist_mrp = str(item.mrp) if item.mrp else '""'
+        exist_whole = str(item.wholesale_price) if item.wholesale_price else '""'
+        
+        formula_H = f'=IF(F{i}>0, G{i}/F{i}, IF(E{i}>0, G{i}/E{i}, {exist_cost}))'
+        formula_L = f'=IF(ISNUMBER(I{i}), IF(O{i}="MARGIN", H{i}/(1-I{i}/100), H{i}+(H{i}*I{i}/100)), {exist_mrp})'
+        formula_M = f'=IF(ISNUMBER(J{i}), IF(O{i}="MARGIN", H{i}/(1-J{i}/100), H{i}+(H{i}*J{i}/100)), {exist_retail})'
+        formula_N = f'=IF(ISNUMBER(K{i}), IF(O{i}="MARGIN", H{i}/(1-K{i}/100), H{i}+(H{i}*K{i}/100)), {exist_whole})'
+        
         data.append({
             "Name": item.name,
             "Barcode": item.barcode or "",
             "Unit": item.unit.value,
             "Category": item.category,
-            "Current Stock": str(item.current_stock),
-            "Reorder Threshold": str(item.reorder_threshold),
-            "Cost Per Unit": str(item.cost_per_unit),
-            "Selling Price": "", # Not stored on inventory item natively
-            "MRP": str(item.mrp) if item.mrp else "",
-            "Wholesale Price": str(item.wholesale_price) if item.wholesale_price else "",
+            "Initial Qty": "",
+            "Sorted Qty": "",
+            "Total Billed": "",
+            "Cost Per Unit": formula_H,
+            "MRP Margin Pct": float(item.mrp_margin_pct) if item.mrp_margin_pct is not None else "",
+            "Retail Margin Pct": float(item.retail_margin_pct) if item.retail_margin_pct is not None else "",
+            "Wholesale Margin Pct": float(item.wholesale_margin_pct) if item.wholesale_margin_pct is not None else "",
+            "MRP": formula_L,
+            "Retail Price": formula_M,
+            "Wholesale Price": formula_N,
+            "Margin Type": item.margin_type.value if item.margin_type else "",
+            "Supplier": "",
+            "Expiry Date": "",
             "Tax Category": item.tax_category,
-            "Tax Rate": str(item.tax_rate),
-            "Shelf Life Alert Hrs": str(item.shelf_life_alert_hrs) if item.shelf_life_alert_hrs else "",
+            "Tax Rate": float(item.tax_rate) if item.tax_rate is not None else "",
+            "Reorder Threshold": float(item.reorder_threshold) if item.reorder_threshold is not None else "",
+            "Shelf Life Alert Hrs": int(item.shelf_life_alert_hrs) if item.shelf_life_alert_hrs is not None else "",
+            "Current Stock": float(item.current_stock) if item.current_stock is not None else "",
         })
+        
+    if format == ExportFormatEnum.EXCEL:
+        current_row = len(items) + 2
+        for i in range(current_row, current_row + 500):
+            formula_H = f'=IF(F{i}>0, G{i}/F{i}, IF(E{i}>0, G{i}/E{i}, ""))'
+            formula_L = f'=IF(ISNUMBER(I{i}), IF(O{i}="MARGIN", H{i}/(1-I{i}/100), H{i}+(H{i}*I{i}/100)), "")'
+            formula_M = f'=IF(ISNUMBER(J{i}), IF(O{i}="MARGIN", H{i}/(1-J{i}/100), H{i}+(H{i}*J{i}/100)), "")'
+            formula_N = f'=IF(ISNUMBER(K{i}), IF(O{i}="MARGIN", H{i}/(1-K{i}/100), H{i}+(H{i}*K{i}/100)), "")'
+            
+            data.append({
+                "Name": "", "Barcode": "", "Unit": "", "Category": "",
+                "Initial Qty": "", "Sorted Qty": "", "Total Billed": "",
+                "Cost Per Unit": formula_H, "MRP Margin Pct": "", "Retail Margin Pct": "", "Wholesale Margin Pct": "",
+                "MRP": formula_L, "Retail Price": formula_M, "Wholesale Price": formula_N,
+                "Margin Type": "", "Supplier": "", "Expiry Date": "", "Tax Category": "", "Tax Rate": "",
+                "Reorder Threshold": "", "Shelf Life Alert Hrs": "", "Current Stock": ""
+            })
         
     df = pd.DataFrame(data)
     # Ensure columns match even if empty
     if df.empty:
-        df = pd.DataFrame(columns=["Name", "Barcode", "Unit", "Category", "Current Stock", "Reorder Threshold", "Cost Per Unit", "Selling Price", "MRP", "Wholesale Price", "Tax Category", "Tax Rate", "Shelf Life Alert Hrs"])
+        df = pd.DataFrame(columns=["Name", "Barcode", "Unit", "Category", "Initial Qty", "Sorted Qty", "Total Billed", "Cost Per Unit", "MRP Margin Pct", "Retail Margin Pct", "Wholesale Margin Pct", "MRP", "Retail Price", "Wholesale Price", "Margin Type", "Supplier", "Expiry Date", "Tax Category", "Tax Rate", "Reorder Threshold", "Shelf Life Alert Hrs", "Current Stock"])
         
     return _format_dataframe(df, format, "inventory_export", "Inventory Export")
 

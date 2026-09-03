@@ -13,7 +13,7 @@ from pydantic import Field
 from sqlalchemy import func, select
 from sqlalchemy.orm import selectinload
 
-from datetime import datetime
+from datetime import datetime, timezone
 from app.config import get_settings
 from app.core.shift_utils import get_current_shift_window_utc
 from app.dependencies import (
@@ -80,7 +80,7 @@ async def list_active_sessions(
     result = await db.execute(stmt)
     sessions = result.scalars().all()
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     valid_active_sessions = []
     has_swept = False
 

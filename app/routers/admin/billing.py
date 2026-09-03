@@ -8,6 +8,7 @@ import uuid
 from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
@@ -19,7 +20,8 @@ from app.dependencies import (
     require_permission,
 )
 from app.models.bill_discount_approval import BillDiscountApproval
-from app.models.enums import RoleEnum
+from app.models.cash_drawer_ledger import CashDrawerLedger
+from app.models.enums import RoleEnum, OrderStatusEnum
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.user import User
@@ -78,6 +80,7 @@ def _format_bill_response(order: Order) -> BillResponse:
                 "mrp": mrp_val,
                 "tax_rate": tax_rate_val,
                 "is_complimentary": getattr(item, "is_complimentary", False),
+                "returned_quantity": float(getattr(item, "returned_quantity", 0.0)),
                 "line_total": l_total,
             }
         )
@@ -91,6 +94,8 @@ def _format_bill_response(order: Order) -> BillResponse:
         status=order.status.value if hasattr(order.status, "value") else str(order.status),
         source=order.source or "manual",
         subtotal_amount=float(order.subtotal_amount or order.total_amount or 0.0),
+        delivery_charge=float(order.delivery_charge) if getattr(order, 'delivery_charge', None) is not None else 0.0,
+        handling_charge=float(order.handling_charge) if getattr(order, 'handling_charge', None) is not None else 0.0,
         tax_amount=float(order.tax_amount or 0.0),
         total_amount=float(order.total_amount or 0.0),
         discount_type=order.discount_type,
@@ -207,7 +212,10 @@ async def mark_paid_endpoint(
         current_user.outlet_id,
         data.payment_method,
         cash_denominations=data.cash_denominations,
+        change_denominations=getattr(data, 'change_denominations', None),
         redeem_loyalty_points=data.redeem_loyalty_points,
+        delivery_charge=getattr(data, 'delivery_charge', 0.0),
+        handling_charge=getattr(data, 'handling_charge', 0.0),
     )
     return _format_bill_response(order)
 
@@ -367,3 +375,60 @@ async def delete_draft_bill_endpoint(
         raise HTTPException(status_code=400, detail="outlet_id required")
     from app.services.billing_service import discard_draft_bill
     await discard_draft_bill(db, bill_id, current_user.outlet_id)
+
+
+class DrawerStateResponse(BaseModel):
+    denominations: dict[str, int]
+    total_balance: float
+
+@router.get("/drawer-state", response_model=DrawerStateResponse)
+async def get_live_drawer_state(
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """Calculate exact real-time live cash drawer state."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    
+    stmt = select(CashDrawerLedger).where(CashDrawerLedger.outlet_id == current_user.outlet_id)
+    res = await db.execute(stmt)
+    ledger_entries = res.scalars().all()
+    
+    denoms = {}
+    for entry in ledger_entries:
+        mult = 1 if entry.transaction_type in ("MANUAL_DEPOSIT", "CUSTOMER_PAYMENT") else -1
+        for d, count in entry.denominations.items():
+            if count > 0:
+                denoms[d] = denoms.get(d, 0) + (count * mult)
+    
+    total = sum(float(d) * count for d, count in denoms.items())
+    return DrawerStateResponse(denominations=denoms, total_balance=total)
+
+class DrawerTransactionRequest(BaseModel):
+    transaction_type: str
+    denominations: dict[str, int]
+    notes: str | None = None
+
+@router.post("/drawer-transaction")
+async def manual_drawer_transaction(
+    data: DrawerTransactionRequest,
+    db: DBSession,
+    current_user: CurrentUser = Depends(require_permission("can_manage_billing")),
+):
+    """Manually add or withdraw physical cash from the drawer."""
+    if not current_user.outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+        
+    if data.transaction_type not in ("MANUAL_DEPOSIT", "MANUAL_WITHDRAWAL"):
+        raise HTTPException(status_code=400, detail="Invalid transaction type")
+        
+    ledger = CashDrawerLedger(
+        outlet_id=current_user.outlet_id,
+        transaction_type=data.transaction_type,
+        denominations=data.denominations,
+        notes=data.notes,
+        created_by=current_user.user_id,
+    )
+    db.add(ledger)
+    await db.commit()
+    return {"status": "ok"}

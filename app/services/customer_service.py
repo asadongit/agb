@@ -178,7 +178,7 @@ async def get_customer_analytics(
     """
     Get customer purchase volume, category interest, and item interest over a selected timeframe.
     """
-    from datetime import datetime, timedelta
+    from datetime import datetime, timezone, timedelta
     from app.models.order_item import OrderItem
     from app.models.category import Category
     from app.models.menu_item import MenuItem
@@ -204,7 +204,7 @@ async def get_customer_analytics(
     else:
         order_stmt = order_stmt.where(Order.customer_phone == clean_phone)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     if period == "this_week":
         # Monday of current week
         start = now - timedelta(days=now.weekday())

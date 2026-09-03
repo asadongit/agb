@@ -22,7 +22,7 @@ class NotificationResponse(BaseResponse):
     message: str
     details: dict[str, Any] | None = None
     is_read: bool = False
-    channels_sent: list[str] = Field(default_factory=list)
+    channels_sent: list[str] | None = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

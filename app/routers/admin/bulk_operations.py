@@ -140,7 +140,7 @@ async def download_template(
     import pandas as pd
     
     if entity == "inventory":
-        cols = ["Name", "Barcode", "Unit", "Category", "Current Stock", "Reorder Threshold", "Initial Qty", "Total Billed", "Sorted Qty", "Cost Per Unit", "Selling Price", "MRP", "Wholesale Price", "Tax Category", "Tax Rate"]
+        cols = ["Name", "Barcode", "Unit", "Category", "Initial Qty", "Sorted Qty", "Total Billed", "Cost Per Unit", "MRP Margin Pct", "Retail Margin Pct", "Wholesale Margin Pct", "MRP", "Retail Price", "Wholesale Price", "Margin Type", "Supplier", "Expiry Date", "Tax Category", "Tax Rate", "Reorder Threshold", "Shelf Life Alert Hrs", "Current Stock"]
         
         from openpyxl import Workbook
         from openpyxl.styles import Font, PatternFill, Protection
@@ -154,22 +154,28 @@ async def download_template(
             cell.font = Font(bold=True)
             cell.fill = PatternFill(start_color="E0E0E0", end_color="E0E0E0", fill_type="solid")
             
-        # Add formula to "Cost Per Unit" (Column J = 10)
-        # G = Initial Qty, H = Total Billed, I = Sorted Qty
+        # Add formula to "Cost Per Unit" (Column H = 8)
+        # E = Initial Qty, F = Sorted Qty, G = Total Billed
         for row_idx in range(2, 501):
-            formula = f"=IF(I{row_idx}>0, H{row_idx}/I{row_idx}, IF(G{row_idx}>0, H{row_idx}/G{row_idx}, \"\"))"
-            cell = ws.cell(row=row_idx, column=10, value=formula)
+            formula = f'=IF(F{row_idx}>0, G{row_idx}/F{row_idx}, IF(E{row_idx}>0, G{row_idx}/E{row_idx}, ""))'
+            cell = ws.cell(row=row_idx, column=8, value=formula)
             # Optional: lock the formula cell so user doesn't overwrite it
             cell.protection = Protection(locked=True)
+            
+            # Add formulas for MRP (L=12), Retail Price (M=13), Wholesale Price (N=14)
+            # using Margin Type (O=15), MRP Margin Pct (I=9), Retail Margin Pct (J=10), Wholesale Margin Pct (K=11)
+            ws.cell(row=row_idx, column=12, value=f'=IF(ISNUMBER(I{row_idx}), IF(O{row_idx}="MARGIN", H{row_idx}/(1-I{row_idx}/100), H{row_idx}+(H{row_idx}*I{row_idx}/100)), "")')
+            ws.cell(row=row_idx, column=13, value=f'=IF(ISNUMBER(J{row_idx}), IF(O{row_idx}="MARGIN", H{row_idx}/(1-J{row_idx}/100), H{row_idx}+(H{row_idx}*J{row_idx}/100)), "")')
+            ws.cell(row=row_idx, column=14, value=f'=IF(ISNUMBER(K{row_idx}), IF(O{row_idx}="MARGIN", H{row_idx}/(1-K{row_idx}/100), H{row_idx}+(H{row_idx}*K{row_idx}/100)), "")')
             
         # Protect worksheet but allow inserting rows and selecting cells
         ws.protection.sheet = True
         ws.protection.formatCells = False
         ws.protection.insertRows = False
-        # Unlock all cells except the ones we explicitly locked (column J)
+        # Unlock all cells except the ones we explicitly locked
         for row in ws.iter_rows(min_row=2, max_row=500, min_col=1, max_col=len(cols)):
             for cell in row:
-                if cell.column != 10:  # If not Cost Per Unit
+                if cell.column not in [8, 12, 13, 14]:  # If not a formula column
                     cell.protection = Protection(locked=False)
         
         # Adjust column widths

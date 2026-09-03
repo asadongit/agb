@@ -83,7 +83,7 @@ async def sync_near_expiry_notifications(
                 "cost_per_unit": float(intake.unit_cost or 0),
                 "mrp": float(item.mrp) if item.mrp is not None else None,
                 "selling_price": float(getattr(item, "selling_price", 0)) if getattr(item, "selling_price", None) is not None else None,
-                "supplier_name": intake.supplier_name or getattr(item, "supplier_name", None) or "N/A",
+                "supplier_name": intake.supplier.name if getattr(intake, "supplier", None) else "N/A",
                 "expiry_date": intake.expiry_date.isoformat(),
                 "days_until_expiry": days_left,
                 "status": status_text,

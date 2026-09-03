@@ -111,6 +111,8 @@ class MenuItemResponse(BaseResponse):
     tax_rate: Decimal | None = Decimal("0.00")
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = "piece"
+    total_sold: int = 0
+    variants: list[VariantResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

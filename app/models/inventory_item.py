@@ -13,7 +13,7 @@ from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, TimestampMixin
-from app.models.enums import InventoryUnitEnum
+from app.models.enums import InventoryUnitEnum, MarginTypeEnum
 
 if TYPE_CHECKING:
     from app.models.outlet import Outlet
@@ -65,6 +65,24 @@ class InventoryItem(Base, TimestampMixin):
     )
     wholesale_price: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
+    )
+    retail_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    margin_type: Mapped[MarginTypeEnum] = mapped_column(
+        Enum(MarginTypeEnum, name="margintypeenum"),
+        nullable=False,
+        default=MarginTypeEnum.MARKUP,
+        server_default="MARKUP",
+    )
+    retail_margin_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    mrp_margin_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
+    )
+    wholesale_margin_pct: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
     )
     tax_category: Mapped[str | None] = mapped_column(
         String(100), nullable=True, default="GST 0%"

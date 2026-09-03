@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from app.models.inventory_item import InventoryItem
     from app.models.outlet import Outlet
     from app.models.user import User
+    from app.models.supplier import Supplier
 
 
 class StockIntake(Base):
@@ -54,8 +55,10 @@ class StockIntake(Base):
     unit_cost: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False
     )
-    supplier_name: Mapped[str | None] = mapped_column(
-        String(255), nullable=True
+    supplier_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("suppliers.id", ondelete="SET NULL"),
+        nullable=True,
     )
     intake_date: Mapped[datetime] = mapped_column(
         DateTime, nullable=False, server_default=func.now()
@@ -79,4 +82,5 @@ class StockIntake(Base):
     # Relationships
     outlet: Mapped[Outlet] = relationship("Outlet")
     item: Mapped[InventoryItem] = relationship("InventoryItem")
+    supplier: Mapped[Supplier | None] = relationship("Supplier")
     added_by_user: Mapped[User | None] = relationship("User")

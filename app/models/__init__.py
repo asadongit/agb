@@ -30,6 +30,7 @@ from app.models.sync_conflict_flag import SyncConflictFlag
 from app.models.local_action_queue import LocalActionQueue
 from app.models.user import User
 from app.models.webhook_event import WebhookEvent
+from app.models.cash_drawer_ledger import CashDrawerLedger
 from app.models.enums import (
     InventoryUnitEnum,
     OrderStatusEnum,
@@ -50,6 +51,7 @@ __all__ = [
     "BasketQrToken",
     "BasketSession",
     "BillDiscountApproval",
+    "CashDrawerLedger",
     "CatalogueBatch",
     "Category",
     "Customer",

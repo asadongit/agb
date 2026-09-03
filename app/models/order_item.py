@@ -62,6 +62,7 @@ class OrderItem(Base):
     )
     item_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
     is_complimentary: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    returned_quantity: Mapped[Decimal] = mapped_column(Numeric(10, 3), default=Decimal("0.00"), server_default="0.00", nullable=False)
     line_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True, default=Decimal("0.00"))
     tax_category: Mapped[str | None] = mapped_column(String(50), nullable=True, default="GST 0%")

@@ -7,11 +7,18 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
-from pydantic import Field
+from pydantic import Field, field_validator
 
 from app.models.enums import PaymentModeEnum
 from app.schemas.common import BaseResponse, StrictSchema
+
+
+class LoyaltyTier(StrictSchema):
+    min_points: int = Field(ge=0)
+    max_points: int | None = None
+    discount_percentage: float = Field(ge=0.0, le=100.0)
 
 
 class OutletCreate(StrictSchema):
@@ -37,12 +44,14 @@ class OutletCreate(StrictSchema):
     evening_auto_end_time: str | None = None    # HH:MM IST
     near_expiry_threshold_days: int = Field(default=7, ge=1, le=180)
     notification_emails: list[str] = Field(default_factory=list)
+    weighing_scale_barcode_format: str = "21_5I_5W_GRAMS"
     notification_phones: list[str] = Field(default_factory=list)
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
     loyalty_points_per_100_inr: int = 0
-    loyalty_point_value_inr: Decimal = Field(default=Decimal("0.00"), ge=Decimal("0"))
+    loyalty_redemption_tiers: list[LoyaltyTier] = Field(default_factory=list)
+    loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"), ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
 
 
@@ -69,12 +78,14 @@ class OutletUpdate(StrictSchema):
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int | None = Field(default=None, ge=1, le=180)
     notification_emails: list[str] | None = None
+    weighing_scale_barcode_format: str | None = None
     notification_phones: list[str] | None = None
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
     loyalty_points_per_100_inr: int | None = None
-    loyalty_point_value_inr: Decimal | None = Field(default=None, ge=Decimal("0"))
+    loyalty_redemption_tiers: list[LoyaltyTier] | None = None
+    loyalty_max_bill_percentage: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
 
 
@@ -102,15 +113,22 @@ class OutletResponse(BaseResponse):
     evening_auto_end_time: str | None = None
     near_expiry_threshold_days: int = 7
     notification_emails: list[str] = Field(default_factory=list)
+    weighing_scale_barcode_format: str = "21_5I_5W_GRAMS"
     notification_phones: list[str] = Field(default_factory=list)
     email: str | None = None
     bill_qr_url: str | None = None
     place_of_supply: str | None = None
     loyalty_points_per_100_inr: int = 0
-    loyalty_point_value_inr: Decimal = Decimal("0.00")
+    loyalty_redemption_tiers: list[LoyaltyTier] = Field(default_factory=list)
+    loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"))
     invoice_terms_conditions: str | None = None
     created_at: datetime
     updated_at: datetime
+
+    @field_validator("loyalty_redemption_tiers", mode="before")
+    @classmethod
+    def default_tiers(cls, v: Any) -> list:
+        return v if v is not None else []
 
 
 class UserSummaryResponse(BaseResponse):

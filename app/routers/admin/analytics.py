@@ -8,7 +8,7 @@ from __future__ import annotations
 import csv
 import io
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timezone, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
@@ -19,29 +19,15 @@ from app.dependencies import (
     require_permission,
 )
 from app.models.enums import RoleEnum
-from app.schemas.analytics import (
-    KpiSummaryResponse,
-    OrderFunnelResponse,
-    PeakHoursResponse,
-    ProfitMarginResponse,
-    RevenueAnalyticsResponse,
-    TopItemsResponse,
-)
-from app.services.analytics_service import (
-    get_kpi_summary,
-    get_order_funnel,
-    get_peak_hours,
-    get_profit_margin_analytics,
-    get_revenue_analytics,
-    get_top_selling_items,
-)
+from app.schemas.analytics import *
+from app.services.analytics_service import *
 
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
 def _parse_date_range(from_date: str | None, to_date: str | None) -> tuple[datetime, datetime]:
     """Parse date strings or default to past 30 days."""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     to_dt = now
     from_dt = now - timedelta(days=30)
 
@@ -160,6 +146,268 @@ async def get_profit_endpoint(
     return await get_profit_margin_analytics(db, target_outlet_id, granularity, from_dt, to_dt)
 
 
+
+
+@router.get("/category-sales", response_model=CategorySalesResponse)
+async def get_category_sales_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_category_sales(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/item-sales", response_model=ItemSalesResponse)
+async def get_item_sales_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    sort_by: str = Query("revenue", pattern="^(quantity|revenue)$"),
+    limit: int = Query(50, ge=1, le=500),
+    category_id: str | None = Query(None),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_item_sales(db, target_outlet_id, from_dt, to_dt, sort_by, limit, category_id)
+
+
+@router.get("/bill-profit", response_model=BillProfitResponse)
+async def get_bill_profit_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    limit: int = Query(50, ge=1, le=100),
+    offset: int = Query(0, ge=0),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_bill_profit(db, target_outlet_id, from_dt, to_dt, limit, offset)
+
+
+@router.get("/aov", response_model=AovAnalyticsResponse)
+async def get_aov_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    granularity: str = Query("daily", pattern="^(hourly|daily|weekly|monthly)$"),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_aov_analytics(db, target_outlet_id, granularity, from_dt, to_dt)
+
+
+@router.get("/stock-intake", response_model=StockIntakeReportResponse)
+async def get_stock_intake_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    item_id: str | None = Query(None),
+    supplier_id: str | None = Query(None),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_stock_intake_report(db, target_outlet_id, from_dt, to_dt, item_id, supplier_id)
+
+
+@router.get("/wastage", response_model=WastageReportResponse)
+async def get_wastage_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_wastage_report(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/stock-movement", response_model=StockMovementResponse)
+async def get_stock_movement_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_stock_movement(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/purchase-returns", response_model=PurchaseReturnReportResponse)
+async def get_purchase_returns_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_purchase_returns_report(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/new-customers", response_model=NewCustomerReportResponse)
+async def get_new_customers_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    granularity: str = Query("daily", pattern="^(daily|weekly|monthly)$"),
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_new_customers(db, target_outlet_id, granularity, from_dt, to_dt)
+
+
+@router.get("/customer-returns", response_model=CustomerReturnReportResponse)
+async def get_customer_returns_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_customer_return_analytics(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/cash-denominations", response_model=CashDenominationResponse)
+async def get_cash_denominations_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_cash_denomination_flow(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/payment-mix", response_model=PaymentMixResponse)
+async def get_payment_mix_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_payment_mix(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/tax-summary", response_model=TaxSummaryResponse)
+async def get_tax_summary_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_tax_summary(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/discount-report", response_model=DiscountReportResponse)
+async def get_discount_report_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_discount_report(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/day-book", response_model=DayBookResponse)
+async def get_day_book_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    date: str = Query(..., description="YYYY-MM-DD"),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    return await get_day_book(db, target_outlet_id, date)
+
+
+@router.get("/abandoned-carts", response_model=AbandonedCartStatsResponse)
+async def get_abandoned_carts_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_abandoned_cart_analytics(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/loyalty", response_model=LoyaltyReportResponse)
+async def get_loyalty_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_loyalty_report(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/supplier-spend", response_model=SupplierSpendResponse)
+async def get_supplier_spend_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_supplier_spend(db, target_outlet_id, from_dt, to_dt)
+
+
+
 @router.get("/export")
 async def export_analytics_endpoint(
     current_user: RequireAdmin,
@@ -200,7 +448,7 @@ async def export_analytics_endpoint(
             writer.writerow([s.stage, s.stage_label, s.count, f"{s.percentage:.2f}%"])
 
     csv_data = output.getvalue()
-    filename = f"analytics_{report}_{datetime.utcnow().strftime('%Y%m%d')}.csv"
+    filename = f"analytics_{report}_{datetime.now(timezone.utc).strftime('%Y%m%d')}.csv"
     return Response(
         content=csv_data,
         media_type="text/csv",

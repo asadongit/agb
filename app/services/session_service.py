@@ -561,7 +561,7 @@ async def staff_add_items_to_session(
         )
 
     # Auto-extend active session duration if staff is assisting
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     rest_result = await db.execute(
         select(Outlet.session_duration_minutes)
         .where(Outlet.id == session.outlet_id)

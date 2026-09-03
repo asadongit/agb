@@ -224,11 +224,36 @@ async def transition_order_status(
     if new_status in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED} and old_status not in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED}:
         from app.services.inventory_service import process_order_auto_deduction
         await process_order_auto_deduction(db, order)
+        
+        # Increment total_sold for menu items
+        from sqlalchemy import update
+        from app.models.menu_item import MenuItem
+        for item in order.items:
+            if item.menu_item_id:
+                # Add integer portion of quantity (for fixed items) or floor/ceil? 
+                # quantity is Numeric, so let's just use it, total_sold is int so we can cast
+                # Actually, total_sold is an integer count. We can just add int(item.quantity)
+                await db.execute(
+                    update(MenuItem)
+                    .where(MenuItem.id == item.menu_item_id)
+                    .values(total_sold=MenuItem.total_sold + int(item.quantity))
+                )
 
     # Trigger cancellation reversal if an already deducted order is cancelled or refunded
     if new_status in {OrderStatusEnum.CANCELLED, OrderStatusEnum.REFUNDED} and old_status in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED}:
         from app.services.inventory_service import process_order_cancellation_reversal
         await process_order_cancellation_reversal(db, order)
+        
+        # Decrement total_sold for menu items
+        from sqlalchemy import update
+        from app.models.menu_item import MenuItem
+        for item in order.items:
+            if item.menu_item_id:
+                await db.execute(
+                    update(MenuItem)
+                    .where(MenuItem.id == item.menu_item_id)
+                    .values(total_sold=MenuItem.total_sold - int(item.quantity))
+                )
 
     # Check if this transition completes the entire session
     if order.session_id:

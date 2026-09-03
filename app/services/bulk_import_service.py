@@ -5,19 +5,22 @@ from __future__ import annotations
 
 import io
 import uuid
-from datetime import datetime
-from decimal import Decimal
+from datetime import datetime, timezone
+from decimal import Decimal, ROUND_HALF_UP
 
 import pandas as pd
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.category import Category
+from app.models.supplier import Supplier
 from app.models.customer import Customer
-from app.models.enums import InventoryUnitEnum, OrderStatusEnum, PricingModeEnum
+from app.models.enums import InventoryUnitEnum, OrderStatusEnum, PricingModeEnum, MarginTypeEnum, StockChangeTypeEnum
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item import MenuItem
 from app.models.order import Order
+from app.models.stock_intake import StockIntake
+from app.models.stock_ledger import StockLedger
 from app.schemas.bulk_operations import BulkImportSummary
 from app.services.menu_service import invalidate_outlet_menu
 
@@ -44,6 +47,10 @@ def _get_val(row: pd.Series, col: str, default=None):
         val = val.strip()
         if not val:
             return default
+    # If pandas parses a barcode like 8901491100519 as float 8901491100519.0
+    # we convert it back to string and remove '.0' if it represents an exact integer.
+    if isinstance(val, float) and val.is_integer():
+        return str(int(val))
     return val
 
 
@@ -55,6 +62,22 @@ def _get_decimal(row: pd.Series, col: str, default: Decimal | None = None) -> De
         return Decimal(str(val))
     except (TypeError, ValueError):
         return default
+
+
+def _get_date(row: pd.Series, col: str) -> datetime | None:
+    val = _get_val(row, col, None)
+    if val is None:
+        return None
+    if isinstance(val, datetime):
+        return val.replace(tzinfo=None) if val.tzinfo else val
+    try:
+        parsed = pd.to_datetime(val)
+        if pd.isna(parsed):
+            return None
+        dt = parsed.to_pydatetime()
+        return dt.replace(tzinfo=None) if dt.tzinfo else dt
+    except Exception:
+        return None
 
 
 def _get_bool(row: pd.Series, col: str, default: bool = True) -> bool:
@@ -76,7 +99,7 @@ async def _resolve_category(db: AsyncSession, outlet_id: uuid.UUID, category_nam
             Category.name.ilike(name_strip)
         )
     )
-    cat = res.scalar_one_or_none()
+    cat = res.scalars().first()
     if not cat:
         cat = Category(
             id=uuid.uuid4(),
@@ -87,6 +110,26 @@ async def _resolve_category(db: AsyncSession, outlet_id: uuid.UUID, category_nam
         db.add(cat)
         await db.flush()
     return cat
+
+
+async def _resolve_supplier(db: AsyncSession, outlet_id: uuid.UUID, supplier_name: str) -> Supplier:
+    name_strip = supplier_name.strip()
+    res = await db.execute(
+        select(Supplier).where(
+            Supplier.outlet_id == outlet_id,
+            Supplier.name.ilike(name_strip)
+        )
+    )
+    sup = res.scalars().first()
+    if not sup:
+        sup = Supplier(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            name=name_strip,
+        )
+        db.add(sup)
+        await db.flush()
+    return sup
 
 
 async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: bytes, filename: str) -> BulkImportSummary:
@@ -136,13 +179,45 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
             if cost_per_unit is None:
                 cost_per_unit = Decimal("0.00")
             
-            selling_price = _get_decimal(row, "selling_price")
-            mrp = _get_decimal(row, "mrp")
-            wholesale_price = _get_decimal(row, "wholesale_price")
+            selling_price_raw = _get_decimal(row, "retail_price")
+            selling_price = selling_price_raw.quantize(Decimal("1"), rounding=ROUND_HALF_UP) if selling_price_raw is not None else None
+            mrp_raw = _get_decimal(row, "mrp")
+            mrp = mrp_raw.quantize(Decimal("1"), rounding=ROUND_HALF_UP) if mrp_raw is not None else None
+            wholesale_price_raw = _get_decimal(row, "wholesale_price")
+            wholesale_price = wholesale_price_raw.quantize(Decimal("1"), rounding=ROUND_HALF_UP) if wholesale_price_raw is not None else None
             tax_category = _get_val(row, "tax_category", "GST 0%")
             tax_rate = _get_decimal(row, "tax_rate", Decimal("0.00"))
             shelf_life_alert_hrs_raw = _get_val(row, "shelf_life_alert_hrs")
             shelf_life_alert_hrs = int(shelf_life_alert_hrs_raw) if shelf_life_alert_hrs_raw else None
+            
+            margin_type_str = _get_val(row, "margin_type", "MARKUP")
+            try:
+                margin_type = MarginTypeEnum(str(margin_type_str).upper()) if margin_type_str else MarginTypeEnum.MARKUP
+            except ValueError:
+                margin_type = MarginTypeEnum.MARKUP
+                
+            retail_margin_pct = _get_decimal(row, "retail_margin_pct")
+            mrp_margin_pct = _get_decimal(row, "mrp_margin_pct")
+            wholesale_margin_pct = _get_decimal(row, "wholesale_margin_pct")
+
+            if cost_per_unit > Decimal("0.00"):
+                def calc_price(margin_pct: Decimal | None) -> Decimal | None:
+                    if margin_pct is None:
+                        return None
+                    if margin_type == MarginTypeEnum.MARKUP:
+                        return (cost_per_unit + (cost_per_unit * margin_pct / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                    elif margin_type == MarginTypeEnum.MARGIN:
+                        if margin_pct >= Decimal("100"):
+                            return None
+                        return (cost_per_unit / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("1"), rounding=ROUND_HALF_UP)
+                    return None
+
+                if selling_price is None and retail_margin_pct is not None:
+                    selling_price = calc_price(retail_margin_pct)
+                if mrp is None and mrp_margin_pct is not None:
+                    mrp = calc_price(mrp_margin_pct)
+                if wholesale_price is None and wholesale_margin_pct is not None:
+                    wholesale_price = calc_price(wholesale_margin_pct)
             
             # 1. Upsert InventoryItem
             res = await db.execute(
@@ -151,17 +226,28 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     InventoryItem.name.ilike(name)
                 )
             )
-            inv_item = res.scalar_one_or_none()
+            inv_item = res.scalars().first()
             
             if inv_item:
                 inv_item.name = name
                 inv_item.unit = unit
                 inv_item.category = category_name
-                inv_item.current_stock = current_stock
                 inv_item.reorder_threshold = reorder_threshold
                 inv_item.cost_per_unit = cost_per_unit
+                
+                if initial_qty is not None and initial_qty > Decimal("0.000"):
+                    intake_qty = sorted_qty if (sorted_qty is not None and sorted_qty > Decimal("0.000")) else initial_qty
+                    inv_item.current_stock = inv_item.current_stock + intake_qty
+                else:
+                    inv_item.current_stock = current_stock
+                    
+                inv_item.retail_price = selling_price
                 inv_item.mrp = mrp
                 inv_item.wholesale_price = wholesale_price
+                inv_item.margin_type = margin_type
+                inv_item.retail_margin_pct = retail_margin_pct
+                inv_item.mrp_margin_pct = mrp_margin_pct
+                inv_item.wholesale_margin_pct = wholesale_margin_pct
                 inv_item.tax_category = tax_category
                 inv_item.tax_rate = tax_rate
                 inv_item.shelf_life_alert_hrs = shelf_life_alert_hrs
@@ -169,6 +255,12 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     inv_item.barcode = barcode
                 updated_count += 1
             else:
+                if initial_qty is not None and initial_qty > Decimal("0.000"):
+                    intake_qty = sorted_qty if (sorted_qty is not None and sorted_qty > Decimal("0.000")) else initial_qty
+                    final_stock = intake_qty
+                else:
+                    final_stock = current_stock
+                    
                 inv_item = InventoryItem(
                     id=uuid.uuid4(),
                     outlet_id=outlet_id,
@@ -176,11 +268,16 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     barcode=barcode,
                     unit=unit,
                     category=category_name,
-                    current_stock=current_stock,
+                    current_stock=final_stock,
                     reorder_threshold=reorder_threshold,
                     cost_per_unit=cost_per_unit,
+                    retail_price=selling_price,
                     mrp=mrp,
                     wholesale_price=wholesale_price,
+                    margin_type=margin_type,
+                    retail_margin_pct=retail_margin_pct,
+                    mrp_margin_pct=mrp_margin_pct,
+                    wholesale_margin_pct=wholesale_margin_pct,
                     tax_category=tax_category,
                     tax_rate=tax_rate,
                     shelf_life_alert_hrs=shelf_life_alert_hrs,
@@ -190,6 +287,49 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                 created_count += 1
                 
             await db.flush()
+            
+            # 1b. Create StockIntake & StockLedger if it was a delivery
+            if initial_qty is not None and initial_qty > Decimal("0.000"):
+                intake_qty = sorted_qty if (sorted_qty is not None and sorted_qty > Decimal("0.000")) else initial_qty
+                
+                # Try to parse optional fields if they were added to the CSV
+                supplier_name = _get_val(row, "supplier") or _get_val(row, "supplier_name")
+                supplier_id = None
+                if supplier_name:
+                    sup = await _resolve_supplier(db, outlet_id, supplier_name)
+                    supplier_id = sup.id
+                
+                expiry_date = _get_date(row, "expiry_date")
+                
+                batch = StockIntake(
+                    id=uuid.uuid4(),
+                    outlet_id=outlet_id,
+                    item_id=inv_item.id,
+                    batch_number=None,
+                    quantity=intake_qty,
+                    initial_quantity=initial_qty,
+                    remaining_quantity=intake_qty,
+                    unit_cost=cost_per_unit,
+                    supplier_id=supplier_id,
+                    intake_date=datetime.now(timezone.utc),
+                    expiry_date=expiry_date,
+                )
+                db.add(batch)
+                
+                ledger = StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=outlet_id,
+                    item_id=inv_item.id,
+                    intake_id=batch.id,
+                    change_type=StockChangeTypeEnum.INTAKE,
+                    quantity_change=intake_qty,
+                    resulting_stock=inv_item.current_stock,
+                    reference_order_id=None,
+                    unit_cost_snapshot=cost_per_unit,
+                )
+                db.add(ledger)
+                
+                await db.flush()
             
             # 2. Resolve Category
             category = await _resolve_category(db, outlet_id, category_name)
@@ -201,7 +341,7 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     MenuItem.inventory_item_id == inv_item.id
                 )
             )
-            menu_item = mi_res.scalar_one_or_none()
+            menu_item = mi_res.scalars().first()
             
             # Determine price: selling_price > mrp > cost_per_unit > 0
             final_price = selling_price if selling_price is not None else (mrp if mrp is not None else cost_per_unit)
@@ -311,7 +451,7 @@ async def import_menu_items(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: 
                     MenuItem.name.ilike(name)
                 )
             )
-            menu_item = mi_res.scalar_one_or_none()
+            menu_item = mi_res.scalars().first()
             
             if menu_item:
                 menu_item.category_id = category.id
@@ -419,7 +559,7 @@ async def import_customers(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     Customer.phone == phone
                 )
             )
-            customer = cust_res.scalar_one_or_none()
+            customer = cust_res.scalars().first()
             
             if customer:
                 customer.name = name
@@ -446,7 +586,7 @@ async def import_customers(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                         Order.source == "legacy_import"
                     )
                 )
-                legacy_order = order_res.scalar_one_or_none()
+                legacy_order = order_res.scalars().first()
                 
                 if legacy_order:
                     legacy_order.total_amount = historical_spend

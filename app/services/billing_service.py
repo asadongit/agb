@@ -59,6 +59,13 @@ async def create_manual_bill(
         )
         cust_id = cust.id
 
+    replaces_bill_uuid = None
+    if getattr(data, "replaces_bill_id", None):
+        try:
+            replaces_bill_uuid = uuid.UUID(data.replaces_bill_id)
+        except Exception as e:
+            print(f"Invalid replaces_bill_id: {e}")
+
     order = Order(
         id=order_id or uuid.uuid4(),
         outlet_id=outlet_id,
@@ -69,10 +76,30 @@ async def create_manual_bill(
         status=OrderStatusEnum.PENDING,
         source="manual",
         created_by_staff_id=_get_user_id(staff_user),
+        replaces_bill_id=replaces_bill_uuid,
         subtotal_amount=Decimal("0.00"),
         total_amount=Decimal("0.00"),
         discount_status="NONE",
     )
+    
+    # Inherit discount if replacing a bill
+    if replaces_bill_uuid:
+        old_order = await db.get(Order, replaces_bill_uuid)
+        if old_order and old_order.discount_status == "APPROVED" and old_order.discount_type:
+            order.discount_status = "APPROVED"
+            order.discount_reason = old_order.discount_reason or "Inherited from edited bill"
+            order.discount_approved_by = old_order.discount_approved_by
+            if old_order.discount_type == "PERCENT" or old_order.discount_type.startswith("COMPLIMENTARY"):
+                order.discount_type = old_order.discount_type
+                order.discount_value = old_order.discount_value
+            elif old_order.discount_type == "FLAT":
+                # Convert FLAT to PERCENT proportionally based on old subtotal
+                old_sub = float(old_order.subtotal_amount or 0)
+                old_val = float(old_order.discount_value or 0)
+                if old_sub > 0:
+                    order.discount_type = "PERCENT"
+                    order.discount_value = Decimal(str(round((old_val / old_sub) * 100, 2)))
+    
     db.add(order)
     await db.flush()
 
@@ -132,8 +159,24 @@ async def create_manual_bill(
         db.add(order_item)
 
     order.subtotal_amount = subtotal
-    order.tax_amount = total_tax.quantize(Decimal("0.01"))
     order.total_amount = subtotal
+
+    # Apply inherited discount if present
+    if order.discount_status == "APPROVED" and order.discount_type:
+        disc_val = order.discount_value or Decimal("0.00")
+        if order.discount_type == "PERCENT":
+            discount_amount = subtotal * (disc_val / Decimal("100"))
+            order.total_amount = max(Decimal("0.00"), subtotal - discount_amount)
+        elif order.discount_type == "FLAT":
+            order.total_amount = max(Decimal("0.00"), subtotal - disc_val)
+        elif order.discount_type == "COMPLIMENTARY":
+            order.total_amount = Decimal("0.00")
+
+    if subtotal > Decimal("0.00") and order.total_amount > Decimal("0.00"):
+        ratio = order.total_amount / subtotal
+        order.tax_amount = (total_tax * ratio).quantize(Decimal("0.01"))
+    else:
+        order.tax_amount = Decimal("0.00")
 
     # Evaluate Verification Rules (Anti-theft)
     res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
@@ -297,6 +340,54 @@ def _recalculate_order_tax(order: Order) -> None:
     order.tax_amount = (base_tax * ratio).quantize(Decimal("0.01"))
 
 
+def _apply_item_level_complimentary(db: AsyncSession, order: Order, item_quantities: dict) -> None:
+    """Helper to apply partial or full complimentary flags to specific order items."""
+    for item in list(order.items):
+        item_id_str = str(item.id)
+        if item_id_str in item_quantities:
+            comp_qty = Decimal(str(item_quantities[item_id_str]))
+            if comp_qty <= Decimal("0.00"):
+                continue
+            
+            current_qty = Decimal(str(item.quantity)) if item.quantity is not None else Decimal("1.00")
+            
+            if comp_qty >= current_qty:
+                item.is_complimentary = True
+                item.line_total = Decimal("0.00")
+            else:
+                # Split item
+                paid_qty = current_qty - comp_qty
+                
+                # Update existing item to paid portion
+                item.quantity = float(paid_qty)
+                item.line_total = (item.unit_price or Decimal("0.00")) * paid_qty
+                
+                # Create complimentary portion
+                from app.models.order_item import OrderItem
+                import uuid
+                new_item = OrderItem(
+                    id=uuid.uuid4(),
+                    order_id=order.id,
+                    menu_item_id=item.menu_item_id,
+                    variant_id=item.variant_id,
+                    item_name=item.item_name,
+                    quantity=float(comp_qty),
+                    unit_price=item.unit_price,
+                    mrp=item.mrp,
+                    tax_rate=item.tax_rate,
+                    tax_category=item.tax_category,
+                    is_complimentary=True,
+                    line_total=Decimal("0.00")
+                )
+                db.add(new_item)
+                order.items.append(new_item)
+    
+    # Recalculate totals
+    paid_subtotal = sum(i.line_total for i in order.items if not i.is_complimentary and i.line_total)
+    order.discount_value = (order.subtotal_amount or Decimal("0.00")) - paid_subtotal
+    order.total_amount = paid_subtotal
+
+
 async def apply_discount(
     db: AsyncSession,
     order_id: uuid.UUID,
@@ -329,13 +420,19 @@ async def apply_discount(
         if data.discount_type == "PERCENT":
             discount_amount = subtotal * (disc_val / Decimal("100"))
             order.total_amount = max(Decimal("0.00"), subtotal - discount_amount)
+            order.discount_value = disc_val
         elif data.discount_type == "FLAT":
             order.total_amount = max(Decimal("0.00"), subtotal - disc_val)
+            order.discount_value = disc_val
         elif data.discount_type == "COMPLIMENTARY":
             order.total_amount = Decimal("0.00")
+            order.discount_value = subtotal
+        elif data.discount_type == "COMPLIMENTARY_ITEMS" and data.item_complimentary_quantities:
+            _apply_item_level_complimentary(db, order, data.item_complimentary_quantities)
 
         order.discount_type = data.discount_type
-        order.discount_value = disc_val
+        if data.discount_type != "COMPLIMENTARY_ITEMS":
+            order.discount_value = disc_val
         order.discount_reason = data.reason_note
         order.discount_status = "APPROVED"
         _recalculate_order_tax(order)
@@ -354,6 +451,7 @@ async def apply_discount(
             discount_type=data.discount_type,
             discount_value=disc_val,
             reason_note=data.reason_note,
+            complimentary_items=data.item_complimentary_quantities if data.discount_type == "COMPLIMENTARY_ITEMS" else None
         )
         db.add(approval)
 
@@ -402,7 +500,7 @@ async def approve_discount(
     order = order_res.scalar_one()
 
     approval.approved_by_id = _get_user_id(manager_user)
-    approval.resolved_at = datetime.utcnow()
+    approval.resolved_at = datetime.now(timezone.utc)
 
     if approve:
         approval.status = "APPROVED"
@@ -417,6 +515,10 @@ async def approve_discount(
             order.total_amount = max(Decimal("0.00"), subtotal - disc_val)
         elif approval.discount_type == "COMPLIMENTARY":
             order.total_amount = Decimal("0.00")
+            order.discount_value = subtotal
+        elif approval.discount_type == "COMPLIMENTARY_ITEMS" and approval.complimentary_items:
+            _apply_item_level_complimentary(db, order, approval.complimentary_items)
+
         _recalculate_order_tax(order)
     else:
         approval.status = "REJECTED"
@@ -449,7 +551,7 @@ async def finalize_bill(
     if not order:
         raise HTTPException(status_code=404, detail="Bill not found.")
 
-    order.finalized_at = datetime.utcnow()
+    order.finalized_at = datetime.now(timezone.utc)
     
     # OUTBOX: Queue action for cloud sync if local
     append_to_outbox(
@@ -468,7 +570,10 @@ async def mark_bill_paid(
     outlet_id: uuid.UUID,
     payment_method: str,
     cash_denominations: dict[str, int] | None = None,
+    change_denominations: dict[str, int] | None = None,
     redeem_loyalty_points: int = 0,
+    delivery_charge: Decimal = Decimal("0.00"),
+    handling_charge: Decimal = Decimal("0.00"),
 ) -> Order:
     """Record cash/UPI payment method, set order status to COMPLETED for POS bills, and trigger inventory auto-deduction."""
     res = await db.execute(
@@ -484,11 +589,43 @@ async def mark_bill_paid(
         raise HTTPException(status_code=404, detail="Bill not found.")
 
     order.payment_method = payment_method
-    if cash_denominations and payment_method == "CASH":
+    if payment_method == "CASH":
+        from app.models.cash_drawer_ledger import CashDrawerLedger
+
         order.cash_denominations = cash_denominations
-        denom_strs = [f"₹{k}x{v}" for k, v in cash_denominations.items() if v > 0]
+        order.change_denominations = change_denominations
+
+        denom_strs = []
+        if cash_denominations:
+            denom_strs = [f"₹{k}x{v}" for k, v in cash_denominations.items() if v > 0]
+            # Write received cash to ledger
+            ledger_in = CashDrawerLedger(
+                outlet_id=outlet_id,
+                transaction_type="CUSTOMER_PAYMENT",
+                denominations=cash_denominations,
+                reference_order_id=order_id,
+            )
+            db.add(ledger_in)
+
+        change_strs = []
+        if change_denominations:
+            change_strs = [f"₹{k}x{v}" for k, v in change_denominations.items() if v > 0]
+            # Write change given to ledger (we store absolute counts, but logic will subtract them)
+            # We can store them as positive counts representing what was withdrawn, or negative. 
+            # To be clear, let's store exactly the count the user tapped (positive) and we will subtract it when summing up.
+            ledger_out = CashDrawerLedger(
+                outlet_id=outlet_id,
+                transaction_type="CUSTOMER_CHANGE",
+                denominations=change_denominations,
+                reference_order_id=order_id,
+            )
+            db.add(ledger_out)
+
         if denom_strs:
-            order.payment_reference = f"CASH [{', '.join(denom_strs)}]"
+            ref_str = f"CASH [IN: {', '.join(denom_strs)}]"
+            if change_strs:
+                ref_str += f" [OUT: {', '.join(change_strs)}]"
+            order.payment_reference = ref_str
         else:
             order.payment_reference = "CASH"
     elif not order.payment_reference:
@@ -497,15 +634,16 @@ async def mark_bill_paid(
     # Walk-in POS bills go straight to COMPLETED status without needing manual verification
     order.is_auto_verified = True
     order.status = OrderStatusEnum.COMPLETED
-    order.paid_at = datetime.utcnow()
+    order.paid_at = datetime.now(timezone.utc)
     if not order.finalized_at:
-        order.finalized_at = datetime.utcnow()
+        order.finalized_at = datetime.now(timezone.utc)
 
     res_outlet = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
     outlet = res_outlet.scalar_one_or_none()
 
     from app.models.customer import Customer
     # Loyalty Points Redemption
+    discount_inr = Decimal("0.00")
     if redeem_loyalty_points > 0 and outlet and (order.customer_id or order.customer_phone):
         if order.customer_id:
             res_cust = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.outlet_id == outlet_id))
@@ -513,11 +651,41 @@ async def mark_bill_paid(
             res_cust = await db.execute(select(Customer).where(Customer.phone == order.customer_phone, Customer.outlet_id == outlet_id))
         cust = res_cust.scalar_one_or_none()
         if cust and cust.loyalty_points >= redeem_loyalty_points:
-            cust.loyalty_points -= redeem_loyalty_points
-            order.loyalty_points_redeemed = redeem_loyalty_points
-            points_value_inr = Decimal(str(outlet.loyalty_point_value_inr or "0.00"))
-            discount_inr = Decimal(str(redeem_loyalty_points)) * points_value_inr
-            order.total_amount = max(Decimal("0.00"), (order.total_amount or Decimal("0.00")) - discount_inr)
+            import math
+            applicable_percentage = Decimal("0.00")
+            for tier in outlet.loyalty_redemption_tiers or []:
+                min_p = tier.get("min_points", 0)
+                max_p = tier.get("max_points")
+                if cust.loyalty_points >= min_p and (max_p is None or cust.loyalty_points <= max_p):
+                    applicable_percentage = Decimal(str(tier.get("discount_percentage", "0.00")))
+                    break
+
+            value_per_point_inr = applicable_percentage / Decimal("100.00")
+            requested_discount_inr = Decimal(str(redeem_loyalty_points)) * value_per_point_inr
+
+            max_bill_percentage = Decimal(str(outlet.loyalty_max_bill_percentage or "100.00"))
+            current_total_amount = order.total_amount or Decimal("0.00")
+            max_allowed_discount_inr = (max_bill_percentage / Decimal("100.00")) * current_total_amount
+
+            discount_inr = min(requested_discount_inr, max_allowed_discount_inr)
+
+            actual_points_deducted = redeem_loyalty_points
+            if value_per_point_inr > 0 and requested_discount_inr > max_allowed_discount_inr:
+                actual_points_deducted = math.ceil(float(discount_inr / value_per_point_inr))
+            
+            actual_points_deducted = min(actual_points_deducted, cust.loyalty_points)
+
+            cust.loyalty_points -= actual_points_deducted
+            order.loyalty_points_redeemed = actual_points_deducted
+
+    # Update delivery and handling charges
+    order.delivery_charge = delivery_charge
+    order.handling_charge = handling_charge
+
+    # Recalculate Final Amount
+    discounted_subtotal = max(Decimal("0.00"), (order.total_amount or Decimal("0.00")) - discount_inr)
+    net_payable = discounted_subtotal + delivery_charge + handling_charge
+    order.total_amount = Decimal(str(round(float(net_payable))))
 
     # Loyalty Points Earning
     if outlet and outlet.loyalty_points_per_100_inr > 0 and (order.customer_id or order.customer_phone):
@@ -548,6 +716,43 @@ async def mark_bill_paid(
             "confirmed_offline": True,
         }
     )
+
+    # Deferred refund: if this bill replaces an old one, void the old bill now that payment is confirmed
+    if getattr(order, "replaces_bill_id", None):
+        try:
+            old_order_res = await db.execute(
+                select(Order).options(selectinload(Order.items)).where(
+                    Order.id == order.replaces_bill_id,
+                    Order.outlet_id == outlet_id,
+                )
+            )
+            old_order = old_order_res.scalar_one_or_none()
+            if old_order and old_order.status != OrderStatusEnum.REFUNDED:
+                from app.schemas.billing import CustomerReturnRequest, CustomerReturnItemInput
+                return_items = [
+                    CustomerReturnItemInput(
+                        order_item_id=str(it.id),
+                        menu_item_id=str(it.menu_item_id) if it.menu_item_id else None,
+                        item_name=it.item_name,
+                        quantity=float(it.quantity),
+                        unit_price=float(it.unit_price) if it.unit_price is not None else 0.0,
+                        reason="EDIT_BILL_VOID"
+                    )
+                    for it in old_order.items
+                ]
+                return_req = CustomerReturnRequest(
+                    order_id=str(old_order.id),
+                    customer_name=old_order.customer_name,
+                    customer_phone=old_order.customer_phone,
+                    return_items=return_items,
+                    exchange_items=[],
+                    refund_payment_method=old_order.payment_method or "CASH",
+                    notes="Automatic return due to bill edit"
+                )
+                await process_customer_return(db, outlet_id, None, return_req)
+                old_order.status = OrderStatusEnum.REFUNDED
+        except Exception as e:
+            print(f"Failed to process deferred old bill voiding: {e}")
 
     await db.flush()
     return order
@@ -594,6 +799,7 @@ async def get_daily_cash_denominations(
         .where(
             Order.outlet_id == outlet_id,
             Order.payment_method == "CASH",
+            Order.status.in_([OrderStatusEnum.PAID, OrderStatusEnum.COMPLETED]),
             func.coalesce(Order.paid_at, Order.created_at) >= start_dt,
             func.coalesce(Order.paid_at, Order.created_at) <= end_dt,
         )
@@ -676,6 +882,7 @@ async def process_customer_return(
                 item_unit_price = matching.unit_price or Decimal("0.00")
                 item_name = matching.item_name or item_name
                 menu_item_id = menu_item_id or (str(matching.menu_item_id) if matching.menu_item_id else None)
+                matching.returned_quantity += ret_qty
         elif ret_item.unit_price is not None:
             item_unit_price = Decimal(str(ret_item.unit_price))
 
@@ -708,6 +915,15 @@ async def process_customer_return(
             except Exception as e:
                 print(f"⚠️ [Customer Return Restock Error] {e}")
 
+    if order:
+        all_returned = True
+        for item in order.items:
+            if item.returned_quantity < item.quantity:
+                all_returned = False
+                break
+        if all_returned:
+            order.status = OrderStatusEnum.REFUNDED
+
     net_balance = float(total_return_amount)
     return_num = f"RET-{uuid.uuid4().hex[:6].upper()}"
 
@@ -724,6 +940,37 @@ async def process_customer_return(
         notes=data.notes,
     )
     db.add(customer_return_rec)
+    
+    # If cash refund denominations are provided, log a drawer transaction
+    if data.refund_payment_method == "CASH" and (data.refund_cash_denominations or data.inward_cash_denominations):
+        from app.models.cash_drawer_ledger import CashDrawerLedger
+        net_denoms = {}
+        
+        # Inward cash (positive)
+        if data.inward_cash_denominations:
+            for k, v in data.inward_cash_denominations.items():
+                if v > 0:
+                    net_denoms[k] = net_denoms.get(k, 0) + v
+                    
+        # Outward cash (refund, negative)
+        if data.refund_cash_denominations:
+            for k, v in data.refund_cash_denominations.items():
+                if v > 0:
+                    net_denoms[k] = net_denoms.get(k, 0) - v
+                    
+        # Filter out 0 net changes
+        net_denoms = {str(k): int(v) for k, v in net_denoms.items() if v != 0}
+        
+        if net_denoms:
+            refund_tx = CashDrawerLedger(
+                outlet_id=outlet_id,
+                transaction_type="CUSTOMER_RETURN",
+                denominations=net_denoms,
+                reference_order_id=order.id if order else None,
+                notes=f"Refund exchange for return {return_num}",
+                created_by=_get_user_id(staff_user)
+            )
+            db.add(refund_tx)
     
     # OUTBOX: Queue action for cloud sync if local
     append_to_outbox(

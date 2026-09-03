@@ -58,17 +58,15 @@ alembic/versions/__pycache__/
 
 # Frontend & Node
 node_modules/
-frontend/node_modules/
 .next/
-frontend/.next/
-.out/
-frontend/out/
-.vercel
+out/
+build/
+.vercel/
+.turbo/
+apps/*/node_modules/
+apps/*/.next/
+packages/*/node_modules/
+packages/*/dist/
 
-# Docker (for later)
+# Docker
 docker-compose.override.yml
-
-
-# Tauri build artifacts
-frontend/src-tauri/target/
-frontend/src-tauri/gen/

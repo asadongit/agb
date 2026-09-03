@@ -1,0 +1,45 @@
+# Version control
+.git
+.gitignore
+
+# Frontend (deployed separately on Hostinger)
+apps/
+packages/
+node_modules/
+.next
+.turbo
+.vercel
+package.json
+package-lock.json
+turbo.json
+
+# Python
+__pycache__
+*.pyc
+*.pyo
+.venv
+venv
+*.egg-info
+.pytest_cache
+.mypy_cache
+.ruff_cache
+tests/
+
+# Databases (local dev only)
+*.db
+*.sqlite
+*.sqlite3
+
+# Misc
+.env
+.env.local
+.env.production
+*.log
+*.md
+uploads/
+openapi.json
+
+# IDE
+.vscode
+.idea
+*.swp

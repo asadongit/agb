@@ -37,6 +37,7 @@ from app.schemas.inventory import (
     StockWastageRequest,
     StockWastageResponse,
     SupplierCreate,
+    SupplierUpdate,
     SupplierResponse,
 )
 from app.services.audit_service import log_action
@@ -52,6 +53,7 @@ from app.services.inventory_service import (
     quick_scan_increment,
     save_menu_item_recipe,
     update_inventory_item,
+    update_supplier,
 )
 
 router = APIRouter(prefix="/api/admin/inventory", tags=["admin-inventory"])
@@ -453,7 +455,7 @@ async def scan_onboard_item(
         reorder_threshold=data.reorder_threshold,
         batch_number=data.batch_number,
         expiry_date=data.expiry_date,
-        supplier_name=data.supplier_name,
+        supplier_id=data.supplier_id,
         mrp=data.mrp,
         tax_category=data.tax_category,
         tax_rate=data.tax_rate,
@@ -505,6 +507,30 @@ async def create_supplier_route(
         db, current_user.outlet_id, current_user.user_id,
         "CREATE", "Supplier", str(supplier.id),
         details={"name": supplier.name, "phone": supplier.phone},
+    )
+
+    return supplier
+
+
+@router.patch("/suppliers/{supplier_id}", response_model=SupplierResponse)
+async def update_supplier_route(
+    supplier_id: uuid.UUID,
+    data: SupplierUpdate,
+    current_user: RequireAdmin,
+    db: DBSession,
+):
+    """Update an existing vendor/supplier record."""
+    supplier = await update_supplier(db, current_user.outlet_id, supplier_id, data)
+    if not supplier:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Supplier not found"
+        )
+
+    await log_action(
+        db, current_user.outlet_id, current_user.user_id,
+        "UPDATE", "Supplier", str(supplier.id),
+        details={"name": supplier.name},
     )
 
     return supplier

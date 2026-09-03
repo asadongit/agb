@@ -64,8 +64,11 @@ class Outlet(Base, TimestampMixin):
     loyalty_points_per_100_inr: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )
-    loyalty_point_value_inr: Mapped[Decimal] = mapped_column(
-        Numeric(10, 2), nullable=False, server_default="0.00", default=Decimal("0.00")
+    loyalty_redemption_tiers: Mapped[list[dict] | None] = mapped_column(
+        JSON, nullable=True, default=list
+    )
+    loyalty_max_bill_percentage: Mapped[Decimal] = mapped_column(
+        Numeric(5, 2), nullable=False, server_default="100.00", default=Decimal("100.00")
     )
     # Verification Rules (Anti-theft)
     verification_amount_cutoff: Mapped[Decimal | None] = mapped_column(
@@ -94,6 +97,9 @@ class Outlet(Base, TimestampMixin):
     )
     notification_emails: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"
+    )
+    weighing_scale_barcode_format: Mapped[str] = mapped_column(
+        String(50), nullable=False, server_default="21_5I_5W_GRAMS", default="21_5I_5W_GRAMS"
     )
     notification_phones: Mapped[list[str]] = mapped_column(
         JSON, nullable=False, default=list, server_default="[]"

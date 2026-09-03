@@ -51,8 +51,14 @@ class StockChangeTypeEnum(str, enum.Enum):
 
 class PricingModeEnum(str, enum.Enum):
     """Product pricing mode — determines how quantity and price interact."""
-    WEIGHT_BASED = "WEIGHT_BASED"   # ₹ per kg/g — quantity entered as weight
-    FIXED_UNIT = "FIXED_UNIT"       # ₹ per piece/pack — quantity entered as count
+    WEIGHT_BASED = "WEIGHT_BASED"   # ₹1 per kg/g — quantity entered as weight
+    FIXED_UNIT = "FIXED_UNIT"       # ₹1 per piece/pack — quantity entered as count
+
+
+class MarginTypeEnum(str, enum.Enum):
+    """How to calculate price from unit cost."""
+    MARKUP = "MARKUP"       # Price = Cost + (Cost * Margin / 100)
+    MARGIN = "MARGIN"       # Price = Cost / (1 - Margin / 100)
 
 
 class SessionStatusEnum(str, enum.Enum):

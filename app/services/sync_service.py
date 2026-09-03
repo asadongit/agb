@@ -117,14 +117,14 @@ async def generate_outlet_snapshot(
     ) for i in inv_rows]
 
     # Stock Intakes (use updated_at/created_at for incremental)
-    si_stmt = select(StockIntake).where(StockIntake.outlet_id == outlet_id)
+    si_stmt = select(StockIntake).options(selectinload(StockIntake.supplier)).where(StockIntake.outlet_id == outlet_id)
     if not is_full and since is not None:
         si_stmt = si_stmt.where(StockIntake.created_at > since)
     si_rows = (await db.execute(si_stmt)).scalars().all()
     si_list = [StockIntakeSnapshot(
         id=s.id, item_id=s.item_id, batch_number=s.batch_number, quantity=s.quantity,
         remaining_quantity=s.remaining_quantity, unit_cost=s.unit_cost,
-        supplier_name=s.supplier_name, expiry_date=s.expiry_date,
+        supplier_name=s.supplier.name if s.supplier else None, expiry_date=s.expiry_date,
         intake_date=s.intake_date, created_at=s.created_at,
     ) for s in si_rows]
 

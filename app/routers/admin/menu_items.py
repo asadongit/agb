@@ -54,7 +54,7 @@ async def list_menu_items(
         s = f"%{search.strip()}%"
         stmt = stmt.where(MenuItem.name.ilike(s) | MenuItem.barcode.ilike(s))
 
-    stmt = stmt.order_by(MenuItem.name.asc())
+    stmt = stmt.order_by(MenuItem.total_sold.desc(), MenuItem.name.asc())
     res = await db.execute(stmt)
     return res.scalars().all()
 

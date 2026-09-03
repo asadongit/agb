@@ -28,6 +28,7 @@ class CatalogueCategorySchema(StrictSchema):
     name_en: str
     name_hi: str | None = None
     order: int = 0
+    source_category_id: str | None = None
     items: list[CatalogueItemSchema] = []
 
 

@@ -41,6 +41,12 @@ class Order(Base, TimestampMixin):
         nullable=True,
         index=True,
     )
+    replaces_bill_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("customers.id", ondelete="SET NULL"),
@@ -95,6 +101,9 @@ class Order(Base, TimestampMixin):
         String(30), nullable=True
     )
     cash_denominations: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True
+    )
+    change_denominations: Mapped[dict | None] = mapped_column(
         JSON, nullable=True
     )
     finalized_at: Mapped[datetime | None] = mapped_column(

@@ -27,6 +27,7 @@ class CreateManualBillRequest(StrictSchema):
     basket_number: str = "WALK-IN"
     customer_name: str | None = None
     customer_phone: str | None = None
+    replaces_bill_id: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
 
@@ -34,13 +35,15 @@ class UpdateManualBillRequest(StrictSchema):
     basket_number: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
+    replaces_bill_id: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
 
 class ApplyDiscountRequest(StrictSchema):
-    discount_type: str = Field(..., pattern="^(PERCENT|FLAT|COMPLIMENTARY)$")
+    discount_type: str = Field(..., pattern="^(PERCENT|FLAT|COMPLIMENTARY|COMPLIMENTARY_ITEMS)$")
     discount_value: float = Field(0.0, ge=0.0)
     reason_note: str = Field(..., min_length=2, max_length=500)
+    item_complimentary_quantities: dict[str, float] | None = None
 
 
 class ApproveDiscountRequest(StrictSchema):
@@ -50,7 +53,10 @@ class ApproveDiscountRequest(StrictSchema):
 class MarkPaidRequest(StrictSchema):
     payment_method: str = Field(..., pattern="^(CASH|UPI)$")
     cash_denominations: dict[str, int] | None = None
+    change_denominations: dict[str, int] | None = None
     redeem_loyalty_points: int = 0
+    delivery_charge: Decimal = Field(default=Decimal("0.00"), ge=0)
+    handling_charge: Decimal = Field(default=Decimal("0.00"), ge=0)
 
 
 class CustomerReturnItemInput(StrictSchema):
@@ -69,6 +75,8 @@ class CustomerReturnRequest(StrictSchema):
     return_items: list[CustomerReturnItemInput]
     exchange_items: list[BillItemInput] = Field(default_factory=list)
     refund_payment_method: str = Field(default="CASH", pattern="^(CASH|UPI|STORE_CREDIT)$")
+    refund_cash_denominations: dict[str, int] | None = None
+    inward_cash_denominations: dict[str, int] | None = None
     notes: str | None = None
 
 
@@ -92,6 +100,7 @@ class BillItemResponse(StrictSchema):
     variant_id: str | None = None
     item_name: str
     quantity: float
+    returned_quantity: float = 0.0
     unit_price: float
     mrp: float | None = None
     tax_rate: float | None = None
@@ -108,6 +117,8 @@ class BillResponse(BaseResponse):
     status: str
     source: str
     subtotal_amount: float
+    delivery_charge: float = 0.0
+    handling_charge: float = 0.0
     tax_amount: float = 0.0
     total_amount: float
     discount_type: str | None = None
@@ -116,6 +127,7 @@ class BillResponse(BaseResponse):
     discount_status: str | None = None
     payment_method: str | None = None
     cash_denominations: dict[str, int] | None = None
+    change_denominations: dict[str, int] | None = None
     loyalty_points_earned: int = 0
     loyalty_points_redeemed: int = 0
     created_by_staff_id: str | None = None

@@ -8,7 +8,7 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Numeric, String, Text
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -58,6 +58,9 @@ class MenuItem(Base, TimestampMixin):
     image_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
     is_available: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
+    )
+    total_sold: Mapped[int] = mapped_column(
+        Integer, default=0, server_default="0", nullable=False
     )
     is_on_offer: Mapped[bool] = mapped_column(
         Boolean, default=False, nullable=False, server_default="false"
