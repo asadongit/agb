@@ -45,8 +45,13 @@ else:
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_size"] = 10
     engine_kwargs["max_overflow"] = 20
-    # Enable SSL for secure Postgres connections (e.g. Neon)
-    engine_kwargs["connect_args"] = {"ssl": True}
+    # Enable SSL for secure Postgres connections (e.g. Neon, RDS)
+    # Use a permissive SSL context so self-signed certificates are accepted.
+    import ssl as _ssl
+    _pg_ssl_ctx = _ssl.create_default_context()
+    _pg_ssl_ctx.check_hostname = False
+    _pg_ssl_ctx.verify_mode = _ssl.CERT_NONE
+    engine_kwargs["connect_args"] = {"ssl": _pg_ssl_ctx}
     
     # Strip libpq sslmode query parameters which crash asyncpg's connection parser
     if "?sslmode=" in db_url:
