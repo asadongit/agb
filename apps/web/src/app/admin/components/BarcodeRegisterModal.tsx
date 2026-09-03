@@ -35,7 +35,7 @@ interface BarcodeRegisterModalProps {
     batch_number?: string;
     expiry_date?: string;
     shelf_life_alert_hrs?: number;
-    supplier_name?: string;
+    supplier_id?: string;
   }) => Promise<void>;
 }
 
@@ -259,7 +259,7 @@ export function BarcodeRegisterModal({
         batch_number: batchNumber.trim() || undefined,
         expiry_date: expiryDate ? new Date(expiryDate).toISOString() : undefined,
         shelf_life_alert_hrs: shelfLifeAlertHrs.trim() ? parseInt(shelfLifeAlertHrs, 10) : undefined,
-        supplier_name: supplierId.trim() || undefined,
+        supplier_id: supplierId.trim() || undefined,
       });
 
       onSuccess(name.trim(), String(effQty));
