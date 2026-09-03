@@ -247,7 +247,7 @@ export function useAnalyticsManagement({
           apiRequest<any>(`/api/analytics/new-customers?${params.toString()}`),
           apiRequest<CustomerReturnReportResponse>(`/api/analytics/customer-returns?${params.toString()}`),
           apiRequest<LoyaltyReportResponse>(`/api/analytics/loyalty?${params.toString()}`),
-          apiRequest<AbandonedCartResponse>(`/api/analytics/abandoned-carts?${params.toString()}`)
+          apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`)
         ]);
         setNewCustomerData(newC);
         setCustomerReturnData(ret);
@@ -260,7 +260,7 @@ export function useAnalyticsManagement({
       } else if (activeCustomersSubTab === "loyalty") {
         setLoyaltyData(await apiRequest<LoyaltyReportResponse>(`/api/analytics/loyalty?${params.toString()}`));
       } else if (activeCustomersSubTab === "abandoned_carts") {
-        setAbandonedCartData(await apiRequest<AbandonedCartResponse>(`/api/analytics/abandoned-carts?${params.toString()}`));
+        setAbandonedCartData(await apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`));
       }
     } catch (err) {
       console.error("Customers data load error:", err);
@@ -277,23 +277,23 @@ export function useAnalyticsManagement({
       const params = getDateRangeParams();
       if (activeFinancialSubTab === "master_view") {
         const [prof, bill, tax, cash] = await Promise.all([
-          apiRequest<ProfitReportResponse>(`/api/analytics/profit?${params.toString()}`),
+          apiRequest<ProfitMarginResponse>(`/api/analytics/profit?${params.toString()}`),
           apiRequest<BillProfitResponse>(`/api/analytics/bill-profit?page=${billProfitPage}&limit=15&${params.toString()}`),
           apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params.toString()}`),
-          apiRequest<CashDenomResponse>(`/api/analytics/cash-denominations?${params.toString()}`)
+          apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params.toString()}`)
         ]);
         setProfitData(prof);
         setBillProfitData(bill);
         setTaxSummaryData(tax);
         setCashDenomData(cash);
       } else if (activeFinancialSubTab === "profit_margin") {
-        setProfitData(await apiRequest<ProfitReportResponse>(`/api/analytics/profit?${params.toString()}`));
+        setProfitData(await apiRequest<ProfitMarginResponse>(`/api/analytics/profit?${params.toString()}`));
       } else if (activeFinancialSubTab === "bill_profit") {
         setBillProfitData(await apiRequest<BillProfitResponse>(`/api/analytics/bill-profit?page=${billProfitPage}&limit=15&${params.toString()}`));
       } else if (activeFinancialSubTab === "tax_summary") {
         setTaxSummaryData(await apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params.toString()}`));
       } else if (activeFinancialSubTab === "cash_denominations") {
-        setCashDenomData(await apiRequest<CashDenomResponse>(`/api/analytics/cash-denominations?${params.toString()}`));
+        setCashDenomData(await apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params.toString()}`));
       }
     } catch (err) {
       console.error("Financial data load error:", err);

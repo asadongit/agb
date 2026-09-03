@@ -46,7 +46,6 @@ import type {
   PurchaseReturn,
   StockChangeType,
   StockLedgerEntry,
-  RestockItem,
   Supplier,
   WastageReason,
 } from "@/types";

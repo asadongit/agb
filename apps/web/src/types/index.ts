@@ -338,7 +338,4 @@ export type FinancialSubTab =
 
 export type DatePreset = "today" | "yesterday" | "last_7" | "last_30" | "this_month" | "last_month" | "custom";
 
-export type ProfitReportResponse = components["schemas"]["ProfitMarginReportResponse"];
-export type CashDenomResponse = components["schemas"]["CashDenominationResponse"];
-export type AbandonedCartResponse = components["schemas"]["AbandonedCartStatsResponse"];
-export type RestockItem = components["schemas"]["RestockItem"];
+export type ProfitMarginResponse = components["schemas"]["ProfitMarginResponse"];
