@@ -30,8 +30,6 @@ ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
 
 # Copy node_modules from deps stage (cached layer)
 COPY --from=deps /app/node_modules ./node_modules
-COPY --from=deps /app/apps/web/node_modules ./apps/web/node_modules
-COPY --from=deps /app/packages/api-client/node_modules ./packages/api-client/node_modules
 
 # Copy all source code
 COPY . .
