@@ -23,6 +23,7 @@ WORKDIR /app
 # Backend URL — baked into client-side JS at build time
 ARG NEXT_PUBLIC_API_URL=http://127.0.0.1:8000
 ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+ENV STANDALONE_BUILD=1
 
 # Copy node_modules from deps stage
 COPY --from=deps /app/frontend/node_modules ./frontend/node_modules

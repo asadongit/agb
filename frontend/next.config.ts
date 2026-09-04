@@ -1,7 +1,7 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  output: "standalone",
+  output: process.env.STANDALONE_BUILD ? "standalone" : undefined,
   allowedDevOrigins: [
     ".loca.lt",
     "rushtable-test.loca.lt",
