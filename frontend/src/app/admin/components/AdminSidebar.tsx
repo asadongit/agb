@@ -30,6 +30,7 @@ import {
   Users,
   Wifi,
   WifiOff,
+  X,
   ShoppingBag as OrdersIcon,
 } from "lucide-react";
 import type { AdminTheme } from "../hooks/useAdminTheme";
@@ -115,12 +116,31 @@ export function AdminSidebar({
   };
 
   return (
-    <aside
-      className={`${isMobileMenuOpen ? "block" : "hidden"
-        } md:flex flex-col w-full md:w-64 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] sticky top-0 md:h-screen z-30 shrink-0`}
-    >
+    <>
+      {/* Mobile overlay */}
+      {isMobileMenuOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm transition-opacity"
+          onClick={onMobileClose}
+        />
+      )}
+      <aside
+        className={`${
+          isMobileMenuOpen ? "fixed inset-y-0 left-0 z-50 w-64 max-w-[80vw]" : "hidden"
+        } md:flex md:static flex-col md:w-64 border-r border-[var(--border-subtle)] bg-[var(--bg-surface)] md:h-screen md:z-30 shrink-0 shadow-2xl md:shadow-none transition-transform`}
+      >
       {/* Sidebar Header */}
-      <div className="p-5 border-b border-[var(--border-subtle)] space-y-3">
+      <div className="p-5 border-b border-[var(--border-subtle)] space-y-3 relative">
+        {/* Mobile Close Button */}
+        {isMobileMenuOpen && (
+          <button
+            type="button"
+            onClick={onMobileClose}
+            className="md:hidden absolute top-4 right-4 p-1.5 rounded-lg bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:border-[var(--text-primary)] transition"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        )}
         <div className="flex items-start gap-3">
           {restaurant?.logo_url ? (
             <img
@@ -410,5 +430,6 @@ export function AdminSidebar({
         </button>
       </div>
     </aside>
+    </>
   );
 }

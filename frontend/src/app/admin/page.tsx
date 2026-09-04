@@ -321,13 +321,23 @@ export default function AdminDashboardPage() {
       <main className="flex-1 flex flex-col min-w-0 overflow-y-auto p-4 sm:p-6 lg:p-8">
         {/* Top Header Control Bar with Bell Notification Icon */}
         <div className="mb-6 flex items-center justify-between pb-4 border-b border-[var(--border-subtle)]">
-          <div>
-            <h1 className="font-display text-xl font-black text-[var(--text-primary)] capitalize">
-              {restaurant?.name || "ApnaGreen Basket"}
-            </h1>
-            <p className="text-xs text-[var(--text-muted)] capitalize">
-              {activeTab} Dashboard • Real-time Store Controls
-            </p>
+          <div className="flex items-center gap-3">
+            <button
+              type="button"
+              onClick={() => setIsMobileMenuOpen(true)}
+              className="md:hidden flex h-10 w-10 items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] hover:border-[var(--accent-brand)] transition shadow-xs"
+              title="Open Mobile Menu"
+            >
+              <Menu className="h-5 w-5" />
+            </button>
+            <div>
+              <h1 className="font-display text-xl font-black text-[var(--text-primary)] capitalize">
+                {restaurant?.name || "ApnaGreen Basket"}
+              </h1>
+              <p className="text-xs text-[var(--text-muted)] capitalize hidden sm:block">
+                {activeTab} Dashboard • Real-time Store Controls
+              </p>
+            </div>
           </div>
 
           <div className="flex items-center gap-3">
