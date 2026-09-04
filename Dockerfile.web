@@ -50,18 +50,13 @@ RUN addgroup --system --gid 1001 nodejs && \
 COPY --from=builder --chown=nextjs:nodejs /app/frontend/.next/standalone ./
 
 # Copy static assets (not included in standalone by design)
-COPY --from=builder --chown=nextjs:nodejs /app/frontend/.next/static ./frontend/.next/static
+COPY --from=builder --chown=nextjs:nodejs /app/frontend/.next/static ./.next/static
 
 # Copy public folder (favicon, images, etc.)
-COPY --from=builder --chown=nextjs:nodejs /app/frontend/public ./frontend/public
+COPY --from=builder --chown=nextjs:nodejs /app/frontend/public ./public
 
 USER nextjs
 
 EXPOSE 3000
 
-# Next.js standalone outputs a server.js in the root of the standalone directory
-# Wait, no, it outputs it relative to where the next build happened.
-# Since we built in /app/frontend, standalone output is:
-# /app/frontend/.next/standalone/server.js (if we copied the contents of standalone to /app)
-# Let's verify the path by running the build.
-CMD ["node", "frontend/server.js"]
+CMD ["node", "server.js"]
