@@ -1,4 +1,4 @@
-import { components } from "@repo/api-client";
+import { components } from "./schema";
 
 
 export type PaymentMode = "RAZORPAY_GATEWAY" | "PAY_AT_COUNTER" | "BOTH";
