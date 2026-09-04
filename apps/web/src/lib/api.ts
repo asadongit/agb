@@ -4,12 +4,12 @@
  * On smartphone connected via Wi-Fi: http://192.168.x.x:8000
  */
 export function getApiBaseUrl(): string {
+  if (typeof window !== "undefined") {
+    // Always return relative URL on the client so requests route through Next.js proxy
+    return "";
+  }
   if (process.env.NEXT_PUBLIC_API_URL) {
     return process.env.NEXT_PUBLIC_API_URL.replace(/\/$/, "");
-  }
-  if (typeof window !== "undefined") {
-    // Return relative URL so all requests route through Next.js proxy on dev
-    return "";
   }
   return "http://localhost:8000";
 }

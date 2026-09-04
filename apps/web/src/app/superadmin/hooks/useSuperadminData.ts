@@ -9,6 +9,7 @@ import {
   type RestaurantCreateForm,
   type RestaurantWithUsers,
 } from "../superadminTypes";
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from "../../admin/adminTypes";
 
 function decodeJwtRole(token: string): string | null {
   try {
@@ -360,8 +361,8 @@ export function useSuperadminData() {
 
       const data = await res.json();
       if (data.access_token) {
-        localStorage.setItem("admin_access_token", data.access_token);
-        localStorage.setItem("admin_refresh_token", data.refresh_token);
+        localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
+        localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
         window.open("/admin", "_blank");
       } else {
         throw new Error("Invalid token received from server.");
