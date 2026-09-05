@@ -684,6 +684,7 @@ async def mark_bill_paid(
 
             cust.loyalty_points -= actual_points_deducted
             order.loyalty_points_redeemed = actual_points_deducted
+            order.loyalty_discount_inr = discount_inr
 
     # Update delivery and handling charges
     order.delivery_charge = delivery_charge

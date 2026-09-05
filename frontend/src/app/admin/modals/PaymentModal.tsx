@@ -1034,7 +1034,7 @@ export function PaymentModal({
                 </>
                 )}
 
-                {targetCash < grandTotal && (
+                {targetCash < effectiveGrandTotalForCollection && (
                   <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-2.5 space-y-1.5 text-xs">
                     <div className="flex justify-between items-center text-sky-300 font-bold font-mono">
                       <span>Shortfall / Cash Deficiency:</span>
@@ -1084,7 +1084,7 @@ export function PaymentModal({
                   </div>
                 )}
 
-{(isPureSurplusRefund || creditCashedOut > 0 || (cashTendered && targetCash >= grandTotal)) && (
+{(isPureSurplusRefund || creditCashedOut > 0 || (cashTendered && targetCash >= effectiveGrandTotalForCollection)) && (
                   <div ref={returnSectionRef} className="flex flex-col space-y-2 border-t border-[var(--border-subtle)] pt-2">
                     <div className="flex justify-between items-center font-mono font-bold text-[var(--text-primary)] pt-1">
                       <span className="text-base text-[var(--text-muted)]">Change Due to Customer:</span>
@@ -1419,10 +1419,8 @@ export function PaymentModal({
             <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
               <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Loyalty Points</div>
               {(() => {
-                const applicableTier = (restaurant?.loyalty_redemption_tiers || []).find(t =>
-                  (customerAnalytics?.loyalty_points || 0) >= t.min_points &&
-                  (t.max_points == null || (customerAnalytics?.loyalty_points || 0) <= t.max_points)
-                );
+                const sortedTiers = [...(restaurant?.loyalty_redemption_tiers || [])].sort((a, b) => b.min_points - a.min_points);
+                const applicableTier = sortedTiers.find(t => (customerAnalytics?.loyalty_points || 0) >= t.min_points);
                 const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
                 const maxBillPercentage = parseFloat(String(restaurant?.loyalty_max_bill_percentage || "100.00"));
                 const maxAllowedDiscount = (maxBillPercentage / 100) * subtotalAmount;
@@ -1466,7 +1464,16 @@ export function PaymentModal({
                     </div>
                   );
                 } else if (customerAnalytics) {
-                   return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">No points avail</div>
+                   const hasPoints = (customerAnalytics.loyalty_points || 0) > 0;
+                   if (hasPoints) {
+                     return (
+                       <div className="flex-1 flex flex-col items-center justify-center text-[20px] text-[var(--text-muted)] text-center opacity-70">
+                         <div>Bal: {customerAnalytics.loyalty_points}</div>
+                         <div className="text-[18px] text-rose-400 mt-0.5 font-bold">Not enough to redeem</div>
+                       </div>
+                     );
+                   }
+                   return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">No points avail</div>;
                 }
                 return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">Link customer</div>;
               })()}

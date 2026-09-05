@@ -113,6 +113,7 @@ def _format_bill_response(order: Order) -> BillResponse:
         change_denominations=order.change_denominations,
         loyalty_points_earned=order.loyalty_points_earned,
         loyalty_points_redeemed=order.loyalty_points_redeemed,
+        loyalty_discount_inr=float(order.loyalty_discount_inr) if getattr(order, "loyalty_discount_inr", None) is not None else 0.0,
         created_by_staff_id=str(order.created_by_staff_id) if order.created_by_staff_id else None,
         created_at=order.created_at.isoformat() if hasattr(order.created_at, "isoformat") else str(order.created_at),
         finalized_at=order.finalized_at.isoformat() if order.finalized_at and hasattr(order.finalized_at, "isoformat") else None,

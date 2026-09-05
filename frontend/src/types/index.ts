@@ -339,7 +339,8 @@ export type FinancialSubTab =
   | "profit_margin"
   | "bill_profit"
   | "tax_summary"
-  | "cash_denominations";
+  | "cash_denominations"
+  | "outlet_earnings";
 
 export type DatePreset = "today" | "yesterday" | "last_7" | "last_30" | "this_month" | "last_month" | "custom";
 

@@ -275,7 +275,9 @@ export async function generateA4InvoicePDF(
 
   const pointsRedeemed = (order as any).loyalty_points_redeemed || 0;
   let loyaltyDiscountRupees = 0;
-  if (pointsRedeemed > 0) {
+  if ((order as any).loyalty_discount_inr !== undefined && (order as any).loyalty_discount_inr !== null) {
+    loyaltyDiscountRupees = parseFloat(String((order as any).loyalty_discount_inr)) || 0;
+  } else if (pointsRedeemed > 0) {
     const rest = getOutletField("loyalty_redemption_tiers") ? {
       loyalty_redemption_tiers: getOutletField("loyalty_redemption_tiers"),
       loyalty_max_bill_percentage: getOutletField("loyalty_max_bill_percentage"),
@@ -283,10 +285,8 @@ export async function generateA4InvoicePDF(
     
     const currentBalance = (order as any).customer?.loyalty_points || pointsRedeemed;
     const tiers: any[] = rest.loyalty_redemption_tiers || [];
-    const applicableTier = tiers.find(t => 
-      currentBalance >= t.min_points && 
-      (t.max_points === null || currentBalance <= t.max_points)
-    );
+    const sortedTiers = [...tiers].sort((a, b) => b.min_points - a.min_points);
+    const applicableTier = sortedTiers.find(t => currentBalance >= t.min_points);
     
     const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
     const maxBillPercentage = parseFloat(String(rest.loyalty_max_bill_percentage || "100.00"));
@@ -295,6 +295,12 @@ export async function generateA4InvoicePDF(
     const maxAllowedDiscount = (maxBillPercentage / 100) * totalSellingSubtotal;
     loyaltyDiscountRupees = Math.min(requestedDiscount, maxAllowedDiscount);
   }
+
+  const creditApplied = parseFloat(String((order as any).credit_applied || 0)) || 0;
+  const debitApplied = parseFloat(String((order as any).debit_applied || 0)) || 0;
+  const debtSettled = parseFloat(String((order as any).debt_settled || 0)) || 0;
+  const creditAwarded = parseFloat(String((order as any).credit_awarded || 0)) || 0;
+  const creditCashedOut = parseFloat(String((order as any).credit_cashed_out || 0)) || 0;
 
   const subtotal = totalSellingSubtotal;
   const discountedSubtotal = Math.max(0, subtotal - extraDiscountRupees - loyaltyDiscountRupees);
@@ -324,16 +330,30 @@ export async function generateA4InvoicePDF(
   if (extraDiscountRupees > 0) printRightRow(extraDiscountLabel, -extraDiscountRupees);
   if (loyaltyDiscountRupees > 0) printRightRow(`Loyalty Redemption (${pointsRedeemed} pts)`, -loyaltyDiscountRupees);
   
-  if (creditApplied > 0) printRightRow("Credit Applied", -creditApplied);
-  if (debitApplied > 0) printRightRow("Debit (Shortfall)", debitApplied);
-  
   if (roundOff !== 0) printRightRow("Round Off", roundOff);
   
   tY += 2;
   doc.setLineWidth(0.2);
   doc.line(totalsBoxX, tY - 5, valX, tY - 5);
   doc.setFontSize(11);
-  printRightRow("GRAND TOTAL (Rs)", finalNetTotal, true);
+  printRightRow("NET TOTAL", finalNetTotal, true);
+  
+  let netPaid = finalNetTotal;
+  const hasModifiers = creditApplied > 0 || debitApplied > 0 || debtSettled > 0 || creditAwarded > 0 || creditCashedOut > 0;
+  
+  if (hasModifiers) {
+      doc.setFontSize(10);
+      if (creditApplied > 0) { printRightRow("Credit Applied", -creditApplied); netPaid -= creditApplied; }
+      if (debitApplied > 0) { printRightRow("Debit (Shortfall)", -debitApplied); netPaid -= debitApplied; }
+      if (debtSettled > 0) { printRightRow("Debt Settled", debtSettled); netPaid += debtSettled; }
+      if (creditAwarded > 0) { printRightRow("Credit Awarded", creditAwarded); netPaid += creditAwarded; }
+      if (creditCashedOut > 0) { printRightRow("Credit Cashed Out", -creditCashedOut); netPaid -= creditCashedOut; }
+      
+      tY += 2;
+      doc.line(totalsBoxX, tY - 5, valX, tY - 5);
+      doc.setFontSize(11);
+      printRightRow("NET PAID (Rs)", netPaid, true);
+  }
 
   const customerBalanceRaw = (order as any).customer_balance;
   if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {

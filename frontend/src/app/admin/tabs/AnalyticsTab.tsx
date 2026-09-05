@@ -30,6 +30,7 @@ import { LoyaltyReport } from "./analytics/LoyaltyReport";
 import { AbandonedCartReport } from "./analytics/AbandonedCartReport";
 import { CashDenominationReport } from "./analytics/CashDenominationReport";
 import { TaxSummaryReport } from "./analytics/TaxSummaryReport";
+import { OutletEarningsReport } from "./analytics/OutletEarningsReport";
 
 type AnalyticsTabProps = {
   restaurant: RestaurantProfile | null;
@@ -71,7 +72,7 @@ type AnalyticsTabProps = {
   categorySalesData: any; itemSalesData: any; aovData: any; paymentMixData: any; discountData: any;
   stockMovementData: any; stockIntakeData: any; wastageData: any; purchaseReturnData: any; supplierSpendData: any;
   newCustomerData: any; customerReturnData: any; creditDebitData: any; loyaltyData: any; abandonedCartData: any;
-  profitData: any; billProfitData: any; taxSummaryData: any; cashDenomData: any;
+  profitData: any; billProfitData: any; taxSummaryData: any; cashDenomData: any; outletEarningsData: any;
   dayBookData: any;
 };
 
@@ -153,7 +154,8 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
                     isAll || props.activeFinancialSubTab === "profit_margin" ? props.profitData : null, 
                     isAll || props.activeFinancialSubTab === "bill_profit" ? props.billProfitData : null, 
                     isAll || props.activeFinancialSubTab === "tax_summary" ? props.taxSummaryData : null, 
-                    isAll || props.activeFinancialSubTab === "cash_denominations" ? props.cashDenomData : null
+                    isAll || props.activeFinancialSubTab === "cash_denominations" ? props.cashDenomData : null,
+                    isAll || props.activeFinancialSubTab === "outlet_earnings" ? props.outletEarningsData : null
                 );
               } else if (props.activeTab === "day_book") {
                 if (props.dayBookData) {
@@ -321,7 +323,7 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
           {props.activeTab === "financial" && (
             <div className="space-y-4">
               <div className="flex gap-2">
-                {["master_view", "profit_margin", "bill_profit", "tax_summary", "cash_denominations"].map(sub => (
+                {["master_view", "outlet_earnings", "profit_margin", "bill_profit", "tax_summary", "cash_denominations"].map(sub => (
                   <button
                     key={sub}
                     onClick={() => props.setActiveFinancialSubTab(sub)}
@@ -334,12 +336,14 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
               
               {props.activeFinancialSubTab === "master_view" && (
                 <div className="space-y-8">
+                  <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />
                   <ProfitMarginReport data={props.profitData} />
                   <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} />
                   <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />
                   <CashDenominationReport data={props.cashDenomData} isLoading={props.isLoading} />
                 </div>
               )}
+              {props.activeFinancialSubTab === "outlet_earnings" && <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />}
               {props.activeFinancialSubTab === "profit_margin" && <ProfitMarginReport data={props.profitData} />}
               {props.activeFinancialSubTab === "bill_profit" && <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} />}
               {props.activeFinancialSubTab === "tax_summary" && <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />}

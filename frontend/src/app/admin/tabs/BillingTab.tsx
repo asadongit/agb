@@ -521,6 +521,28 @@ export function BillingTab({
                             Credit Cashed Out: ₹{Number((b as any).credit_cashed_out).toFixed(2)}
                           </div>
                         )}
+                        {(() => {
+                          const hasModifiers = Number((b as any).credit_applied) > 0 || 
+                                               Number((b as any).debit_applied) > 0 || 
+                                               Number((b as any).debt_settled) > 0 || 
+                                               Number((b as any).credit_awarded) > 0 || 
+                                               Number((b as any).credit_cashed_out) > 0;
+                          
+                          if (!hasModifiers) return null;
+                          
+                          const netPaid = b.total_amount 
+                                        - Number((b as any).credit_applied || 0) 
+                                        - Number((b as any).debit_applied || 0) 
+                                        + Number((b as any).debt_settled || 0) 
+                                        + Number((b as any).credit_awarded || 0) 
+                                        - Number((b as any).credit_cashed_out || 0);
+                                        
+                          return (
+                            <div className="mt-1 pt-1 border-t border-[var(--border-subtle)] text-xs text-[var(--accent-brand)] font-black">
+                              NET PAID: ₹{netPaid.toFixed(2)}
+                            </div>
+                          );
+                        })()}
                       </td>
 
                       <td className="p-3.5 text-center">

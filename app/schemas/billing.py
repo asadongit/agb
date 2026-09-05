@@ -141,6 +141,7 @@ class BillResponse(BaseResponse):
     change_denominations: dict[str, int] | None = None
     loyalty_points_earned: int = 0
     loyalty_points_redeemed: int = 0
+    loyalty_discount_inr: float = Field(default=0.0)
     created_by_staff_id: str | None = None
     created_at: str
     finalized_at: str | None = None

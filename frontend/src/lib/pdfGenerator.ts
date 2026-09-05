@@ -383,10 +383,8 @@ export async function generateReceiptPDF(
     // we use the current balance from customer, or default to the highest tier that pointsRedeemed could fit in.
     const currentBalance = (order as any).customer?.loyalty_points || pointsRedeemed; // Best effort fallback
     const tiers: any[] = rest.loyalty_redemption_tiers || [];
-    const applicableTier = tiers.find(t => 
-      currentBalance >= t.min_points && 
-      (t.max_points === null || currentBalance <= t.max_points)
-    );
+    const sortedTiers = [...tiers].sort((a, b) => b.min_points - a.min_points);
+    const applicableTier = sortedTiers.find(t => currentBalance >= t.min_points);
     
     const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
     const maxBillPercentage = parseFloat(String(rest.loyalty_max_bill_percentage || "100.00"));
@@ -405,7 +403,7 @@ export async function generateReceiptPDF(
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
 
-  if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0 || creditApplied > 0 || debitApplied > 0) {
+  if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
     if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
       doc.text("Total MRP Value", margin, summaryY);
       doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
@@ -427,18 +425,6 @@ export async function generateReceiptPDF(
     if (loyaltyDiscountRupees > 0) {
       doc.text(`Loyalty Redemption (${pointsRedeemed} pts)`, margin, summaryY);
       doc.text(`- INR ${loyaltyDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 3.5;
-    }
-    
-    if (creditApplied > 0) {
-      doc.text("Credit Applied", margin, summaryY);
-      doc.text(`- INR ${creditApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 3.5;
-    }
-
-    if (debitApplied > 0) {
-      doc.text("Debit (Shortfall)", margin, summaryY);
-      doc.text(`+ INR ${debitApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       summaryY += 3.5;
     }
     
@@ -565,35 +551,60 @@ export async function generateReceiptPDF(
   summaryY += 1;
   drawSolidLine(summaryY + 2);
 
+  summaryY += 6;
+
   const debtSettled = parseFloat(String((order as any).debt_settled || 0)) || 0;
-  if (debtSettled > 0) {
-      summaryY += 5;
-      doc.setFont("courier", "bold");
-      doc.setFontSize(8.5);
-      doc.text("DEBT SETTLED", margin, summaryY);
-      doc.text(`+ INR ${debtSettled.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
-  }
-
   const creditAwarded = parseFloat(String((order as any).credit_awarded || 0)) || 0;
-  if (creditAwarded > 0) {
-      summaryY += 5;
-      doc.setFont("courier", "bold");
-      doc.setFontSize(8.5);
-      doc.text("CREDIT AWARDED", margin, summaryY);
-      doc.text(`+ INR ${creditAwarded.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  const creditCashedOut = parseFloat(String((order as any).credit_cashed_out || 0)) || 0;
+  
+  let netPaid = netTotal;
+
+  if (creditApplied > 0 || debitApplied > 0 || debtSettled > 0 || creditAwarded > 0 || creditCashedOut > 0) {
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7.5);
+      
+      if (creditApplied > 0) {
+          doc.text("Credit Applied", margin, summaryY);
+          doc.text(`- INR ${creditApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid -= creditApplied;
+      }
+      
+      if (debitApplied > 0) {
+          doc.text("Debit (Shortfall)", margin, summaryY);
+          doc.text(`- INR ${debitApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid -= debitApplied;
+      }
+      
+      if (debtSettled > 0) {
+          doc.text("Debt Settled", margin, summaryY);
+          doc.text(`+ INR ${debtSettled.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid += debtSettled;
+      }
+      
+      if (creditAwarded > 0) {
+          doc.text("Credit Awarded", margin, summaryY);
+          doc.text(`+ INR ${creditAwarded.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid += creditAwarded;
+      }
+      
+      if (creditCashedOut > 0) {
+          doc.text("Credit Cashed Out", margin, summaryY);
+          doc.text(`- INR ${creditCashedOut.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid -= creditCashedOut;
+      }
+      
       summaryY += 1;
       drawSolidLine(summaryY + 2);
-  }
-
-  const creditCashedOut = parseFloat(String((order as any).credit_cashed_out || 0)) || 0;
-  if (creditCashedOut > 0) {
-      summaryY += 5;
+      summaryY += 6;
       doc.setFont("courier", "bold");
       doc.setFontSize(8.5);
-      doc.text("CREDIT CASHED OUT", margin, summaryY);
-      doc.text(`- INR ${creditCashedOut.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      doc.text("NET PAID", margin, summaryY);
+      doc.text(`INR ${netPaid.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       summaryY += 1;
       drawSolidLine(summaryY + 2);
   }
@@ -602,17 +613,16 @@ export async function generateReceiptPDF(
   if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
       const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
       summaryY += 5;
-      doc.setFont("courier", "bold");
-      doc.setFontSize(8.5);
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7.5);
       if (customerBalance >= 0) {
-          doc.text("STORE CREDIT", margin, summaryY);
+          doc.text("Store Credit", margin, summaryY);
           doc.text(`INR ${customerBalance.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       } else {
-          doc.text("OUTSTANDING DEBIT", margin, summaryY);
+          doc.text("Outstanding Debit", margin, summaryY);
           doc.text(`INR ${Math.abs(customerBalance).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       }
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
+      summaryY += 2;
   }
 
   // 5. FOOTER & QR CODE
@@ -1551,7 +1561,8 @@ export function generateFinancialPdfReport(
   profitData: any,
   billProfitData: any,
   taxSummaryData: any,
-  cashDenomData: any
+  cashDenomData: any,
+  outletEarningsData?: any
 ) {
   const doc = new (jsPDF as any)({ orientation: "portrait", unit: "mm", format: "a4" });
   let y = drawHeader(doc, restaurant, "FINANCIAL & TAX REPORT", dateRangeLabel);
@@ -1618,6 +1629,34 @@ export function generateFinancialPdfReport(
       theme: "grid", headStyles: { fillColor: [51, 65, 85] }, styles: { fontSize: 8 }
     });
     y = (doc as any).lastAutoTable.finalY + 10;
+  }
+
+  if (outletEarningsData) {
+    if (y > 250) { doc.addPage(); y = 20; }
+    doc.text("5. Outlet Earnings Ledger", 14, y);
+    y += 6;
+    
+    (autoTable as any)(doc, {
+      startY: y,
+      head: [["Metric", "Value (INR)"]],
+      body: [
+        ["Gross Revenue", `+ ${outletEarningsData.gross_revenue}`],
+        ["Loyalty Value Redeemed", `- ${outletEarningsData.total_loyalty_discounts}`],
+        ["Store Credit Applied", `- ${outletEarningsData.total_credit_applied}`],
+        ["Udhaar Given (Shortfalls)", `- ${outletEarningsData.total_udhaar_given}`],
+        ["Udhaar Recovered (Debt Settled)", `+ ${outletEarningsData.total_udhaar_recovered}`],
+        ["Credit Cashed Out (Drawer)", `- ${outletEarningsData.total_credit_cashed_out}`],
+        ["Credit Awarded (Drawer)", `+ ${outletEarningsData.total_credit_awarded}`],
+      ],
+      theme: "grid", headStyles: { fillColor: [51, 65, 85] }, styles: { fontSize: 9 }
+    });
+    y = (doc as any).lastAutoTable.finalY + 5;
+    
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(22, 163, 74); // Green
+    doc.text(`NET DRAWER EARNINGS: INR ${outletEarningsData.net_drawer_earnings.toFixed(2)}`, 14, y + 5);
+    doc.setTextColor(0, 0, 0); // Reset
+    y += 15;
   }
 
   doc.save(`Financial-Report-${(restaurant?.name || "Report").replace(/\s+/g, "_")}.pdf`);

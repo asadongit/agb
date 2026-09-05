@@ -143,7 +143,10 @@ class Order(Base, TimestampMixin):
         Integer, nullable=False, default=0, server_default="0"
     )
     loyalty_points_redeemed: Mapped[int] = mapped_column(
-        Integer, nullable=False, default=0, server_default="0"
+        Integer, default=0, nullable=False, server_default="0"
+    )
+    loyalty_discount_inr: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), default=0.00, nullable=False, server_default="0.00"
     )
 
     # Relationships

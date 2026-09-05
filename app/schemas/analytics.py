@@ -4,6 +4,7 @@ Analytics schemas — requests and responses for Revenue, Peak Hours, Top Items,
 
 from __future__ import annotations
 
+from typing import Any
 from pydantic import Field
 
 from app.schemas.common import BaseResponse, StrictSchema
@@ -490,6 +491,201 @@ class LoyaltyReportResponse(BaseResponse):
     total_points_earned: int
     total_points_redeemed: int
     net_outstanding_points: int
+class PurchaseReturnReportResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_returns: int
+    total_refund_amount: float
+    items: list[PurchaseReturnRow]
+
+
+class NewCustomerBucket(StrictSchema):
+    bucket: str
+    new_count: int
+    cumulative_total: int
+
+
+class NewCustomerDetail(StrictSchema):
+    customer_id: str
+    name: str | None
+    phone: str | None
+    email: str | None
+    created_at: str
+    total_orders: int
+    total_spent: float
+
+
+class NewCustomerReportResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    granularity: str
+    total_new_customers: int
+    total_customers_all_time: int
+    trend: list[NewCustomerBucket]
+    recent_customers: list[NewCustomerDetail] = []
+
+
+class CustomerReturnRow(StrictSchema):
+    return_id: str
+    return_number: str
+    order_id: str | None
+    customer_name: str | None
+    customer_phone: str | None
+    items_returned: int
+    total_refund_amount: float
+    refund_payment_method: str
+    created_at: str
+
+
+class TopReturnedItem(StrictSchema):
+    item_name: str
+    return_count: int
+    total_quantity_returned: float
+    total_refund_amount: float
+
+
+class CustomerReturnReportResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_returns: int
+    total_refund_amount: float
+    return_rate_pct: float
+    top_returned_items: list[TopReturnedItem]
+    returns: list[CustomerReturnRow]
+
+
+class DenominationBreakdown(StrictSchema):
+    denomination: str
+    notes_in: int
+    notes_out: int
+    net_notes: int
+    net_value: float
+
+
+class CashFlowByType(StrictSchema):
+    transaction_type: str
+    total_transactions: int
+    denominations: list[DenominationBreakdown]
+
+
+class CashDenominationResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_transactions: int
+    net_cash_in_drawer: float
+    by_transaction_type: list[CashFlowByType]
+    overall_denominations: list[DenominationBreakdown]
+
+
+class PaymentMixRow(StrictSchema):
+    payment_method: str
+    orders_count: int
+    total_revenue: float
+    revenue_share_pct: float
+    avg_order_value: float
+
+
+class PaymentMixResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_orders: int
+    total_revenue: float
+    methods: list[PaymentMixRow]
+
+
+class TaxSlabRow(StrictSchema):
+    tax_category: str
+    tax_rate: float
+    taxable_amount: float
+    tax_collected: float
+    items_count: int
+
+
+class TaxSummaryResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_taxable_amount: float
+    total_tax_collected: float
+    slabs: list[TaxSlabRow]
+
+
+class DiscountSummary(StrictSchema):
+    total_orders_with_discount: int
+    total_discount_amount: float
+    avg_discount_per_order: float
+    discount_pct_of_revenue: float
+
+
+class DiscountByType(StrictSchema):
+    discount_type: str
+    count: int
+    total_amount: float
+
+
+class DiscountApprovalStats(StrictSchema):
+    total_requests: int
+    approved: int
+    rejected: int
+    pending: int
+    approval_rate_pct: float
+
+
+class TopDiscountReason(StrictSchema):
+    reason: str
+    count: int
+    total_amount: float
+
+
+class DiscountReportResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    summary: DiscountSummary
+    by_type: list[DiscountByType]
+    approval_stats: DiscountApprovalStats
+    top_reasons: list[TopDiscountReason]
+    total_complimentary_items: int
+    total_complimentary_value: float
+
+
+class DayBookEntry(StrictSchema):
+    timestamp: str
+    entry_type: str
+    reference_number: str
+    description: str
+    debit: float
+    credit: float
+    running_balance: float
+
+
+class DayBookResponse(BaseResponse):
+    date: str
+    opening_cash: float
+    total_sales: float
+    total_returns: float
+    total_cash_in: float
+    total_cash_out: float
+    total_stock_intake_cost: float
+    closing_balance: float
+    entries: list[DayBookEntry]
+
+
+class AbandonedCartStatsResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_abandoned: int
+    total_converted: int
+    conversion_rate_pct: float
+    total_abandoned_value: float
+    total_converted_value: float
+    avg_cart_value: float
+
+
+class LoyaltyReportResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_points_earned: int
+    total_points_redeemed: int
+    net_outstanding_points: int
     total_customers_with_points: int
     avg_points_per_customer: float
     redemption_rate_pct: float
@@ -511,3 +707,15 @@ class SupplierSpendResponse(BaseResponse):
     total_spend: float
     total_suppliers: int
     suppliers: list[SupplierSpendRow]
+
+
+class OutletEarningsResponse(StrictSchema):
+    gross_revenue: float
+    total_loyalty_discounts: float
+    total_credit_applied: float
+    total_udhaar_given: float
+    total_udhaar_recovered: float
+    total_credit_cashed_out: float
+    total_credit_awarded: float
+    net_drawer_earnings: float
+    chart_data: list[dict[str, Any]]

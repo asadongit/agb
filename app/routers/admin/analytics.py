@@ -423,6 +423,19 @@ async def get_supplier_spend_endpoint(
     return await get_supplier_spend(db, target_outlet_id, from_dt, to_dt)
 
 
+@router.get("/outlet-earnings", response_model=OutletEarningsResponse)
+async def get_outlet_earnings_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    to_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+):
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_outlet_earnings_report(db, target_outlet_id, from_dt, to_dt)
+
 
 @router.get("/export")
 async def export_analytics_endpoint(

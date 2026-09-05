@@ -2012,6 +2012,100 @@ async def get_day_book(
     )
 
 
+async def get_outlet_earnings_report(
+    db: AsyncSession,
+    outlet_id: str,
+    from_dt: datetime,
+    to_dt: datetime,
+) -> OutletEarningsResponse:
+    from app.schemas.analytics import OutletEarningsResponse
+    from app.models.order import Order
+    from collections import defaultdict
+    import math
+
+    stmt = select(Order).where(
+        Order.outlet_id == outlet_id,
+        Order.status.in_(SETTLED_STATUSES),
+        Order.created_at >= from_dt,
+        Order.created_at <= to_dt,
+    )
+    result = await db.execute(stmt)
+    orders = result.scalars().all()
+
+    gross_revenue = 0.0
+    total_loyalty_discounts = 0.0
+    total_credit_applied = 0.0
+    total_udhaar_given = 0.0
+    total_udhaar_recovered = 0.0
+    total_credit_cashed_out = 0.0
+    total_credit_awarded = 0.0
+
+    chart_dict = defaultdict(lambda: {
+        "date": "",
+        "udhaar_given": 0.0,
+        "udhaar_recovered": 0.0,
+        "credit_cashed_out": 0.0,
+        "credit_applied": 0.0,
+        "loyalty_value_redeemed": 0.0,
+        "gross_revenue": 0.0,
+        "net_paid": 0.0
+    })
+
+    for o in orders:
+        date_str = o.created_at.strftime("%Y-%m-%d")
+        chart_dict[date_str]["date"] = date_str
+        
+        ta = float(o.total_amount or 0)
+        ld = float(getattr(o, "loyalty_discount_inr", 0) or 0)
+        ca = float(getattr(o, "credit_applied", 0) or 0)
+        da = float(getattr(o, "debit_applied", 0) or 0)
+        ds = float(getattr(o, "debt_settled", 0) or 0)
+        cco = float(getattr(o, "credit_cashed_out", 0) or 0)
+        caw = float(getattr(o, "credit_awarded", 0) or 0)
+        
+        gross_revenue += ta
+        total_loyalty_discounts += ld
+        total_credit_applied += ca
+        total_udhaar_given += da
+        total_udhaar_recovered += ds
+        total_credit_cashed_out += cco
+        total_credit_awarded += caw
+        
+        chart_dict[date_str]["gross_revenue"] += ta
+        chart_dict[date_str]["loyalty_value_redeemed"] += ld
+        chart_dict[date_str]["credit_applied"] += ca
+        chart_dict[date_str]["udhaar_given"] += da
+        chart_dict[date_str]["udhaar_recovered"] += ds
+        chart_dict[date_str]["credit_cashed_out"] += cco
+        
+        np = ta - ca - da + ds + caw - cco
+        chart_dict[date_str]["net_paid"] += np
+
+    net_drawer_earnings = (
+        gross_revenue
+        - total_credit_applied
+        - total_udhaar_given
+        + total_udhaar_recovered
+        + total_credit_awarded
+        - total_credit_cashed_out
+    )
+
+    chart_data = list(chart_dict.values())
+    chart_data.sort(key=lambda x: x["date"])
+
+    return OutletEarningsResponse(
+        gross_revenue=gross_revenue,
+        total_loyalty_discounts=total_loyalty_discounts,
+        total_credit_applied=total_credit_applied,
+        total_udhaar_given=total_udhaar_given,
+        total_udhaar_recovered=total_udhaar_recovered,
+        total_credit_cashed_out=total_credit_cashed_out,
+        total_credit_awarded=total_credit_awarded,
+        net_drawer_earnings=net_drawer_earnings,
+        chart_data=chart_data,
+    )
+
+
 async def get_abandoned_cart_analytics(
     db: AsyncSession,
     outlet_id: uuid.UUID,

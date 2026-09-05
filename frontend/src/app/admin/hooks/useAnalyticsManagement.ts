@@ -17,6 +17,7 @@ import type {
   PurchaseReturnReportResponse,
   NewCustomerReportResponse,
   CustomerReturnReportResponse,
+
   CashDenominationResponse,
   PaymentMixResponse,
   TaxSummaryResponse,
@@ -25,6 +26,7 @@ import type {
   AbandonedCartStatsResponse,
   LoyaltyReportResponse,
   CreditDebitReportResponse,
+  OutletEarningsResponse,
   AnalyticsMainTab,
   SalesSubTab,
   InventorySubTab,
@@ -93,6 +95,7 @@ export function useAnalyticsManagement({
   const [loyaltyData, setLoyaltyData] = useState<LoyaltyReportResponse | null>(null);
   const [supplierSpendData, setSupplierSpendData] = useState<SupplierSpendResponse | null>(null);
   const [creditDebitData, setCreditDebitData] = useState<CreditDebitReportResponse | null>(null);
+  const [outletEarningsData, setOutletEarningsData] = useState<OutletEarningsResponse | null>(null);
 
   const getDateRangeParams = useCallback(() => {
     let fromStr = "";
@@ -290,25 +293,25 @@ export function useAnalyticsManagement({
     setIsLoading(true);
     try {
       const params = getDateRangeParams();
-      if (activeFinancialSubTab === "master_view") {
-        const [prof, bill, tax, cash] = await Promise.all([
-          apiRequest<ProfitMarginResponse>(`/api/analytics/profit?${params.toString()}`),
-          apiRequest<BillProfitResponse>(`/api/analytics/bill-profit?page=${billProfitPage}&limit=15&${params.toString()}`),
-          apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params.toString()}`),
-          apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params.toString()}`)
-        ]);
-        setProfitData(prof);
-        setBillProfitData(bill);
-        setTaxSummaryData(tax);
-        setCashDenomData(cash);
-      } else if (activeFinancialSubTab === "profit_margin") {
-        setProfitData(await apiRequest<ProfitMarginResponse>(`/api/analytics/profit?${params.toString()}`));
-      } else if (activeFinancialSubTab === "bill_profit") {
-        setBillProfitData(await apiRequest<BillProfitResponse>(`/api/analytics/bill-profit?page=${billProfitPage}&limit=15&${params.toString()}`));
-      } else if (activeFinancialSubTab === "tax_summary") {
-        setTaxSummaryData(await apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params.toString()}`));
-      } else if (activeFinancialSubTab === "cash_denominations") {
-        setCashDenomData(await apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params.toString()}`));
+      if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "profit_margin") {
+        const res = await apiRequest<ProfitMarginAnalytics>(`/api/analytics/profit?${params}`);
+        setProfitData(res);
+      }
+      if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "bill_profit") {
+        const res = await apiRequest<BillProfitResponse>(`/api/analytics/bill-profit?page=${billProfitPage}&limit=15&${params.toString()}`);
+        setBillProfitData(res);
+      }
+      if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "tax_summary") {
+        const res = await apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params}`);
+        setTaxSummaryData(res);
+      }
+      if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "cash_denominations") {
+        const res = await apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params}`);
+        setCashDenomData(res);
+      }
+      if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "outlet_earnings") {
+        const res = await apiRequest<OutletEarningsResponse>(`/api/analytics/outlet-earnings?${params}`);
+        setOutletEarningsData(res);
       }
     } catch (err) {
       console.error("Financial data load error:", err);
@@ -379,7 +382,11 @@ export function useAnalyticsManagement({
     abandonedCartData,
     creditDebitData,
     // Financial
-    profitData, billProfitData, taxSummaryData, cashDenomData,
+    profitData, 
+    billProfitData, 
+    taxSummaryData, 
+    cashDenomData,
+    outletEarningsData,
     // Day Book
     dayBookData,
   };
