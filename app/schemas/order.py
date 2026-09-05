@@ -84,6 +84,11 @@ class OrderResponse(BaseResponse):
     updated_at: datetime
     delivery_charge: Decimal = Decimal("0.00")
     handling_charge: Decimal = Decimal("0.00")
+    credit_applied: Decimal = Decimal("0.00")
+    debit_applied: Decimal = Decimal("0.00")
+    credit_awarded: Decimal = Decimal("0.00")
+    debt_settled: Decimal = Decimal("0.00")
+    credit_cashed_out: Decimal = Decimal("0.00")
     items: list[OrderItemResponse] = []
     outlet: OutletInfoResponse | None = None
 

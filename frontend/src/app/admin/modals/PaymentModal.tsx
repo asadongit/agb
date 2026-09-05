@@ -25,7 +25,7 @@ type PaymentModalProps = {
   setSelectedPaymentMethod: (method: "CASH" | "UPI") => void;
   cashTendered: string;
   setCashTendered: (val: string) => void;
-  handleMarkPaid: (cashDenominations?: Record<string, number>, changeDenominations?: Record<string, number>, redeemLoyaltyPoints?: number, deliveryCharge?: number, handlingCharge?: number) => Promise<void>;
+  handleMarkPaid: (cashDenominations?: Record<string, number>, changeDenominations?: Record<string, number>, redeemLoyaltyPoints?: number, deliveryCharge?: number, handlingCharge?: number, applyCredit?: number, recordDebit?: number, recordCredit?: number, debtSettled?: number) => Promise<void>;
   onOpenDiscountModal?: (bill: ManualBill) => void;
   restaurant?: RestaurantProfile | null;
   editingCompletedBill?: ManualBill | null;
@@ -78,6 +78,12 @@ export function PaymentModal({
   const [redeemPoints, setRedeemPoints] = useState<number>(0);
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0);
   const [handlingCharge, setHandlingCharge] = useState<number>(0);
+  const [applyCreditAmount, setApplyCreditAmount] = useState<string>("");
+  const [recordDebitAmount, setRecordDebitAmount] = useState<string>("");
+  const [recordCreditAmount, setRecordCreditAmount] = useState<string>("");
+  const [autoConvertCredit, setAutoConvertCredit] = useState<boolean>(false);
+  const [autoRecordDebitOnShortfall, setAutoRecordDebitOnShortfall] = useState<boolean>(false);
+  const [settleDebit, setSettleDebit] = useState<boolean>(false);
 
   const [paymentEditMode, setPaymentEditMode] = useState<"ADJUST" | "FULL">("ADJUST");
   const [activeTappingMode, setActiveTappingMode] = useState<"INTAKE" | "RETURN">("INTAKE");
@@ -105,6 +111,12 @@ export function PaymentModal({
       setRedeemPoints(0);
       setDeliveryCharge(paymentTargetBill?.delivery_charge || 0);
       setHandlingCharge(paymentTargetBill?.handling_charge || 0);
+      setApplyCreditAmount("");
+      setRecordDebitAmount("");
+      setRecordCreditAmount("");
+      setAutoConvertCredit(false);
+      setAutoRecordDebitOnShortfall(false);
+      setSettleDebit(false);
       setPaymentEditMode("ADJUST");
       setActiveTappingMode("INTAKE");
     }
@@ -154,7 +166,7 @@ export function PaymentModal({
     return 0;
   }, [paymentTargetBill, subtotalAmount]);
 
-  const grandTotal = useMemo(() => {
+  const grandTotalBeforeCredit = useMemo(() => {
     if (!paymentTargetBill) return 0;
     
     let base = paymentTargetBill.total_amount || 0;
@@ -181,7 +193,30 @@ export function PaymentModal({
     base = Math.round(base + deliveryCharge + handlingCharge);
     
     return base;
-  }, [paymentTargetBill, subtotalAmount, calculatedDiscountRupees, redeemPoints, deliveryCharge, handlingCharge, restaurant]);
+  }, [paymentTargetBill, subtotalAmount, calculatedDiscountRupees, redeemPoints, deliveryCharge, handlingCharge, restaurant, customerAnalytics]);
+
+  const grandTotal = useMemo(() => {
+    let base = grandTotalBeforeCredit;
+
+    // Apply Credit
+    const creditToApply = parseFloat(applyCreditAmount) || 0;
+    if (creditToApply > 0) {
+      base = Math.max(0, base - creditToApply);
+    }
+    
+    // Settle Debit (Adding owed money to current bill)
+    if (settleDebit && customerAnalytics && customerAnalytics.credit_balance && customerAnalytics.credit_balance < 0) {
+      base = base + Math.abs(customerAnalytics.credit_balance);
+    }
+    
+    // Record Debit (Shortfall - reduces amount customer pays now)
+    const debitToRecord = parseFloat(recordDebitAmount) || 0;
+    if (debitToRecord > 0) {
+      base = Math.max(0, base - debitToRecord);
+    }
+
+    return base;
+  }, [paymentTargetBill, subtotalAmount, calculatedDiscountRupees, redeemPoints, deliveryCharge, handlingCharge, restaurant, applyCreditAmount, recordDebitAmount, settleDebit, customerAnalytics]);
 
   const adjustOldTotal = editingCompletedBill ? (editingCompletedBill.total_amount || 0) : 0;
   
@@ -193,6 +228,12 @@ export function PaymentModal({
   }, [grandTotal, paymentEditMode, editingCompletedBill, adjustOldTotal]);
 
   const remainingNeeded = Math.max(0, effectiveGrandTotalForCollection - targetCash);
+
+  const creditCashedOut = useMemo(() => {
+    const creditToApply = parseFloat(applyCreditAmount) || 0;
+    return Math.max(0, creditToApply - grandTotalBeforeCredit);
+  }, [applyCreditAmount, grandTotalBeforeCredit]);
+
 
   const remainingNeededAmt = useMemo(() => {
     const target = targetCash > effectiveGrandTotalForCollection ? targetCash : effectiveGrandTotalForCollection;
@@ -257,23 +298,30 @@ export function PaymentModal({
       const surplus = Math.max(0, adjustOldTotal - grandTotal);
       return surplus + Math.max(0, targetCash - effectiveGrandTotalForCollection);
     }
-    return Math.max(0, targetCash - grandTotal);
-  }, [grandTotal, targetCash, paymentEditMode, editingCompletedBill, adjustOldTotal, effectiveGrandTotalForCollection]);
+    return Math.max(0, targetCash - grandTotal) + creditCashedOut;
+  }, [grandTotal, targetCash, paymentEditMode, editingCompletedBill, adjustOldTotal, effectiveGrandTotalForCollection, creditCashedOut]);
   
   const isPureSurplusRefund = paymentEditMode === "ADJUST" && !!editingCompletedBill && effectiveGrandTotalForCollection <= 0;
   
   // Validation rule: Cash denomination note tapping is mandatory if there is money to collect
   const isPaymentValid = useMemo(() => {
     if (selectedPaymentMethod === "UPI") return true;
-    if (effectiveGrandTotalForCollection > 0 && denomTotal <= 0) return false;
+    if (effectiveGrandTotalForCollection > 0 && denomTotal <= 0 && !isRestUpiConfirmed && !autoRecordDebitOnShortfall) return false;
 
     // Check if Change Tapping is valid
-    if (changeRequired > 0 && changeDenomTotal !== changeRequired) return false;
+    if (changeRequired > 0) {
+      if (autoConvertCredit) {
+        if (changeDenomTotal > changeRequired) return false; // cannot give more cash than required
+      } else {
+        const manualCredit = parseFloat(recordCreditAmount) || 0;
+        if (changeDenomTotal + manualCredit !== changeRequired) return false;
+      }
+    }
 
     if (denomTotal >= effectiveGrandTotalForCollection) return true;
     if (targetCash >= effectiveGrandTotalForCollection) return true;
-    return isRestUpiConfirmed && (denomTotal + Math.max(0, effectiveGrandTotalForCollection - denomTotal)) >= effectiveGrandTotalForCollection;
-  }, [selectedPaymentMethod, denomTotal, effectiveGrandTotalForCollection, isRestUpiConfirmed, targetCash, changeRequired, changeDenomTotal]);
+    return (isRestUpiConfirmed || autoRecordDebitOnShortfall) && (denomTotal + Math.max(0, effectiveGrandTotalForCollection - denomTotal)) >= effectiveGrandTotalForCollection;
+  }, [selectedPaymentMethod, denomTotal, effectiveGrandTotalForCollection, isRestUpiConfirmed, autoRecordDebitOnShortfall, targetCash, changeRequired, changeDenomTotal, autoConvertCredit, recordCreditAmount]);
 
   const smartHighlightedChangeDenoms = useMemo(() => {
     if (changeRequired <= 0) return new Set<number>();
@@ -361,7 +409,63 @@ export function PaymentModal({
        });
     }
 
-    await handleMarkPaid(finalCash, finalChange, redeemPoints, deliveryCharge, handlingCharge);
+    const applyCreditFromInput = parseFloat(applyCreditAmount) || 0;
+    // applyCredit is capped at what was actually needed to pay the bill
+    let applyCredit = Math.min(applyCreditFromInput, grandTotalBeforeCredit);
+    let recordDebit = parseFloat(recordDebitAmount) || 0;
+    let recordCredit = parseFloat(recordCreditAmount) || 0;
+    let debtSettled = 0;
+    let finalCreditCashedOut = Math.max(0, applyCreditFromInput - grandTotalBeforeCredit);
+    
+    if (selectedPaymentMethod === "CASH") {
+      // NOTE: changeRequired already includes finalCreditCashedOut
+      // If we are auto-converting change back into credit, we should probably NOT do it if they literally just cashed out credit.
+      // But if they paid excess cash AND cashed out credit, the unreturnedChange calculation handles it perfectly.
+      if (changeRequired > 0 && autoConvertCredit && changeRequired > changeDenomTotal) {
+        const remainingChange = changeRequired - changeDenomTotal;
+        // The customer is owed change. Check if they have debt to pay off first, UNLESS they are already explicitly settling it.
+        const effectiveDebt = (customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance < 0 && !settleDebit)
+            ? Math.abs(customerAnalytics.credit_balance)
+            : 0;
+            
+        if (effectiveDebt > 0) {
+            if (remainingChange <= effectiveDebt) {
+                debtSettled = remainingChange;
+            } else {
+                debtSettled = effectiveDebt;
+                recordCredit = remainingChange - effectiveDebt;
+            }
+        } else {
+            recordCredit = remainingChange;
+        }
+      }
+      if (effectiveGrandTotalForCollection > denomTotal && autoRecordDebitOnShortfall) {
+        const shortfall = effectiveGrandTotalForCollection - denomTotal;
+        
+        let unusedCredit = 0;
+        if (customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance > 0) {
+            unusedCredit = Math.max(0, customerAnalytics.credit_balance - applyCreditFromInput);
+        }
+
+        if (unusedCredit > 0) {
+           if (shortfall <= unusedCredit) {
+             applyCredit = applyCreditFromInput + shortfall;
+           } else {
+             applyCredit = applyCreditFromInput + unusedCredit;
+             recordDebit = shortfall - unusedCredit;
+           }
+        } else {
+           recordDebit = shortfall;
+        }
+      }
+    }
+
+    // When settling debit, the customer pays extra cash to clear their debt.
+    // The backend uses debt_settled to increase their balance back up to zero.
+    if (settleDebit && customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance < 0) {
+      debtSettled += Math.abs(customerAnalytics.credit_balance);
+    }
+    await handleMarkPaid(finalCash, finalChange, redeemPoints, deliveryCharge, handlingCharge, applyCredit, recordDebit, recordCredit, debtSettled, finalCreditCashedOut);
     // Requirement 4: Once marked paid & settled, clear note denomination selection
     handleResetNotes();
     setCashTendered("");
@@ -494,7 +598,7 @@ export function PaymentModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-[1400px] max-h-[92vh] h-[90vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
+      <div className="w-full max-w-[1400px] max-h-[96vh] h-[95vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
         {/* Header (Fixed Top flex-shrink-0) */}
         <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)] flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -681,35 +785,7 @@ export function PaymentModal({
                 </div>
               )}
 
-              {/* Delivery & Handling Charge Inputs */}
-              <div className="grid grid-cols-2 gap-3 pt-2">
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                    Delivery Charge (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={deliveryCharge || ""}
-                    onChange={(e) => setDeliveryCharge(parseFloat(e.target.value) || 0)}
-                    placeholder="0.00"
-                    className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">
-                    Handling Charge (₹)
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={handlingCharge || ""}
-                    onChange={(e) => setHandlingCharge(parseFloat(e.target.value) || 0)}
-                    placeholder="0.00"
-                    className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-                  />
-                </div>
-              </div>
+
 
               <div className="flex justify-between items-center border-t border-[var(--border-subtle)] pt-2 text-base font-bold font-mono text-[var(--text-primary)]">
                 <span className="font-sans font-black text-xs uppercase tracking-wider">Grand Total Payable:</span>
@@ -757,63 +833,9 @@ export function PaymentModal({
             </div>
 
 
-            {/* Loyalty Points Input */}
-            {(() => {
-              const applicableTier = (restaurant?.loyalty_redemption_tiers || []).find(t =>
-                (customerAnalytics?.loyalty_points || 0) >= t.min_points &&
-                (t.max_points == null || (customerAnalytics?.loyalty_points || 0) <= t.max_points)
-              );
-              const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
-              const maxBillPercentage = parseFloat(String(restaurant?.loyalty_max_bill_percentage || "100.00"));
-              const maxAllowedDiscount = (maxBillPercentage / 100) * subtotalAmount;
-              const pointsRequiredForMax = pointValue > 0 ? Math.ceil(maxAllowedDiscount / pointValue) : 0;
-              const maxPointsToRedeem = Math.min(customerAnalytics?.loyalty_points || 0, pointsRequiredForMax);
 
-              if ((customerAnalytics?.loyalty_points || 0) > 0 && pointValue > 0) {
-                return (
-                  <div className="flex-shrink-0 rounded-xl border border-[var(--border-strong)] bg-slate-800/20 p-3 space-y-2 mt-3">
-                    <div className="flex flex-col text-slate-300 text-xs font-bold gap-1">
-                      <div className="flex items-center justify-between">
-                        <span>Loyalty Points (Balance: {customerAnalytics?.loyalty_points})</span>
-                        <span>{applicableTier?.discount_percentage}% Rate (₹{pointValue.toFixed(2)}/pt)</span>
-                      </div>
-                      {maxBillPercentage < 100 && (
-                        <div className="text-[10px] text-amber-500/90 text-right">
-                          Max allowable discount: ₹{maxAllowedDiscount.toFixed(2)} ({maxBillPercentage}% of bill)
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min={0}
-                        max={maxPointsToRedeem}
-                        value={redeemPoints || ""}
-                        onChange={(e) => {
-                          const val = parseInt(e.target.value) || 0;
-                          setRedeemPoints(Math.min(val, maxPointsToRedeem));
-                        }}
-                        placeholder="Points to redeem"
-                        className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1.5 px-3 text-xs font-mono font-bold focus:border-slate-500 outline-none"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setRedeemPoints(maxPointsToRedeem)}
-                        className="px-3 py-1.5 rounded-lg bg-slate-700/50 text-slate-300 text-[10px] font-bold hover:bg-slate-600/50 transition whitespace-nowrap"
-                      >
-                        Max ({maxPointsToRedeem})
-                      </button>
-                    </div>
-                    {redeemPoints > 0 && (
-                      <div className="text-[10px] text-slate-400 mt-1">
-                        Equivalent Discount: ₹{Math.min(redeemPoints * pointValue, maxAllowedDiscount).toFixed(2)}
-                      </div>
-                    )}
-                  </div>
-                );
-              }
-              return null;
-            })()}
+
+
           </div>
 
           {/* Right Column: Settlement Method & Actions */}
@@ -1012,7 +1034,7 @@ export function PaymentModal({
                 </>
                 )}
 
-                {cashTendered && targetCash < grandTotal && (
+                {targetCash < grandTotal && (
                   <div className="rounded-lg border border-sky-500/30 bg-sky-500/10 p-2.5 space-y-1.5 text-xs">
                     <div className="flex justify-between items-center text-sky-300 font-bold font-mono">
                       <span>Shortfall / Cash Deficiency:</span>
@@ -1021,8 +1043,40 @@ export function PaymentModal({
                     <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
                       <input
                         type="checkbox"
+                        checked={autoRecordDebitOnShortfall}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setAutoRecordDebitOnShortfall(checked);
+                          if (checked) setIsRestUpiConfirmed(false);
+                        }}
+                        className="rounded h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300"
+                      />
+                      <span className="leading-tight">
+                        {(() => {
+                          const unusedCr = (customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance > 0) 
+                              ? Math.max(0, customerAnalytics.credit_balance - (parseFloat(applyCreditAmount) || 0)) 
+                              : 0;
+                              
+                          if (unusedCr > 0) {
+                            if (remainingNeeded <= unusedCr) {
+                              return `Adjust ₹${remainingNeeded.toFixed(2)} from Store Credit`;
+                            } else {
+                              return `Adjust ₹${unusedCr.toFixed(2)} from Store Credit, add remaining ₹${(remainingNeeded - unusedCr).toFixed(2)} to Customer Debit (Udhaar)`;
+                            }
+                          }
+                          return `Add remaining ₹${remainingNeeded.toFixed(2)} to Customer Debit (Udhaar)`;
+                        })()}
+                      </span>
+                    </label>
+                    <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
+                      <input
+                        type="checkbox"
                         checked={isRestUpiConfirmed}
-                        onChange={(e) => setIsRestUpiConfirmed(e.target.checked)}
+                        onChange={(e) => {
+                          const checked = e.target.checked;
+                          setIsRestUpiConfirmed(checked);
+                          if (checked) setAutoRecordDebitOnShortfall(false);
+                        }}
                         className="rounded h-4 w-4 text-sky-600 focus:ring-sky-500 border-gray-300"
                       />
                       <span>Confirm remaining ₹{remainingNeeded.toFixed(2)} paid via UPI</span>
@@ -1030,7 +1084,7 @@ export function PaymentModal({
                   </div>
                 )}
 
-{(isPureSurplusRefund || (cashTendered && targetCash >= grandTotal)) && (
+{(isPureSurplusRefund || creditCashedOut > 0 || (cashTendered && targetCash >= grandTotal)) && (
                   <div ref={returnSectionRef} className="flex flex-col space-y-2 border-t border-[var(--border-subtle)] pt-2">
                     <div className="flex justify-between items-center font-mono font-bold text-[var(--text-primary)] pt-1">
                       <span className="text-base text-[var(--text-muted)]">Change Due to Customer:</span>
@@ -1140,6 +1194,37 @@ export function PaymentModal({
                             })}
                           </div>
                         )}
+                        
+                        {changeRequired > changeDenomTotal && (
+                          <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 mt-2 space-y-1.5 text-xs">
+                            <div className="flex justify-between items-center text-emerald-400 font-bold font-mono">
+                              <span>Cashier Shortfall:</span>
+                              <span>₹{(changeRequired - changeDenomTotal).toFixed(2)} short</span>
+                            </div>
+                            <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-emerald-500/20">
+                              <input
+                                type="checkbox"
+                                checked={autoConvertCredit}
+                                onChange={(e) => setAutoConvertCredit(e.target.checked)}
+                                className="rounded h-4 w-4 text-emerald-600 focus:ring-emerald-500 border-[var(--border-strong)] bg-[var(--bg-surface)]"
+                              />
+                              <span className="leading-tight">
+                                {(() => {
+                                  const unreturnedChange = changeRequired - changeDenomTotal;
+                                  if (customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance < 0 && !settleDebit) {
+                                    const currentDebt = Math.abs(customerAnalytics.credit_balance);
+                                    if (unreturnedChange <= currentDebt) {
+                                      return `Adjust ₹${unreturnedChange.toFixed(2)} from Customer Debt`;
+                                    } else {
+                                      return `Adjust ₹${currentDebt.toFixed(2)} from Debt, convert ₹${(unreturnedChange - currentDebt).toFixed(2)} to Store Credit`;
+                                    }
+                                  }
+                                  return `Convert remaining ₹${unreturnedChange.toFixed(2)} to Store Credit`;
+                                })()}
+                              </span>
+                            </label>
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -1194,6 +1279,197 @@ export function PaymentModal({
                   {isPaymentValid && <span className="ml-1 opacity-70 font-mono text-[10px] bg-black/20 px-1.5 rounded">↵</span>}
                 </button>
               </div>
+            </div>
+          </div>
+        </div>
+
+        {/* Bottom 4-Box Grid for Adjustments */}
+        <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
+          <div className="grid grid-cols-4 gap-3 h-full">
+            {/* 1. Delivery Charge */}
+            <div className="flex flex-col justify-center space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Delivery Charge (₹)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={deliveryCharge || ""}
+                onChange={(e) => setDeliveryCharge(parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+              />
+            </div>
+
+            {/* 2. Handling Charge */}
+            <div className="flex flex-col justify-center space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
+              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                Handling Charge (₹)
+              </label>
+              <input
+                type="number"
+                min="0"
+                value={handlingCharge || ""}
+                onChange={(e) => setHandlingCharge(parseFloat(e.target.value) || 0)}
+                placeholder="0.00"
+                className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+              />
+            </div>
+
+            {/* 3. Customer Wallet */}
+            <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
+              <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                <span>Customer Wallet</span>
+                {customerAnalytics && customerAnalytics.credit_balance !== undefined && (
+                  (() => {
+                    let bal = customerAnalytics.credit_balance;
+                    
+                    if (settleDebit && customerAnalytics.credit_balance < 0) {
+                      bal += Math.abs(customerAnalytics.credit_balance);
+                    }
+                    
+                    const creditToApply = parseFloat(applyCreditAmount) || 0;
+                    if (creditToApply > 0) {
+                      bal -= creditToApply;
+                    }
+
+                    if (selectedPaymentMethod === "CASH") {
+                      if (changeRequired > changeDenomTotal && autoConvertCredit) {
+                        bal += (changeRequired - changeDenomTotal);
+                      }
+                      if (effectiveGrandTotalForCollection > denomTotal && autoRecordDebitOnShortfall) {
+                        bal -= (effectiveGrandTotalForCollection - denomTotal);
+                      }
+                    }
+                    const orig = Number(customerAnalytics.credit_balance) || 0;
+                    const isModified = Math.abs(Number(bal) - orig) > 0.005;
+
+                    if (bal > 0) {
+                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-emerald-500'}`}>₹{bal.toFixed(2)} (Cr)</span>
+                    } else if (bal < 0) {
+                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-rose-500'}`}>-₹{Math.abs(bal).toFixed(2)} (Dr)</span>
+                    } else {
+                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-[var(--text-muted)]'}`}>₹0.00</span>
+                    }
+                  })()
+                )}
+              </div>
+              {customerAnalytics && customerAnalytics.credit_balance !== undefined ? (
+                <div className="flex-1 flex flex-col justify-center space-y-2">
+                  {customerAnalytics.credit_balance > 0 ? (
+                    <div className="flex items-center gap-1.5 mt-auto mb-auto">
+                      <input
+                        type="number"
+                        min={0}
+                        max={customerAnalytics.credit_balance}
+                        value={applyCreditAmount}
+                        onChange={(e) => {
+                          const val = parseFloat(e.target.value) || 0;
+                          setApplyCreditAmount(Math.min(val, customerAnalytics.credit_balance!).toString());
+                        }}
+                        placeholder="Apply Cr."
+                        className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                      />
+                      <div className="flex gap-1.5 flex-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setApplyCreditAmount(Math.min(grandTotalBeforeCredit, customerAnalytics.credit_balance!).toString());
+                          }}
+                          className="flex-1 rounded-lg bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[10px] font-bold hover:border-sky-500 transition whitespace-nowrap"
+                        >
+                          Max
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setApplyCreditAmount(customerAnalytics.credit_balance!.toString());
+                            setActiveTappingMode("RETURN");
+                          }}
+                          className="flex-1 rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/30 text-[10px] font-bold hover:bg-orange-500 hover:text-white transition whitespace-nowrap"
+                        >
+                          Cash Out
+                        </button>
+                      </div>
+                    </div>
+                  ) : customerAnalytics.credit_balance < 0 ? (
+                    <label className="flex items-center justify-between bg-[var(--bg-surface-elevated)] px-2 py-1.5 rounded-lg cursor-pointer border border-[var(--border-strong)] hover:border-sky-500/50 transition mt-auto mb-auto">
+                      <span className="text-[10px] font-bold text-[var(--text-primary)]">Settle Debt</span>
+                      <input 
+                        type="checkbox" 
+                        checked={settleDebit}
+                        onChange={(e) => setSettleDebit(e.target.checked)}
+                        className="rounded border-[var(--border-strong)] bg-[var(--bg-surface)] text-sky-500 focus:ring-sky-500/30 w-3.5 h-3.5"
+                      />
+                    </label>
+                  ) : (
+                     <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
+                       No balance
+                     </div>
+                  )}
+                </div>
+              ) : (
+                <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
+                  Link customer
+                </div>
+              )}
+            </div>
+
+            {/* 5. Loyalty */}
+            <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
+              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Loyalty Points</div>
+              {(() => {
+                const applicableTier = (restaurant?.loyalty_redemption_tiers || []).find(t =>
+                  (customerAnalytics?.loyalty_points || 0) >= t.min_points &&
+                  (t.max_points == null || (customerAnalytics?.loyalty_points || 0) <= t.max_points)
+                );
+                const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
+                const maxBillPercentage = parseFloat(String(restaurant?.loyalty_max_bill_percentage || "100.00"));
+                const maxAllowedDiscount = (maxBillPercentage / 100) * subtotalAmount;
+                const pointsRequiredForMax = pointValue > 0 ? Math.ceil(maxAllowedDiscount / pointValue) : 0;
+                const maxPointsToRedeem = Math.min(customerAnalytics?.loyalty_points || 0, pointsRequiredForMax);
+
+                if ((customerAnalytics?.loyalty_points || 0) > 0 && pointValue > 0) {
+                  return (
+                    <div className="flex-1 flex flex-col justify-center space-y-1.5">
+                      <div className="flex items-center gap-1.5">
+                        <input
+                          type="number"
+                          min={0}
+                          max={maxPointsToRedeem}
+                          value={redeemPoints || ""}
+                          onChange={(e) => {
+                            const val = parseInt(e.target.value) || 0;
+                            setRedeemPoints(Math.min(val, maxPointsToRedeem));
+                          }}
+                          placeholder="Pts"
+                          className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setRedeemPoints(maxPointsToRedeem)}
+                          className="px-2 py-1 rounded-lg bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[9px] font-bold hover:border-sky-500 transition"
+                        >
+                          Max
+                        </button>
+                      </div>
+                      <div className="text-[14px] text-[var(--text-muted)] text-center font-bold space-y-0.5">
+                        <div>
+                          Bal: {customerAnalytics?.loyalty_points} (≈ ₹{(customerAnalytics.loyalty_points! * pointValue).toFixed(2)})
+                        </div>
+                        {redeemPoints > 0 && (
+                          <div className="text-emerald-500 text-lg mt-1">
+                            Applying: -₹{Math.min(redeemPoints * pointValue, maxAllowedDiscount).toFixed(2)}
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  );
+                } else if (customerAnalytics) {
+                   return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">No points avail</div>
+                }
+                return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">Link customer</div>;
+              })()}
             </div>
           </div>
         </div>

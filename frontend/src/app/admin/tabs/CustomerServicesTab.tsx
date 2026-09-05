@@ -263,8 +263,9 @@ export function CustomerServicesTab({
                   <tr>
                     <th className="py-3 px-4">Customer Name</th>
                     <th className="py-3 px-4">Phone Number</th>
-                    <th className="py-3 px-4 text-center">Total Orders</th>
-                    <th className="py-3 px-4 text-right">Total Spent (₹)</th>
+                    <th className="py-3 px-4 text-right">Orders</th>
+                    <th className="py-3 px-4 text-right">Spent</th>
+                    <th className="py-3 px-4 text-right">Balance</th>
                     <th className="py-3 px-4 text-right">Loyalty Pts</th>
                     <th className="py-3 px-4">Account Registered</th>
                     <th className="py-3 px-4 text-center">Actions</th>
@@ -320,6 +321,15 @@ export function CustomerServicesTab({
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400">
                           ₹{(c.total_spent || 0).toFixed(2)}
+                        </td>
+                        <td className="py-3 px-4 text-right">
+                          <span className={`inline-flex font-mono px-2 py-0.5 rounded text-[11px] font-bold ${
+                            (c.credit_balance || 0) > 0 ? 'bg-emerald-500/10 text-emerald-500 border border-emerald-500/20' : 
+                            (c.credit_balance || 0) < 0 ? 'bg-red-500/10 text-red-500 border border-red-500/20' : 
+                            'text-[var(--text-muted)]'
+                          }`}>
+                            {c.credit_balance === 0 || !c.credit_balance ? '₹0.00' : (c.credit_balance > 0 ? `+₹${c.credit_balance.toFixed(2)}` : `-₹${Math.abs(c.credit_balance).toFixed(2)}`)}
+                          </span>
                         </td>
                         <td className="py-3 px-4 text-right font-mono font-bold text-amber-400">
                           {c.loyalty_points || 0}

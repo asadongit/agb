@@ -6,7 +6,7 @@
 "use client";
 
 import { FormEvent, useState, useEffect } from "react";
-import { ArrowRight, KeyRound, Mail, Store } from "lucide-react";
+import { ArrowRight, KeyRound, Mail, Store, Eye, EyeOff } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 import { ToastNotification } from "@/app/components/ToastNotification";
 
@@ -18,7 +18,7 @@ type OutletOption = {
 
 type AdminLoginFormProps = {
   onLogin: (email: string, password: string) => Promise<void>;
-  onPinLogin?: (outletId: string, pin: string) => Promise<void>;
+  onPinLogin?: (outletId: string, staffId: string, pin: string) => Promise<void>;
 };
 
 export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
@@ -26,12 +26,17 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [outletId, setOutletId] = useState("");
+  const [staffId, setStaffId] = useState("");
   const [pin, setPin] = useState("");
   const [outlets, setOutlets] = useState<OutletOption[]>([]);
+  const [staffList, setStaffList] = useState<{id: string, name: string}[]>([]);
   const [isLoadingOutlets, setIsLoadingOutlets] = useState(false);
+  const [isLoadingStaff, setIsLoadingStaff] = useState(false);
   const [isAuthenticating, setIsAuthenticating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [showPassword, setShowPassword] = useState(false);
+  const [showPin, setShowPin] = useState(false);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -62,6 +67,41 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
     };
   }, []);
 
+  useEffect(() => {
+    let isSubscribed = true;
+    async function loadStaff() {
+      if (!outletId) {
+        setStaffList([]);
+        setStaffId("");
+        return;
+      }
+      setIsLoadingStaff(true);
+      try {
+        const res = await fetch(`${getApiBaseUrl()}/api/public/outlets/${outletId}/staff`);
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          setStaffList(data);
+          const savedStaff = typeof window !== "undefined" ? localStorage.getItem("agb_last_staff_id") : null;
+          if (savedStaff && data.some((s: any) => s.id === savedStaff)) {
+            setStaffId(savedStaff);
+          } else if (data.length === 1) {
+            setStaffId(data[0].id);
+          } else {
+            setStaffId("");
+          }
+        }
+      } catch {
+        if (isSubscribed) setStaffList([]);
+      } finally {
+        if (isSubscribed) setIsLoadingStaff(false);
+      }
+    }
+    void loadStaff();
+    return () => {
+      isSubscribed = false;
+    };
+  }, [outletId]);
+
   const handleSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     setIsAuthenticating(true);
@@ -73,12 +113,14 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
         await onLogin(email, password);
       } else {
         if (!onPinLogin) throw new Error("PIN Login is not configured.");
-        if (!outletId.trim()) throw new Error("Please enter an Outlet ID.");
+        if (!outletId.trim()) throw new Error("Please select a Store.");
+        if (!staffId.trim()) throw new Error("Please select your Name.");
         if (pin.length !== 4) throw new Error("PIN must be 4 digits.");
         if (typeof window !== "undefined") {
           localStorage.setItem("agb_last_outlet_id", outletId.trim());
+          localStorage.setItem("agb_last_staff_id", staffId.trim());
         }
-        await onPinLogin(outletId.trim(), pin.trim());
+        await onPinLogin(outletId.trim(), staffId.trim(), pin.trim());
       }
       setNotice("Signed in successfully.");
     } catch (loginError) {
@@ -156,15 +198,24 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
                 </label>
                 <label className="block space-y-1">
                   <span className="text-sm font-medium">Password</span>
-                  <input
-                    type="password"
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    required
-                    minLength={8}
-                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm"
-                    placeholder="Minimum 8 characters"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPassword ? "text" : "password"}
+                      value={password}
+                      onChange={(event) => setPassword(event.target.value)}
+                      required
+                      minLength={8}
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] pl-3 pr-10 py-2 text-sm"
+                      placeholder="Minimum 8 characters"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    >
+                      {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </label>
               </>
             ) : (
@@ -192,16 +243,48 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
                   )}
                 </label>
                 <label className="block space-y-1">
+                  <span className="text-sm font-medium">Select Staff Member</span>
+                  {isLoadingStaff ? (
+                    <div className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-xs text-[var(--text-muted)] font-mono animate-pulse">
+                      Loading staff...
+                    </div>
+                  ) : (
+                    <select
+                      value={staffId}
+                      onChange={(event) => setStaffId(event.target.value)}
+                      required
+                      disabled={!outletId || staffList.length === 0}
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm font-medium disabled:opacity-50"
+                    >
+                      <option value="">-- Choose Your Name --</option>
+                      {staffList.map((s) => (
+                        <option key={s.id} value={s.id}>
+                          {s.name}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                </label>
+                <label className="block space-y-1">
                   <span className="text-sm font-medium">Staff 4-Digit PIN</span>
-                  <input
-                    type="password"
-                    value={pin}
-                    onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
-                    required
-                    maxLength={4}
-                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-center text-xl font-bold tracking-widest font-mono"
-                    placeholder="••••"
-                  />
+                  <div className="relative">
+                    <input
+                      type={showPin ? "text" : "password"}
+                      value={pin}
+                      onChange={(event) => setPin(event.target.value.replace(/\D/g, "").slice(0, 4))}
+                      required
+                      maxLength={4}
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-center text-xl font-bold tracking-widest font-mono"
+                      placeholder="••••"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPin(!showPin)}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    >
+                      {showPin ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                    </button>
+                  </div>
                 </label>
               </>
             )}

@@ -1,6 +1,7 @@
 import { FormEvent } from "react";
 import Link from "next/link";
-import { ArrowLeft, ArrowRight, Moon, ShieldCheck, Sun } from "lucide-react";
+import { ArrowLeft, ArrowRight, Moon, ShieldCheck, Sun, Eye, EyeOff } from "lucide-react";
+import { useState } from "react";
 import { ToastNotification } from "@/app/components/ToastNotification";
 
 type SuperadminLoginFormProps = {
@@ -32,6 +33,8 @@ export function SuperadminLoginForm({
   setError,
   onLogin,
 }: SuperadminLoginFormProps) {
+  const [showPassword, setShowPassword] = useState(false);
+
   return (
     <div className="min-h-screen bg-[var(--bg-base)] px-4 py-14 sm:px-6">
       <div className="mx-auto max-w-md">
@@ -85,15 +88,24 @@ export function SuperadminLoginForm({
             </label>
             <label className="block space-y-1">
               <span className="text-sm font-medium">Password</span>
-              <input
-                type="password"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                required
-                minLength={8}
-                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm"
-                placeholder="Minimum 8 characters"
-              />
+              <div className="relative">
+                <input
+                  type={showPassword ? "text" : "password"}
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] pl-3 pr-10 py-2 text-sm"
+                  placeholder="Minimum 8 characters"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute right-3 top-1/2 -translate-y-1/2 text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                >
+                  {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                </button>
+              </div>
             </label>
             <button
               type="submit"

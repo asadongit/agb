@@ -64,6 +64,7 @@ async def list_customers(
             "total_orders": orders_count,
             "total_spent": spent,
             "loyalty_points": c.loyalty_points,
+            "credit_balance": float(c.credit_balance),
             "created_at": c.created_at,
             "updated_at": c.updated_at,
         })
@@ -193,6 +194,7 @@ async def get_customer_analytics(
     cust = cust_res.scalar_one_or_none()
     cust_name = cust.name if cust else "Walk-In Customer"
     loyalty_points = cust.loyalty_points if cust else 0
+    credit_balance = float(cust.credit_balance) if cust else 0.0
 
     # Base query for paid or completed orders
     order_stmt = select(Order.id, Order.total_amount, Order.created_at).where(
@@ -209,6 +211,9 @@ async def get_customer_analytics(
         # Monday of current week
         start = now - timedelta(days=now.weekday())
         start = start.replace(hour=0, minute=0, second=0, microsecond=0)
+        order_stmt = order_stmt.where(Order.created_at >= start)
+    elif period == "this_month":
+        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
         order_stmt = order_stmt.where(Order.created_at >= start)
     elif period == "last_1_week":
         start = now - timedelta(days=7)
@@ -295,6 +300,49 @@ async def get_customer_analytics(
         "total_volume": total_volume,
         "total_orders": total_orders,
         "loyalty_points": loyalty_points,
+        "credit_balance": credit_balance,
         "best_categories": best_categories,
         "best_items": best_items,
     }
+
+
+async def get_customer_ledger(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    customer_id: uuid.UUID,
+    skip: int = 0,
+    limit: int = 50,
+) -> list[dict[str, Any]]:
+    from app.models.customer_ledger import CustomerLedger
+    from app.models.order import Order
+    from app.models.user import User
+
+    stmt = (
+        select(CustomerLedger, Order.basket_number, User.name.label("created_by_name"))
+        .outerjoin(Order, CustomerLedger.order_id == Order.id)
+        .outerjoin(User, CustomerLedger.created_by_staff_id == User.id)
+        .where(
+            CustomerLedger.outlet_id == outlet_id,
+            CustomerLedger.customer_id == customer_id,
+        )
+        .order_by(CustomerLedger.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+    )
+    res = await db.execute(stmt)
+    
+    result = []
+    for ledger, basket_number, created_by_name in res:
+        result.append({
+            "id": str(ledger.id),
+            "customer_id": str(ledger.customer_id),
+            "order_id": str(ledger.order_id) if ledger.order_id else None,
+            "order_basket_number": basket_number,
+            "entry_type": ledger.entry_type,
+            "amount": float(ledger.amount),
+            "balance_after": float(ledger.balance_after),
+            "note": ledger.note,
+            "created_by_name": created_by_name,
+            "created_at": ledger.created_at,
+        })
+    return result

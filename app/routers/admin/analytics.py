@@ -379,6 +379,22 @@ async def get_abandoned_carts_endpoint(
     return await get_abandoned_cart_analytics(db, target_outlet_id, from_dt, to_dt)
 
 
+@router.get("/credit-debit-report", response_model=CreditDebitReportResponse)
+async def get_credit_debit_report_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    """Credit and debit analytics report."""
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_credit_debit_report(db, target_outlet_id, from_dt, to_dt)
+
+
 @router.get("/loyalty", response_model=LoyaltyReportResponse)
 async def get_loyalty_endpoint(
     current_user: RequireAdmin,

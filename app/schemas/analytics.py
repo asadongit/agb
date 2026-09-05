@@ -109,6 +109,30 @@ class ProfitMarginResponse(BaseResponse):
     buckets: list[ProfitBucket]
 
 
+class CreditDebitCustomerRow(StrictSchema):
+    customer_id: str
+    customer_name: str
+    customer_phone: str
+    credit_balance: float
+    total_credit_given: float
+    total_debit_recorded: float
+    last_transaction_date: str | None = None
+
+class CreditDebitSummary(StrictSchema):
+    total_outstanding_credit: float
+    total_outstanding_debit: float
+    customers_with_credit: int
+    customers_with_debit: int
+    total_transactions: int
+
+class CreditDebitReportResponse(BaseResponse):
+    summary: CreditDebitSummary
+    customers: list[CreditDebitCustomerRow]
+    from_date: str
+    to_date: str
+
+
+
 class CategorySalesItem(StrictSchema):
     category_id: str | None
     category_name: str

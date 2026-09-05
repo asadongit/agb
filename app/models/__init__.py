@@ -8,6 +8,7 @@ from app.models.audit_log import AuditLog
 from app.models.bill_discount_approval import BillDiscountApproval
 from app.models.category import Category
 from app.models.customer import Customer
+from app.models.customer_ledger import CustomerLedger
 from app.models.inventory_item import InventoryItem
 from app.models.menu_item import MenuItem
 from app.models.menu_item_recipe import MenuItemRecipe
@@ -55,6 +56,7 @@ __all__ = [
     "CatalogueBatch",
     "Category",
     "Customer",
+    "CustomerLedger",
     "CustomerReturn",
     "InventoryItem",
     "InventoryUnitEnum",

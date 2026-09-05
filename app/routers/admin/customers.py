@@ -9,7 +9,7 @@ import uuid
 from fastapi import APIRouter, Query, status
 
 from app.dependencies import DBSession, RequireAdmin
-from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse
+from app.schemas.customer import CustomerCreate, CustomerUpdate, CustomerResponse, CustomerLedgerEntryResponse
 from app.services.audit_service import log_action
 from app.services.customer_service import (
     create_customer,
@@ -17,6 +17,7 @@ from app.services.customer_service import (
     delete_customer,
     get_customer_analytics,
     list_customers,
+    get_customer_ledger,
 )
 
 router = APIRouter(prefix="/api/admin/customers", tags=["admin-customers"])
@@ -119,4 +120,22 @@ async def delete_customer_route(
         "DELETE",
         "Customer",
         str(customer_id),
+    )
+
+
+@router.get("/{customer_id}/ledger", response_model=list[CustomerLedgerEntryResponse])
+async def get_customer_ledger_route(
+    customer_id: uuid.UUID,
+    current_user: RequireAdmin,
+    db: DBSession,
+    skip: int = Query(0, ge=0),
+    limit: int = Query(50, ge=1, le=100),
+):
+    """Fetch paginated ledger entries for a customer."""
+    return await get_customer_ledger(
+        db,
+        current_user.outlet_id,
+        customer_id,
+        skip=skip,
+        limit=limit,
     )

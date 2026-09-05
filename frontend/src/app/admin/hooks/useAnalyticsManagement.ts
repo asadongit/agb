@@ -24,7 +24,7 @@ import type {
   DayBookResponse,
   AbandonedCartStatsResponse,
   LoyaltyReportResponse,
-  SupplierSpendResponse,
+  CreditDebitReportResponse,
   AnalyticsMainTab,
   SalesSubTab,
   InventorySubTab,
@@ -92,6 +92,7 @@ export function useAnalyticsManagement({
   const [abandonedCartData, setAbandonedCartData] = useState<AbandonedCartStatsResponse | null>(null);
   const [loyaltyData, setLoyaltyData] = useState<LoyaltyReportResponse | null>(null);
   const [supplierSpendData, setSupplierSpendData] = useState<SupplierSpendResponse | null>(null);
+  const [creditDebitData, setCreditDebitData] = useState<CreditDebitReportResponse | null>(null);
 
   const getDateRangeParams = useCallback(() => {
     let fromStr = "";
@@ -243,17 +244,22 @@ export function useAnalyticsManagement({
     setIsLoading(true);
     try {
       const params = getDateRangeParams();
+      const safeFrom = params.get("from_date") || "";
+      const safeTo = params.get("to_date") || "";
+
       if (activeCustomersSubTab === "master_view") {
-        const [newC, ret, loy, ab] = await Promise.all([
+        const [newC, ret, loy, ab, cd] = await Promise.all([
           apiRequest<any>(`/api/analytics/new-customers?${params.toString()}`),
           apiRequest<CustomerReturnReportResponse>(`/api/analytics/customer-returns?${params.toString()}`),
           apiRequest<LoyaltyReportResponse>(`/api/analytics/loyalty?${params.toString()}`),
-          apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`)
+          apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`),
+          apiRequest<CreditDebitReportResponse>(`/api/analytics/credit-debit-report?${params.toString()}`)
         ]);
         setNewCustomerData(newC);
         setCustomerReturnData(ret);
         setLoyaltyData(loy);
         setAbandonedCartData(ab);
+        setCreditDebitData(cd);
       } else if (activeCustomersSubTab === "new_customers") {
         setNewCustomerData(await apiRequest<any>(`/api/analytics/new-customers?${params.toString()}`));
       } else if (activeCustomersSubTab === "returns") {
@@ -261,7 +267,15 @@ export function useAnalyticsManagement({
       } else if (activeCustomersSubTab === "loyalty") {
         setLoyaltyData(await apiRequest<LoyaltyReportResponse>(`/api/analytics/loyalty?${params.toString()}`));
       } else if (activeCustomersSubTab === "abandoned_carts") {
-        setAbandonedCartData(await apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`));
+        const res = await apiRequest<AbandonedCartStatsResponse>(
+          `/api/analytics/abandoned-carts?from_date=${safeFrom}&to_date=${safeTo}`
+        );
+        setAbandonedCartData(res);
+      } else if (activeCustomersSubTab === "credit_debit") {
+        const res = await apiRequest<CreditDebitReportResponse>(
+          `/api/analytics/credit-debit-report?from_date=${safeFrom}&to_date=${safeTo}`
+        );
+        setCreditDebitData(res);
       }
     } catch (err) {
       console.error("Customers data load error:", err);
@@ -359,7 +373,11 @@ export function useAnalyticsManagement({
     // Inventory
     stockMovementData, stockIntakeData, wastageData, purchaseReturnData, supplierSpendData,
     // Customers
-    newCustomerData, customerReturnData, loyaltyData, abandonedCartData,
+    newCustomerData,
+    customerReturnData,
+    loyaltyData,
+    abandonedCartData,
+    creditDebitData,
     // Financial
     profitData, billProfitData, taxSummaryData, cashDenomData,
     // Day Book

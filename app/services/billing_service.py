@@ -33,6 +33,7 @@ from app.schemas.billing import (
 )
 from app.services.inventory_service import process_order_auto_deduction
 from app.services.outbox_service import append_to_outbox
+from app.models.customer_ledger import CustomerLedger
 
 
 def _get_user_id(user: Any) -> uuid.UUID:
@@ -574,6 +575,12 @@ async def mark_bill_paid(
     redeem_loyalty_points: int = 0,
     delivery_charge: Decimal = Decimal("0.00"),
     handling_charge: Decimal = Decimal("0.00"),
+    apply_credit: Decimal = Decimal("0.00"),
+    record_debit: Decimal = Decimal("0.00"),
+    record_credit: Decimal = Decimal("0.00"),
+    debt_settled: Decimal = Decimal("0.00"),
+    credit_cashed_out: Decimal = Decimal("0.00"),
+    staff_user: Any = None,
 ) -> Order:
     """Record cash/UPI payment method, set order status to COMPLETED for POS bills, and trigger inventory auto-deduction."""
     res = await db.execute(
@@ -699,6 +706,109 @@ async def mark_bill_paid(
             if earned > 0:
                 cust.loyalty_points += earned
                 order.loyalty_points_earned = earned
+
+    # Credit/Debit Processing
+    if (apply_credit > 0 or record_debit > 0 or record_credit > 0 or debt_settled > 0 or credit_cashed_out > 0) and (order.customer_id or order.customer_phone):
+        if order.customer_id:
+            res_cust = await db.execute(select(Customer).where(Customer.id == order.customer_id, Customer.outlet_id == outlet_id))
+        else:
+            res_cust = await db.execute(select(Customer).where(Customer.phone == order.customer_phone, Customer.outlet_id == outlet_id))
+        cust = res_cust.scalar_one_or_none()
+        if cust:
+            # Apply Credit
+            if apply_credit > 0:
+                # Deduct from customer's credit balance (whether positive or negative, applying credit lowers the balance)
+                cust.credit_balance -= apply_credit
+                order.credit_applied = apply_credit
+                
+                # Log to ledger
+                ledger_credit = CustomerLedger(
+                    customer_id=cust.id,
+                    outlet_id=outlet_id,
+                    order_id=order.id,
+                    entry_type="CREDIT_APPLIED",
+                    amount=apply_credit,
+                    balance_after=cust.credit_balance,
+                    note=f"Credit used for Bill {order.basket_number}",
+                    created_by_staff_id=_get_user_id(staff_user) if staff_user else None
+                )
+                db.add(ledger_credit)
+
+            # Record Debit (Shortfall)
+            if record_debit > 0:
+                # Customer owes money, so their balance goes down (more negative)
+                cust.credit_balance -= record_debit
+                order.debit_applied = record_debit
+                
+                # Log to ledger
+                ledger_debit = CustomerLedger(
+                    customer_id=cust.id,
+                    outlet_id=outlet_id,
+                    order_id=order.id,
+                    entry_type="DEBIT_ADDED",
+                    amount=record_debit,
+                    balance_after=cust.credit_balance,
+                    note=f"Shortfall recorded for Bill {order.basket_number}",
+                    created_by_staff_id=_get_user_id(staff_user) if staff_user else None
+                )
+                db.add(ledger_debit)
+
+            # Settle Debt (Pay off Udhaar)
+            if debt_settled > 0:
+                cust.credit_balance += debt_settled
+                order.debt_settled = debt_settled
+                
+                # Log to ledger
+                ledger_debt_settled = CustomerLedger(
+                    customer_id=cust.id,
+                    outlet_id=outlet_id,
+                    order_id=order.id,
+                    entry_type="DEBIT_SETTLED",
+                    amount=debt_settled,
+                    balance_after=cust.credit_balance,
+                    note=f"Paid off Udhaar (Debt Settled) for Bill {order.basket_number}",
+                    created_by_staff_id=_get_user_id(staff_user) if staff_user else None
+                )
+                db.add(ledger_debt_settled)
+
+            # Record Credit (Cashier is Short)
+            if record_credit > 0:
+                cust.credit_balance += record_credit
+                order.credit_awarded = record_credit
+                
+                # Log to ledger
+                ledger_credit_awarded = CustomerLedger(
+                    customer_id=cust.id,
+                    outlet_id=outlet_id,
+                    order_id=order.id,
+                    entry_type="CREDIT_ADDED",
+                    amount=record_credit,
+                    balance_after=cust.credit_balance,
+                    note=f"Store credit awarded (Change Shortfall) for Bill {order.basket_number}",
+                    created_by_staff_id=_get_user_id(staff_user) if staff_user else None
+                )
+                db.add(ledger_credit_awarded)
+
+            # Credit Cashed Out
+            if credit_cashed_out > 0:
+                cust.credit_balance -= credit_cashed_out
+                order.credit_cashed_out = credit_cashed_out
+                
+                # Log to ledger
+                ledger_credit_cashed_out = CustomerLedger(
+                    customer_id=cust.id,
+                    outlet_id=outlet_id,
+                    order_id=order.id,
+                    entry_type="CREDIT_USED", # Functionally it is used/withdrawn
+                    amount=credit_cashed_out,
+                    balance_after=cust.credit_balance,
+                    note=f"Store credit cashed out for Bill {order.basket_number}",
+                    created_by_staff_id=_get_user_id(staff_user) if staff_user else None
+                )
+                db.add(ledger_credit_cashed_out)
+            
+            order.customer_balance = cust.credit_balance
+
 
     # Trigger recipe auto-deduction for stock management
     await process_order_auto_deduction(db, order)

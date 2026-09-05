@@ -10,6 +10,7 @@ from typing import Any
 
 from sqlalchemy import select, func, update
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import joinedload
 
 from app.models.enums import NotificationTypeEnum, NotificationChannelEnum
 from app.models.notification import Notification
@@ -43,6 +44,7 @@ async def sync_near_expiry_notifications(
             StockIntake.remaining_quantity > 0,
             StockIntake.expiry_date.is_not(None),
         )
+        .options(joinedload(StockIntake.supplier))
         .order_by(StockIntake.expiry_date.asc())
     )
     res = await db.execute(stmt)
@@ -79,11 +81,11 @@ async def sync_near_expiry_notifications(
                 "category": item.category or "General",
                 "unit": item.unit,
                 "remaining_quantity": float(intake.remaining_quantity),
-                "initial_quantity": float(intake.initial_quantity),
+                "initial_quantity": float(intake.initial_quantity) if intake.initial_quantity is not None else float(intake.quantity),
                 "cost_per_unit": float(intake.unit_cost or 0),
                 "mrp": float(item.mrp) if item.mrp is not None else None,
                 "selling_price": float(getattr(item, "selling_price", 0)) if getattr(item, "selling_price", None) is not None else None,
-                "supplier_name": intake.supplier.name if getattr(intake, "supplier", None) else "N/A",
+                "supplier_name": intake.supplier.name if intake.supplier else "N/A",
                 "expiry_date": intake.expiry_date.isoformat(),
                 "days_until_expiry": days_left,
                 "status": status_text,

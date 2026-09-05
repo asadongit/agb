@@ -121,6 +121,24 @@ class Order(Base, TimestampMixin):
     handling_charge: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )
+    credit_applied: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    debit_applied: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    credit_awarded: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    debt_settled: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    credit_cashed_out: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    customer_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     loyalty_points_earned: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0, server_default="0"
     )

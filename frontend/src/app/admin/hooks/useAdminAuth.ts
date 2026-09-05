@@ -179,12 +179,12 @@ export function useAdminAuth() {
   );
 
   const pinLogin = useCallback(
-    async (outlet_id: string, pin: string): Promise<LoginResponse> => {
+    async (outlet_id: string, staff_id: string, pin: string): Promise<LoginResponse> => {
       const apiBase = getApiBaseUrl();
       const response = await fetch(`${apiBase}/api/staff/pin-login`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ outlet_id, pin }),
+        body: JSON.stringify({ outlet_id, staff_id, pin }),
       });
 
       const data = await parseApiResponse<LoginResponse>(response);

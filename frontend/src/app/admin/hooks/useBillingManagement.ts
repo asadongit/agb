@@ -255,7 +255,12 @@ export function useBillingManagement({
     changeDenominations?: Record<string, number>,
     redeemLoyaltyPoints?: number,
     deliveryCharge?: number,
-    handlingCharge?: number
+    handlingCharge?: number,
+    applyCredit?: number,
+    recordDebit?: number,
+    recordCredit?: number,
+    debtSettled?: number,
+    creditCashedOut?: number
   ) => {
     if (!paymentTargetBill) return;
     try {
@@ -268,6 +273,11 @@ export function useBillingManagement({
           redeem_loyalty_points: redeemLoyaltyPoints || 0,
           delivery_charge: deliveryCharge || 0,
           handling_charge: handlingCharge || 0,
+          apply_credit: applyCredit || 0,
+          record_debit: recordDebit || 0,
+          record_credit: recordCredit || 0,
+          debt_settled: debtSettled || 0,
+          credit_cashed_out: creditCashedOut || 0,
         }),
       });
       setPaymentModalOpen(false);

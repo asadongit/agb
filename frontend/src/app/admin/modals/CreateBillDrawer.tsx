@@ -105,7 +105,7 @@ export function CreateBillDrawer({
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1);
   const [customerAnalytics, setCustomerAnalytics] = useState<CustomerAnalytics | null>(null);
-  const [analyticsPeriod, setAnalyticsPeriod] = useState<string>("all_time");
+  const [analyticsPeriod, setAnalyticsPeriod] = useState<string>("this_month");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
   const [showCustomCalendar, setShowCustomCalendar] = useState(false);
@@ -893,6 +893,17 @@ export function CreateBillDrawer({
         isOpen={insightsModalOpen}
         onClose={() => setInsightsModalOpen(false)}
         analytics={customerAnalytics}
+        currentPeriod={analyticsPeriod}
+        onPeriodChange={(period, start, end) => {
+          setAnalyticsPeriod(period);
+          if (start) setStartDate(start);
+          if (end) setEndDate(end);
+          // When changing period, we refetch data for the active customer phone
+          const phone = customerPhone.replace(/\D/g, "");
+          if (phone.length >= 10) {
+            void fetchCustomerAnalytics(phone, period, start, end);
+          }
+        }}
       />
     </div>
   );

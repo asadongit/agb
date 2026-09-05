@@ -57,6 +57,11 @@ class MarkPaidRequest(StrictSchema):
     redeem_loyalty_points: int = 0
     delivery_charge: Decimal = Field(default=Decimal("0.00"), ge=0)
     handling_charge: Decimal = Field(default=Decimal("0.00"), ge=0)
+    apply_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    record_debit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    record_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    debt_settled: Decimal = Field(default=Decimal("0.00"), ge=0)
+    credit_cashed_out: Decimal = Field(default=Decimal("0.00"), ge=0)
 
 
 class CustomerReturnItemInput(StrictSchema):
@@ -121,6 +126,12 @@ class BillResponse(BaseResponse):
     handling_charge: float = 0.0
     tax_amount: float = 0.0
     total_amount: float
+    credit_applied: float = 0.0
+    debit_applied: float = 0.0
+    credit_awarded: float = 0.0
+    debt_settled: float = 0.0
+    credit_cashed_out: float = 0.0
+    customer_balance: float | None = None
     discount_type: str | None = None
     discount_value: float | None = None
     discount_reason: str | None = None

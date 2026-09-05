@@ -234,8 +234,8 @@ export function BillingTab({
 
 {/* LIVE CASH DRAWER WIDGET */}
       {showDenomWidget && (
-        <article className="rounded-3xl border border-emerald-500/30 bg-emerald-500/10 p-5 space-y-4 shadow-xs">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-emerald-500/20 pb-3">
+        <article className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-5 space-y-4 shadow-xs">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[var(--border-subtle)] pb-3">
             <div className="flex items-center gap-2 font-bold text-emerald-300">
               <Banknote className="h-5 w-5 text-emerald-400" />
               <h2 className="font-display text-base font-bold text-[var(--text-primary)]">Live Cash Drawer State</h2>
@@ -495,7 +495,32 @@ export function BillingTab({
                       </td>
 
                       <td className="p-3.5 text-right font-mono font-black text-sm text-[var(--text-primary)]">
-                        ₹{b.total_amount.toFixed(2)}
+                        <div>₹{b.total_amount.toFixed(2)}</div>
+                        {(b as any).credit_applied > 0 && (
+                          <div className="text-[10px] text-emerald-500 font-bold mt-0.5 whitespace-nowrap">
+                            Credit Used: ₹{(b as any).credit_applied}
+                          </div>
+                        )}
+                        {Number((b as any).debit_applied) > 0 && (
+                          <div className="text-[10px] text-red-500 font-bold mt-0.5 whitespace-nowrap">
+                            Debit Recorded: ₹{Number((b as any).debit_applied).toFixed(2)}
+                          </div>
+                        )}
+                        {Number((b as any).debt_settled) > 0 && (
+                          <div className="text-[10px] text-emerald-500 font-bold mt-0.5 whitespace-nowrap">
+                            Debt Settled (Payed Udhaar): +₹{Number((b as any).debt_settled).toFixed(2)}
+                          </div>
+                        )}
+                        {Number((b as any).credit_awarded) > 0 && (
+                          <div className="text-[10px] text-sky-500 font-bold mt-0.5 whitespace-nowrap">
+                            Wallet Credited: +₹{Number((b as any).credit_awarded).toFixed(2)}
+                          </div>
+                        )}
+                        {Number((b as any).credit_cashed_out) > 0 && (
+                          <div className="text-[10px] text-orange-400 font-bold mt-0.5 whitespace-nowrap">
+                            Credit Cashed Out: ₹{Number((b as any).credit_cashed_out).toFixed(2)}
+                          </div>
+                        )}
                       </td>
 
                       <td className="p-3.5 text-center">

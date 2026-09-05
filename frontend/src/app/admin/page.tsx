@@ -274,8 +274,8 @@ export default function AdminDashboardPage() {
           await login(email, password);
           await loadDashboard();
         }}
-        onPinLogin={async (outletId, pin) => {
-          await pinLogin(outletId, pin);
+        onPinLogin={async (outletId, staffId, pin) => {
+          await pinLogin(outletId, staffId, pin);
           await loadDashboard();
         }}
       />

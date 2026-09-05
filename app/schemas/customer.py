@@ -45,5 +45,20 @@ class CustomerResponse(BaseResponse):
     total_orders: int = 0
     total_spent: float = 0.0
     loyalty_points: int = 0
+    credit_balance: float = 0.0
     created_at: datetime
     updated_at: datetime
+
+
+class CustomerLedgerEntryResponse(BaseResponse):
+    id: str
+    customer_id: str
+    order_id: str | None = None
+    order_basket_number: str | None = None
+    entry_type: str
+    amount: float
+    balance_after: float
+    note: str | None = None
+    created_by_name: str | None = None
+    created_at: datetime
+

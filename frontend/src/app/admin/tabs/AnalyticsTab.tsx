@@ -23,6 +23,7 @@ import { WastageReport } from "./analytics/WastageReport";
 import { StockMovementReport } from "./analytics/StockMovementReport";
 import { PurchaseReturnReport } from "./analytics/PurchaseReturnReport";
 import { SupplierSpendReport } from "./analytics/SupplierSpendReport";
+import { CreditDebitReport } from "./analytics/CreditDebitReport";
 import { NewCustomerReport } from "./analytics/NewCustomerReport";
 import { CustomerReturnReport } from "./analytics/CustomerReturnReport";
 import { LoyaltyReport } from "./analytics/LoyaltyReport";
@@ -69,7 +70,7 @@ type AnalyticsTabProps = {
   kpiData: any; revenueData: any; peakHoursData: any; topItemsData: any; funnelData: any;
   categorySalesData: any; itemSalesData: any; aovData: any; paymentMixData: any; discountData: any;
   stockMovementData: any; stockIntakeData: any; wastageData: any; purchaseReturnData: any; supplierSpendData: any;
-  newCustomerData: any; customerReturnData: any; loyaltyData: any; abandonedCartData: any;
+  newCustomerData: any; customerReturnData: any; creditDebitData: any; loyaltyData: any; abandonedCartData: any;
   profitData: any; billProfitData: any; taxSummaryData: any; cashDenomData: any;
   dayBookData: any;
 };
@@ -288,7 +289,7 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
           {props.activeTab === "customers" && (
             <div className="space-y-4">
               <div className="flex gap-2">
-                {["master_view", "new_customers", "returns", "loyalty", "abandoned_carts"].map(sub => (
+                {["master_view", "new_customers", "returns", "credit_debit", "loyalty", "abandoned_carts"].map(sub => (
                   <button
                     key={sub}
                     onClick={() => props.setActiveCustomersSubTab(sub)}
@@ -303,12 +304,14 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
                 <div className="space-y-8">
                   <NewCustomerReport data={props.newCustomerData} isLoading={props.isLoading} />
                   <CustomerReturnReport data={props.customerReturnData} isLoading={props.isLoading} />
+                  <CreditDebitReport data={props.creditDebitData} isLoading={props.isLoading} />
                   <LoyaltyReport data={props.loyaltyData} isLoading={props.isLoading} />
                   <AbandonedCartReport data={props.abandonedCartData} isLoading={props.isLoading} />
                 </div>
               )}
               {props.activeCustomersSubTab === "new_customers" && <NewCustomerReport data={props.newCustomerData} isLoading={props.isLoading} />}
               {props.activeCustomersSubTab === "returns" && <CustomerReturnReport data={props.customerReturnData} isLoading={props.isLoading} />}
+              {props.activeCustomersSubTab === "credit_debit" && <CreditDebitReport data={props.creditDebitData} isLoading={props.isLoading} />}
               {props.activeCustomersSubTab === "loyalty" && <LoyaltyReport data={props.loyaltyData} isLoading={props.isLoading} />}
               {props.activeCustomersSubTab === "abandoned_carts" && <AbandonedCartReport data={props.abandonedCartData} isLoading={props.isLoading} />}
             </div>

@@ -113,7 +113,9 @@ export type WastageReason =
 
 export type InventoryItem = components["schemas"]["InventoryItemResponse"];
 
-export type Customer = components["schemas"]["CustomerResponse"];
+export type Customer = components["schemas"]["CustomerResponse"] & {
+  credit_balance?: number;
+};
 
 export type StockIntake = components["schemas"]["StockIntakeResponse"];
 
@@ -228,7 +230,10 @@ export interface ProfitMarginAnalytics {
 
 export type ManualBillItem = components["schemas"]["BillItemResponse"];
 
-export type ManualBill = components["schemas"]["BillResponse"];
+export type ManualBill = components["schemas"]["BillResponse"] & {
+  credit_applied?: number;
+  debit_applied?: number;
+};
 
 export type DiscountApproval = components["schemas"]["DiscountApprovalResponse"];
 
@@ -326,7 +331,8 @@ export type CustomersSubTab =
   | "new_customers"
   | "returns"
   | "loyalty"
-  | "abandoned_carts";
+  | "abandoned_carts"
+  | "credit_debit";
 
 export type FinancialSubTab =
   | "master_view"
@@ -338,3 +344,41 @@ export type FinancialSubTab =
 export type DatePreset = "today" | "yesterday" | "last_7" | "last_30" | "this_month" | "last_month" | "custom";
 
 export type ProfitMarginResponse = components["schemas"]["ProfitMarginResponse"];
+
+export interface CustomerLedgerEntry {
+  id: string;
+  customer_id: string;
+  order_id: string | null;
+  order_basket_number: string | null;
+  entry_type: "CREDIT_APPLIED" | "DEBIT_APPLIED" | "CREDIT_ADDED" | "DEBIT_ADDED";
+  amount: number;
+  balance_after: number;
+  note: string | null;
+  created_by_name: string | null;
+  created_at: string;
+}
+
+export interface CreditDebitCustomerRow {
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string;
+  credit_balance: number;
+  total_credit_given: number;
+  total_debit_recorded: number;
+  last_transaction_date: string | null;
+}
+
+export interface CreditDebitSummary {
+  total_outstanding_credit: number;
+  total_outstanding_debit: number;
+  customers_with_credit: number;
+  customers_with_debit: number;
+  total_transactions: number;
+}
+
+export interface CreditDebitReportResponse {
+  summary: CreditDebitSummary;
+  customers: CreditDebitCustomerRow[];
+  from_date: string;
+  to_date: string;
+}

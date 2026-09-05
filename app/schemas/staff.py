@@ -60,7 +60,12 @@ class StaffPinSwitchRequest(StrictSchema):
 
 class StaffPinLoginRequest(StrictSchema):
     outlet_id: uuid.UUID
+    staff_id: uuid.UUID
     pin: str = Field(min_length=4, max_length=6, pattern="^[0-9]+$")
+
+class StaffPublic(StrictSchema):
+    id: uuid.UUID
+    name: str
 
 
 class StaffLoginResponse(BaseResponse):

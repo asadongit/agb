@@ -18,13 +18,38 @@ type CustomerInsightsModalProps = {
   isOpen: boolean;
   onClose: () => void;
   analytics: CustomerAnalytics | null;
+  currentPeriod?: string;
+  onPeriodChange?: (period: string, startDate?: string, endDate?: string) => void;
 };
 
 export function CustomerInsightsModal({
   isOpen,
   onClose,
   analytics,
+  currentPeriod = "this_month",
+  onPeriodChange,
 }: CustomerInsightsModalProps) {
+  const [localPeriod, setLocalPeriod] = React.useState(currentPeriod);
+  const [localStart, setLocalStart] = React.useState("");
+  const [localEnd, setLocalEnd] = React.useState("");
+
+  React.useEffect(() => {
+    setLocalPeriod(currentPeriod);
+  }, [currentPeriod]);
+
+  const handlePeriodChange = (val: string) => {
+    setLocalPeriod(val);
+    if (val !== "custom" && onPeriodChange) {
+      onPeriodChange(val);
+    }
+  };
+
+  const handleApplyCustom = () => {
+    if (localStart && localEnd && onPeriodChange) {
+      onPeriodChange("custom", localStart, localEnd);
+    }
+  };
+
   if (!isOpen || !analytics) return null;
 
   const maxCatAmount = Math.max(...analytics.best_categories.map((c) => c.total_amount), 1);
@@ -48,13 +73,59 @@ export function CustomerInsightsModal({
               </p>
             </div>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-1.5 rounded-lg hover:bg-[var(--border-subtle)] text-[var(--text-muted)]"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex items-center gap-4">
+            {onPeriodChange && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={localPeriod}
+                  onChange={(e) => handlePeriodChange(e.target.value)}
+                  className="text-xs bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg px-2 py-1.5 outline-none text-[var(--text-primary)] focus:border-sky-500 font-bold"
+                >
+                  <option value="this_week">This Week</option>
+                  <option value="this_month">This Month</option>
+                  <option value="last_1_week">Last 7 Days</option>
+                  <option value="last_month">Last 30 Days</option>
+                  <option value="last_6_months">Last 6 Months</option>
+                  <option value="last_year">Last Year</option>
+                  <option value="all_time">All Time</option>
+                  <option value="custom">Custom Range</option>
+                </select>
+
+                {localPeriod === "custom" && (
+                  <div className="flex items-center gap-1">
+                    <input 
+                      type="date" 
+                      value={localStart}
+                      onChange={(e) => setLocalStart(e.target.value)}
+                      className="text-xs bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg px-2 py-1.5 outline-none text-[var(--text-primary)] focus:border-sky-500 font-mono"
+                    />
+                    <span className="text-[var(--text-muted)] text-xs">to</span>
+                    <input 
+                      type="date" 
+                      value={localEnd}
+                      onChange={(e) => setLocalEnd(e.target.value)}
+                      className="text-xs bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg px-2 py-1.5 outline-none text-[var(--text-primary)] focus:border-sky-500 font-mono"
+                    />
+                    <button
+                      type="button"
+                      onClick={handleApplyCustom}
+                      className="text-[10px] bg-sky-500/10 text-sky-400 px-2.5 py-1.5 rounded-lg font-bold hover:bg-sky-500/20 border border-sky-500/20"
+                    >
+                      Apply
+                    </button>
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              type="button"
+              onClick={onClose}
+              className="p-1.5 rounded-lg hover:bg-[var(--border-subtle)] text-[var(--text-muted)] bg-[var(--bg-surface)] border border-[var(--border-subtle)]"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -85,6 +156,21 @@ export function CustomerInsightsModal({
             </p>
             <span className="text-[10px] text-[var(--text-muted)] font-semibold">Available for redemption</span>
           </div>
+
+          {/* Credit / Debit Balance Card */}
+          {(analytics.credit_balance !== undefined && analytics.credit_balance !== null) && (
+            <div className={`rounded-2xl border p-4 space-y-1 ${analytics.credit_balance > 0 ? 'border-emerald-500/30 bg-emerald-500/10' : analytics.credit_balance < 0 ? 'border-red-500/30 bg-red-500/10' : 'border-[var(--border-strong)] bg-[var(--bg-surface-elevated)]'}`}>
+              <span className={`text-[10px] uppercase font-bold ${analytics.credit_balance > 0 ? 'text-emerald-400' : analytics.credit_balance < 0 ? 'text-red-400' : 'text-[var(--text-muted)]'}`}>
+                {analytics.credit_balance > 0 ? 'Store Credit Available' : analytics.credit_balance < 0 ? 'Outstanding Debit' : 'Credit / Debit Balance'}
+              </span>
+              <p className={`font-mono text-2xl font-black ${analytics.credit_balance > 0 ? 'text-emerald-500' : analytics.credit_balance < 0 ? 'text-red-500' : 'text-[var(--text-primary)]'}`}>
+                {analytics.credit_balance < 0 ? '-' : ''}₹{Math.abs(analytics.credit_balance).toFixed(2)}
+              </p>
+              <span className="text-[10px] text-[var(--text-muted)] font-semibold">
+                {analytics.credit_balance > 0 ? 'Can be used to offset future bills' : analytics.credit_balance < 0 ? 'Customer owes the store' : 'No outstanding credit or debit'}
+              </span>
+            </div>
+          )}
 
           {/* Best Category Interest */}
           <div className="space-y-3">

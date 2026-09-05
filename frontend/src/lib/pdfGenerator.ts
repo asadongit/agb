@@ -398,14 +398,19 @@ export async function generateReceiptPDF(
 
   const amountPayable = Math.max(0, totalSellingSubtotal - extraDiscountRupees - loyaltyDiscountRupees);
 
+  const creditApplied = parseFloat(String((order as any).credit_applied || 0)) || 0;
+  const debitApplied = parseFloat(String((order as any).debit_applied || 0)) || 0;
+
   doc.setFont("courier", "normal");
   doc.setFontSize(7.5);
   doc.setTextColor(0, 0, 0);
 
-  if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
-    doc.text("Total MRP Value", margin, summaryY);
-    doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
+  if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0 || creditApplied > 0 || debitApplied > 0) {
+    if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
+      doc.text("Total MRP Value", margin, summaryY);
+      doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
 
     if (mrpSavings > 0) {
       doc.text("Product Discount", margin, summaryY);
@@ -422,6 +427,18 @@ export async function generateReceiptPDF(
     if (loyaltyDiscountRupees > 0) {
       doc.text(`Loyalty Redemption (${pointsRedeemed} pts)`, margin, summaryY);
       doc.text(`- INR ${loyaltyDiscountRupees.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+    
+    if (creditApplied > 0) {
+      doc.text("Credit Applied", margin, summaryY);
+      doc.text(`- INR ${creditApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+
+    if (debitApplied > 0) {
+      doc.text("Debit (Shortfall)", margin, summaryY);
+      doc.text(`+ INR ${debitApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       summaryY += 3.5;
     }
     
@@ -547,6 +564,56 @@ export async function generateReceiptPDF(
   
   summaryY += 1;
   drawSolidLine(summaryY + 2);
+
+  const debtSettled = parseFloat(String((order as any).debt_settled || 0)) || 0;
+  if (debtSettled > 0) {
+      summaryY += 5;
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8.5);
+      doc.text("DEBT SETTLED", margin, summaryY);
+      doc.text(`+ INR ${debtSettled.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+  }
+
+  const creditAwarded = parseFloat(String((order as any).credit_awarded || 0)) || 0;
+  if (creditAwarded > 0) {
+      summaryY += 5;
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8.5);
+      doc.text("CREDIT AWARDED", margin, summaryY);
+      doc.text(`+ INR ${creditAwarded.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+  }
+
+  const creditCashedOut = parseFloat(String((order as any).credit_cashed_out || 0)) || 0;
+  if (creditCashedOut > 0) {
+      summaryY += 5;
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8.5);
+      doc.text("CREDIT CASHED OUT", margin, summaryY);
+      doc.text(`- INR ${creditCashedOut.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+  }
+
+  const customerBalanceRaw = (order as any).customer_balance;
+  if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
+      const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
+      summaryY += 5;
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8.5);
+      if (customerBalance >= 0) {
+          doc.text("STORE CREDIT", margin, summaryY);
+          doc.text(`INR ${customerBalance.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      } else {
+          doc.text("OUTSTANDING DEBIT", margin, summaryY);
+          doc.text(`INR ${Math.abs(customerBalance).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      }
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+  }
 
   // 5. FOOTER & QR CODE
   summaryY += 8;

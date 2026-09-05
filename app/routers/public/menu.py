@@ -25,6 +25,35 @@ async def list_outlets(
     return await get_public_outlets(db)
 
 
+@router.get("/outlets/{outlet_id}/staff", response_model=list[dict])
+@limiter.limit("60/minute")
+async def list_outlet_staff(
+    outlet_id: str,
+    request: Request,
+    db: DBSession,
+):
+    """Public list of active staff for an outlet for the PIN selector screen."""
+    from uuid import UUID
+    from sqlalchemy import select
+    from app.models.user import User
+    from app.models.enums import RoleEnum
+
+    try:
+        valid_outlet_id = UUID(outlet_id)
+    except ValueError:
+        return []
+
+    stmt = select(User.id, User.name).where(
+        User.outlet_id == valid_outlet_id,
+        User.is_active == True,
+        User.role != RoleEnum.SUPERADMIN
+    ).order_by(User.name)
+    
+    result = await db.execute(stmt)
+    staff_list = [{"id": row.id, "name": row.name} for row in result.all()]
+    return staff_list
+
+
 @router.get("/menu/{outlet_slug}")
 @limiter.limit("60/minute")
 async def get_menu(

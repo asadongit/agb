@@ -8,16 +8,18 @@ from __future__ import annotations
 import uuid
 from typing import TYPE_CHECKING
 
-from sqlalchemy import ForeignKey, String, UniqueConstraint, Integer
+from sqlalchemy import ForeignKey, String, UniqueConstraint, Integer, Numeric
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database import Base, TimestampMixin
+from decimal import Decimal
 
 if TYPE_CHECKING:
     from app.models.basket_session import BasketSession
     from app.models.order import Order
     from app.models.outlet import Outlet
+    from app.models.customer_ledger import CustomerLedger
 
 
 class Customer(Base, TimestampMixin):
@@ -40,6 +42,9 @@ class Customer(Base, TimestampMixin):
     loyalty_points: Mapped[int] = mapped_column(
         Integer, nullable=False, server_default="0", default=0
     )
+    credit_balance: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, server_default="0.00", default=Decimal("0.00")
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(
@@ -50,4 +55,7 @@ class Customer(Base, TimestampMixin):
     )
     orders: Mapped[list[Order]] = relationship(
         "Order", back_populates="customer"
+    )
+    ledger_entries: Mapped[list["CustomerLedger"]] = relationship(
+        "CustomerLedger", back_populates="customer"
     )

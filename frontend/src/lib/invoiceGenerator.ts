@@ -318,11 +318,14 @@ export async function generateA4InvoicePDF(
     tY += 5;
   };
 
-  printRightRow("Subtotal", subtotal);
+  printRightRow("Total Selling Amount", totalSellingSubtotal);
   if (deliveryCharge > 0 || (order as any).delivery_charge !== undefined) printRightRow("Delivery Charge", deliveryCharge);
   if (handlingCharge > 0 || (order as any).handling_charge !== undefined) printRightRow("Handling Charge", handlingCharge);
   if (extraDiscountRupees > 0) printRightRow(extraDiscountLabel, -extraDiscountRupees);
   if (loyaltyDiscountRupees > 0) printRightRow(`Loyalty Redemption (${pointsRedeemed} pts)`, -loyaltyDiscountRupees);
+  
+  if (creditApplied > 0) printRightRow("Credit Applied", -creditApplied);
+  if (debitApplied > 0) printRightRow("Debit (Shortfall)", debitApplied);
   
   if (roundOff !== 0) printRightRow("Round Off", roundOff);
   
@@ -331,6 +334,17 @@ export async function generateA4InvoicePDF(
   doc.line(totalsBoxX, tY - 5, valX, tY - 5);
   doc.setFontSize(11);
   printRightRow("GRAND TOTAL (Rs)", finalNetTotal, true);
+
+  const customerBalanceRaw = (order as any).customer_balance;
+  if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
+      tY += 2;
+      const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
+      if (customerBalance >= 0) {
+          printRightRow("STORE CREDIT", customerBalance, true);
+      } else {
+          printRightRow("OUTSTANDING DEBIT", Math.abs(customerBalance), true);
+      }
+  }
   
   // 5. AMOUNT IN WORDS
   currentY = tY + 10;

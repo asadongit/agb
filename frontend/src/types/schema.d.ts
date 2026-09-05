@@ -820,26 +820,6 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/admin/inventory/suppliers/{supplier_id}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        /**
-         * Update Supplier Route
-         * @description Update an existing vendor/supplier record.
-         */
-        patch: operations["update_supplier_route_api_admin_inventory_suppliers__supplier_id__patch"];
-        trace?: never;
-    };
     "/api/admin/inventory/wastage": {
         parameters: {
             query?: never;
@@ -4996,6 +4976,11 @@ export interface components {
              * @default 0.00
              */
             handling_charge: string;
+            credit_applied: string;
+            debit_applied: string;
+            credit_awarded: string;
+            debt_settled: string;
+            credit_cashed_out: string;
             /**
              * Items
              * @default []
@@ -5117,11 +5102,6 @@ export interface components {
             near_expiry_threshold_days: number;
             /** Notification Emails */
             notification_emails?: string[];
-            /**
-             * Weighing Scale Barcode Format
-             * @default 21_5I_5W_GRAMS
-             */
-            weighing_scale_barcode_format: string;
             /** Notification Phones */
             notification_phones?: string[];
             /** Email */
@@ -5238,11 +5218,6 @@ export interface components {
             near_expiry_threshold_days: number;
             /** Notification Emails */
             notification_emails?: string[];
-            /**
-             * Weighing Scale Barcode Format
-             * @default 21_5I_5W_GRAMS
-             */
-            weighing_scale_barcode_format: string;
             /** Notification Phones */
             notification_phones?: string[];
             /** Email */
@@ -5321,8 +5296,6 @@ export interface components {
             near_expiry_threshold_days?: number | null;
             /** Notification Emails */
             notification_emails?: string[] | null;
-            /** Weighing Scale Barcode Format */
-            weighing_scale_barcode_format?: string | null;
             /** Notification Phones */
             notification_phones?: string[] | null;
             /** Email */
@@ -5405,11 +5378,6 @@ export interface components {
             near_expiry_threshold_days: number;
             /** Notification Emails */
             notification_emails?: string[];
-            /**
-             * Weighing Scale Barcode Format
-             * @default 21_5I_5W_GRAMS
-             */
-            weighing_scale_barcode_format: string;
             /** Notification Phones */
             notification_phones?: string[];
             /** Email */
@@ -6445,14 +6413,6 @@ export interface components {
             email?: string | null;
             /** Address */
             address?: string | null;
-            /** Gstin */
-            gstin?: string | null;
-            /** Contact Person */
-            contact_person?: string | null;
-            /** Payment Terms */
-            payment_terms?: string | null;
-            /** Notes */
-            notes?: string | null;
         };
         /** SupplierResponse */
         SupplierResponse: {
@@ -6474,14 +6434,6 @@ export interface components {
             email?: string | null;
             /** Address */
             address?: string | null;
-            /** Gstin */
-            gstin?: string | null;
-            /** Contact Person */
-            contact_person?: string | null;
-            /** Payment Terms */
-            payment_terms?: string | null;
-            /** Notes */
-            notes?: string | null;
             /** Is Active */
             is_active: boolean;
             /**
@@ -6538,27 +6490,6 @@ export interface components {
             avg_unit_cost: number;
             /** Share Pct */
             share_pct: number;
-        };
-        /** SupplierUpdate */
-        SupplierUpdate: {
-            /** Name */
-            name?: string | null;
-            /** Phone */
-            phone?: string | null;
-            /** Email */
-            email?: string | null;
-            /** Address */
-            address?: string | null;
-            /** Gstin */
-            gstin?: string | null;
-            /** Contact Person */
-            contact_person?: string | null;
-            /** Payment Terms */
-            payment_terms?: string | null;
-            /** Notes */
-            notes?: string | null;
-            /** Is Active */
-            is_active?: boolean | null;
         };
         /** SyncAction */
         SyncAction: {
@@ -6770,8 +6701,6 @@ export interface components {
             customer_name?: string | null;
             /** Customer Phone */
             customer_phone?: string | null;
-            /** Replaces Bill Id */
-            replaces_bill_id?: string | null;
             /** Items */
             items?: components["schemas"]["BillItemInput"][];
         };
@@ -8560,41 +8489,6 @@ export interface operations {
         responses: {
             /** @description Successful Response */
             201: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["SupplierResponse"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    update_supplier_route_api_admin_inventory_suppliers__supplier_id__patch: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                supplier_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["SupplierUpdate"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            200: {
                 headers: {
                     [name: string]: unknown;
                 };

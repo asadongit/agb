@@ -25,6 +25,7 @@ from app.models.purchase_return import PurchaseReturn
 from app.models.cash_drawer_ledger import CashDrawerLedger
 from app.models.bill_discount_approval import BillDiscountApproval
 from app.models.abandoned_cart import AbandonedCart
+from app.models.customer_ledger import CustomerLedger
 from app.models.user import User
 
 from app.schemas.analytics import (
@@ -1775,6 +1776,86 @@ async def get_discount_report(
         total_complimentary_items=int(crow[0] if crow else 0),
         total_complimentary_value=round(float(crow[1] or 0), 2)
     )
+
+
+async def get_credit_debit_report(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    from_dt: datetime,
+    to_dt: datetime,
+) -> dict:
+    """Analytics for customer credit and debit."""
+    # Summary query
+    summary_stmt = (
+        select(
+            func.coalesce(func.sum(case((Customer.credit_balance > 0, Customer.credit_balance), else_=0)), 0).label("total_outstanding_credit"),
+            func.coalesce(func.sum(case((Customer.credit_balance < 0, Customer.credit_balance), else_=0)), 0).label("total_outstanding_debit"),
+            func.count(case((Customer.credit_balance > 0, 1))).label("customers_with_credit"),
+            func.count(case((Customer.credit_balance < 0, 1))).label("customers_with_debit"),
+        )
+        .where(Customer.outlet_id == outlet_id)
+    )
+    summary_res = await db.execute(summary_stmt)
+    s_row = summary_res.first()
+
+    # Transactions in period
+    tx_stmt = (
+        select(func.count(CustomerLedger.id))
+        .where(
+            CustomerLedger.outlet_id == outlet_id,
+            CustomerLedger.created_at >= from_dt,
+            CustomerLedger.created_at <= to_dt
+        )
+    )
+    tx_res = await db.execute(tx_stmt)
+    total_tx = tx_res.scalar() or 0
+
+    # Customer-wise details
+    # We want to list customers who have a non-zero balance OR had transactions in the period
+    cust_stmt = (
+        select(
+            Customer.id,
+            Customer.name,
+            Customer.phone,
+            Customer.credit_balance,
+            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("CREDIT_ADDED", "DEBIT_APPLIED")), CustomerLedger.amount), else_=0)), 0).label("total_credit_given"),
+            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("DEBIT_ADDED", "CREDIT_APPLIED")), CustomerLedger.amount), else_=0)), 0).label("total_debit_recorded"),
+            func.max(CustomerLedger.created_at).label("last_tx")
+        )
+        .outerjoin(CustomerLedger, (Customer.id == CustomerLedger.customer_id) & (CustomerLedger.created_at >= from_dt) & (CustomerLedger.created_at <= to_dt))
+        .where(
+            (Customer.outlet_id == outlet_id) &
+            ((Customer.credit_balance != 0) | (CustomerLedger.id.isnot(None)))
+        )
+        .group_by(Customer.id)
+        .order_by(Customer.credit_balance.asc()) # Largest debits first
+    )
+    cust_res = await db.execute(cust_stmt)
+
+    customers = []
+    for row in cust_res.all():
+        customers.append({
+            "customer_id": str(row.id),
+            "customer_name": row.name,
+            "customer_phone": row.phone,
+            "credit_balance": float(row.credit_balance),
+            "total_credit_given": float(row.total_credit_given),
+            "total_debit_recorded": float(row.total_debit_recorded),
+            "last_transaction_date": row.last_tx.isoformat() if row.last_tx else None
+        })
+
+    return {
+        "summary": {
+            "total_outstanding_credit": float(s_row.total_outstanding_credit or 0),
+            "total_outstanding_debit": abs(float(s_row.total_outstanding_debit or 0)),
+            "customers_with_credit": s_row.customers_with_credit or 0,
+            "customers_with_debit": s_row.customers_with_debit or 0,
+            "total_transactions": total_tx
+        },
+        "customers": customers,
+        "from_date": from_dt.isoformat(),
+        "to_date": to_dt.isoformat()
+    }
 
 
 async def get_day_book(
