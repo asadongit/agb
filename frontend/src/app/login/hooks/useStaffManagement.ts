@@ -140,12 +140,26 @@ export function useStaffManagement({
 
   useEffect(() => {
     if (authHeaders) {
+      // Clear stale permissions from previous session before fetching
+      setStaffPermissions(null);
       void loadStaffPermissions();
       void loadMyProfile();
+    } else {
+      // Clear state on logout
+      setStaffPermissions(null);
+      setActiveStaff(null);
+      setStaffList([]);
+      setStaffAuditLogs([]);
+    }
+  }, [authHeaders, loadStaffPermissions, loadMyProfile]);
+
+  useEffect(() => {
+    if (staffPermissions?.can_manage_staff) {
       void loadStaffMembers();
       void loadStaffAuditLogs();
     }
-  }, [authHeaders, loadStaffPermissions, loadMyProfile, loadStaffMembers, loadStaffAuditLogs]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [staffPermissions?.can_manage_staff]);
 
   // Reset page to 1 whenever filters change
   useEffect(() => {
@@ -255,6 +269,9 @@ export function useStaffManagement({
         }
       );
 
+      // Prevent race conditions by synchronously clearing permissions before the token hot-swap
+      setStaffPermissions(null);
+
       if (res.staff_context_token && setSessionToken) {
         setSessionToken(res.staff_context_token);
       }
@@ -262,7 +279,6 @@ export function useStaffManagement({
       setNotice(`Switched active staff to ${res.active_staff.name} (${res.active_staff.role})`);
       setPinSwitchModalOpen(false);
       setPinSwitchInput("");
-      void loadStaffPermissions();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid staff PIN.");
     } finally {

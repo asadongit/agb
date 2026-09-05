@@ -9,7 +9,7 @@ import {
   type RestaurantCreateForm,
   type RestaurantWithUsers,
 } from "../superadminTypes";
-import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from "../../admin/adminTypes";
+import { ACCESS_TOKEN_KEY, REFRESH_TOKEN_KEY } from "../../login/adminTypes";
 
 function decodeJwtRole(token: string): string | null {
   try {

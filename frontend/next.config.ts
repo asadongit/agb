@@ -27,6 +27,16 @@ const nextConfig: NextConfig = {
         destination: "/superadmin",
         permanent: true,
       },
+      {
+        source: "/admin",
+        destination: "/login",
+        permanent: true,
+      },
+      {
+        source: "/admin/:path*",
+        destination: "/login/:path*",
+        permanent: true,
+      },
     ];
   },
   async rewrites() {

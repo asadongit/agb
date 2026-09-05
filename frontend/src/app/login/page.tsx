@@ -64,7 +64,7 @@ const VALID_TABS: AdminTab[] = [
 
 export default function AdminDashboardPage() {
   const { theme, toggleTheme } = useAdminTheme();
-  const [activeTab, setActiveTabState] = useState<AdminTab>("orders");
+  const [activeTab, setActiveTabState] = useState<AdminTab>("billing");
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [assistTargetSession, setAssistTargetSession] = useState<ActiveSession | null>(null);
   const [notice, setNotice] = useState<string | null>(null);

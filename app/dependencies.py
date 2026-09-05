@@ -117,7 +117,6 @@ RequireStaffOrAdmin = Annotated[
             RoleEnum.MANAGER,
             RoleEnum.FLOOR_STAFF,
             RoleEnum.CASHIER,
-            RoleEnum.WAITER,
             RoleEnum.STAFF,
         )
     ),

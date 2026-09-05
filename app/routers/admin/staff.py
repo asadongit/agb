@@ -244,17 +244,17 @@ async def staff_pin_login_endpoint(
     db: DBSession,
 ):
     """Standalone staff login via outlet_id, staff_id, and 4-digit PIN."""
-    staff = await authenticate_staff_pin_standalone(db, data.outlet_id, data.staff_id, data.pin)
+    staff = await authenticate_staff_pin(db, data.outlet_id, data.staff_id, data.pin)
 
     access_token = create_access_token(
         user_id=staff.id,
         outlet_id=staff.outlet_id,
-        role=staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+        role=staff.role.value,
     )
     refresh_token = create_refresh_token(
         user_id=staff.id,
         outlet_id=staff.outlet_id,
-        role=staff.role.value if hasattr(staff.role, "value") else str(staff.role),
+        role=staff.role.value,
     )
 
     staff.refresh_token_hash = hash_token(refresh_token)

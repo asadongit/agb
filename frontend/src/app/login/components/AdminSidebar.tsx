@@ -237,27 +237,6 @@ export function AdminSidebar({
 
       {/* Sidebar Nav Links */}
       <nav className="p-3 space-y-1.5 flex-1 overflow-y-auto">
-        {(!staffPermissions || staffPermissions.allowed_sidebar_tabs?.includes("orders")) && (
-          <button
-            type="button"
-            onClick={() => handleTabClick("orders")}
-            className={`w-full flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "orders"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
-              }`}
-          >
-            <div className="flex items-center gap-3">
-              <OrdersIcon className="h-4 w-4" />
-              <span>Live Orders</span>
-            </div>
-            {pendingVerificationCount > 0 && (
-              <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">
-                {pendingVerificationCount}
-              </span>
-            )}
-          </button>
-        )}
-
         {(!staffPermissions || (staffPermissions.can_manage_billing && staffPermissions.allowed_sidebar_tabs?.includes("billing"))) && (
           <button
             type="button"
@@ -279,6 +258,27 @@ export function AdminSidebar({
           </button>
         )}
 
+        {(!staffPermissions || staffPermissions.allowed_sidebar_tabs?.includes("orders")) && (
+          <button
+            type="button"
+            onClick={() => handleTabClick("orders")}
+            className={`w-full flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "orders"
+              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
+              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
+              }`}
+          >
+            <div className="flex items-center gap-3">
+              <OrdersIcon className="h-4 w-4" />
+              <span>Live Orders</span>
+            </div>
+            {pendingVerificationCount > 0 && (
+              <span className="rounded-full bg-rose-500 px-2 py-0.5 text-xs font-bold text-white">
+                {pendingVerificationCount}
+              </span>
+            )}
+          </button>
+        )}
+
         {(!staffPermissions || staffPermissions.allowed_sidebar_tabs?.includes("menu")) && (
           <button
             type="button"
@@ -290,34 +290,6 @@ export function AdminSidebar({
           >
             <BookOpen className="h-4 w-4" />
             <span>Product Catalog</span>
-          </button>
-        )}
-
-        {(!staffPermissions || (staffPermissions.can_manage_staff && staffPermissions.allowed_sidebar_tabs?.includes("staff"))) && (
-          <button
-            type="button"
-            onClick={() => handleTabClick("staff")}
-            className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "staff"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
-              }`}
-          >
-            <Users className="h-4 w-4" />
-            <span>Staff &amp; Team</span>
-          </button>
-        )}
-
-        {(!staffPermissions || (staffPermissions.can_view_analytics && staffPermissions.allowed_sidebar_tabs?.includes("analytics"))) && (
-          <button
-            type="button"
-            onClick={() => handleTabClick("analytics", onLoadAnalyticsData)}
-            className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "analytics"
-              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
-              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
-              }`}
-          >
-            <TrendingUp className="h-4 w-4" />
-            <span>Sales &amp; Analytics</span>
           </button>
         )}
 
@@ -342,6 +314,20 @@ export function AdminSidebar({
           </button>
         )}
 
+        {(!staffPermissions || (staffPermissions.can_view_analytics && staffPermissions.allowed_sidebar_tabs?.includes("analytics"))) && (
+          <button
+            type="button"
+            onClick={() => handleTabClick("analytics", onLoadAnalyticsData)}
+            className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "analytics"
+              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
+              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
+              }`}
+          >
+            <TrendingUp className="h-4 w-4" />
+            <span>Sales &amp; Analytics</span>
+          </button>
+        )}
+
         {(!staffPermissions || staffPermissions.allowed_sidebar_tabs?.includes("customerservices")) && (
           <button
             type="button"
@@ -353,6 +339,39 @@ export function AdminSidebar({
           >
             <UserCheck className="h-4 w-4" />
             <span>Customer Services</span>
+          </button>
+        )}
+
+        {(!staffPermissions || (staffPermissions.can_manage_staff && staffPermissions.allowed_sidebar_tabs?.includes("staff"))) && (
+          <button
+            type="button"
+            onClick={() => handleTabClick("staff")}
+            className={`w-full flex items-center gap-3 rounded-xl px-3.5 py-3 text-sm font-semibold transition ${activeTab === "staff"
+              ? "bg-[var(--accent-brand)] text-[var(--text-on-accent)] shadow-xs"
+              : "text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
+              }`}
+          >
+            <Users className="h-4 w-4" />
+            <span>Staff &amp; Team</span>
+          </button>
+        )}
+
+        {/* Abandoned Carts Badge */}
+        {(!staffPermissions || staffPermissions.allowed_sidebar_tabs?.includes("sessions")) && (
+          <button
+            type="button"
+            onClick={onShowAbandonedCarts}
+            className="w-full flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-semibold transition text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
+          >
+            <div className="flex items-center gap-3">
+              <ShoppingCart className="h-4 w-4" />
+              <span>Baskets & Carts</span>
+            </div>
+            {abandonedCartCount > 0 && (
+              <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
+                {abandonedCartCount}
+              </span>
+            )}
           </button>
         )}
 
@@ -369,23 +388,6 @@ export function AdminSidebar({
             <span>Outlet Settings</span>
           </button>
         )}
-
-        {/* Abandoned Carts Badge */}
-        <button
-          type="button"
-          onClick={onShowAbandonedCarts}
-          className="w-full flex items-center justify-between rounded-xl px-3.5 py-3 text-sm font-semibold transition text-[var(--text-secondary)] hover:bg-[var(--bg-surface-elevated)] hover:text-[var(--text-primary)]"
-        >
-          <div className="flex items-center gap-3">
-            <ShoppingCart className="h-4 w-4" />
-            <span>Baskets & Carts</span>
-          </div>
-          {abandonedCartCount > 0 && (
-            <span className="rounded-full bg-amber-500 px-2 py-0.5 text-xs font-bold text-white">
-              {abandonedCartCount}
-            </span>
-          )}
-        </button>
       </nav>
 
       {/* Sidebar Footer */}

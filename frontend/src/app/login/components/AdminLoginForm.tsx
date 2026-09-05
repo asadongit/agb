@@ -6,9 +6,10 @@
 "use client";
 
 import { FormEvent, useState, useEffect } from "react";
-import { ArrowRight, KeyRound, Mail, Store, Eye, EyeOff } from "lucide-react";
+import { ArrowRight, KeyRound, Mail, Store, Eye, EyeOff, ChevronDown, Check, Sun, Moon } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 import { ToastNotification } from "@/app/components/ToastNotification";
+import { useAdminTheme } from "../hooks/useAdminTheme";
 
 type OutletOption = {
   id: string;
@@ -19,10 +20,12 @@ type OutletOption = {
 type AdminLoginFormProps = {
   onLogin: (email: string, password: string) => Promise<void>;
   onPinLogin?: (outletId: string, staffId: string, pin: string) => Promise<void>;
+  onlyPin?: boolean;
 };
 
-export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
-  const [authMethod, setAuthMethod] = useState<"email" | "pin">("email");
+export function AdminLoginForm({ onLogin, onPinLogin, onlyPin = false }: AdminLoginFormProps) {
+  const { theme, toggleTheme } = useAdminTheme();
+  const [authMethod, setAuthMethod] = useState<"email" | "pin">(onlyPin ? "pin" : "email");
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [outletId, setOutletId] = useState("");
@@ -37,6 +40,19 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
   const [notice, setNotice] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
   const [showPin, setShowPin] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState<"outlet" | "staff" | null>(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handleClick = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (!target.closest('.custom-dropdown')) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, []);
 
   useEffect(() => {
     let isSubscribed = true;
@@ -122,6 +138,9 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
         }
         await onPinLogin(outletId.trim(), staffId.trim(), pin.trim());
       }
+      if (typeof window !== "undefined") {
+        localStorage.removeItem("admin_active_tab");
+      }
       setNotice("Signed in successfully.");
     } catch (loginError) {
       const message =
@@ -135,7 +154,14 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
   };
 
   return (
-    <div className="min-h-screen bg-[var(--bg-base)] px-4 py-14 sm:px-6 flex items-center justify-center">
+    <div className="relative min-h-screen bg-[var(--bg-base)] px-4 py-14 sm:px-6 flex items-center justify-center">
+      <button 
+        onClick={toggleTheme}
+        className="absolute top-6 right-6 p-2.5 rounded-full bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-secondary)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-base)] transition-all shadow-sm"
+        aria-label="Toggle theme"
+      >
+        {theme === "dark" ? <Sun className="h-5 w-5" /> : <Moon className="h-5 w-5" />}
+      </button>
       <div className="w-full max-w-md space-y-6">
         <div className="text-center space-y-2">
           <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--accent-brand)] text-[var(--text-on-accent)]">
@@ -149,38 +175,40 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
 
         <section className="rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-[0_10px_35px_rgba(18,38,58,0.1)]">
           {/* Method Switcher Tabs */}
-          <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[var(--bg-base)] p-1.5 mb-6 border border-[var(--border-subtle)]">
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod("email");
-                setError(null);
-              }}
-              className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition ${
-                authMethod === "email"
-                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              <Mail className="h-3.5 w-3.5" />
-              Email & Password
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setAuthMethod("pin");
-                setError(null);
-              }}
-              className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition ${
-                authMethod === "pin"
-                  ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm"
-                  : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-              }`}
-            >
-              <KeyRound className="h-3.5 w-3.5" />
-              Staff POS PIN
-            </button>
-          </div>
+          {!onlyPin && (
+            <div className="grid grid-cols-2 gap-1 rounded-2xl bg-[var(--bg-base)] p-1.5 mb-6 border border-[var(--border-subtle)]">
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod("email");
+                  setError(null);
+                }}
+                className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition ${
+                  authMethod === "email"
+                    ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                <Mail className="h-3.5 w-3.5" />
+                Email & Password
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setAuthMethod("pin");
+                  setError(null);
+                }}
+                className={`flex items-center justify-center gap-2 rounded-xl py-2 text-xs font-semibold transition ${
+                  authMethod === "pin"
+                    ? "bg-[var(--bg-surface)] text-[var(--text-primary)] shadow-sm"
+                    : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                }`}
+              >
+                <KeyRound className="h-3.5 w-3.5" />
+                Staff POS PIN
+              </button>
+            </div>
+          )}
 
           <form className="space-y-4" onSubmit={handleSubmit}>
             {authMethod === "email" ? (
@@ -227,19 +255,41 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
                       Loading store outlets...
                     </div>
                   ) : (
-                    <select
-                      value={outletId}
-                      onChange={(event) => setOutletId(event.target.value)}
-                      required
-                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm font-medium"
-                    >
-                      <option value="">-- Choose Your Outlet --</option>
-                      {outlets.map((o) => (
-                        <option key={o.id} value={o.id}>
-                          {o.name} (/{o.slug})
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative custom-dropdown">
+                      <button
+                        type="button"
+                        onClick={() => setOpenDropdown(openDropdown === "outlet" ? null : "outlet")}
+                        className="w-full flex items-center justify-between rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent-brand)] focus:outline-none transition-all hover:border-[var(--text-muted)]"
+                      >
+                        <span className={outletId ? "text-[var(--text-primary)] font-semibold" : "text-[var(--text-muted)]"}>
+                          {outletId ? outlets.find(o => o.id === outletId)?.name : "-- Choose Your Outlet --"}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 text-[var(--text-muted)] transition-transform duration-200 ${openDropdown === "outlet" ? "rotate-180" : ""}`} />
+                      </button>
+                      
+                      {openDropdown === "outlet" && (
+                        <div className="absolute z-10 mt-2 w-full max-h-60 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1.5 shadow-xl shadow-[rgba(0,0,0,0.15)] ring-1 ring-black/5 animate-in fade-in slide-in-from-top-1">
+                          {outlets.map((o) => (
+                            <button
+                              key={o.id}
+                              type="button"
+                              onClick={() => {
+                                setOutletId(o.id);
+                                setOpenDropdown(null);
+                              }}
+                              className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between group ${
+                                outletId === o.id 
+                                  ? "bg-[var(--accent-brand)]/10 text-[var(--accent-brand)] font-bold" 
+                                  : "text-[var(--text-primary)] hover:bg-[var(--bg-base)] font-medium"
+                              }`}
+                            >
+                              <span>{o.name} <span className="opacity-50 text-xs ml-1 font-normal group-hover:opacity-80">/{o.slug}</span></span>
+                              {outletId === o.id && <Check className="h-4 w-4" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </label>
                 <label className="block space-y-1">
@@ -249,20 +299,42 @@ export function AdminLoginForm({ onLogin, onPinLogin }: AdminLoginFormProps) {
                       Loading staff...
                     </div>
                   ) : (
-                    <select
-                      value={staffId}
-                      onChange={(event) => setStaffId(event.target.value)}
-                      required
-                      disabled={!outletId || staffList.length === 0}
-                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2 text-sm font-medium disabled:opacity-50"
-                    >
-                      <option value="">-- Choose Your Name --</option>
-                      {staffList.map((s) => (
-                        <option key={s.id} value={s.id}>
-                          {s.name}
-                        </option>
-                      ))}
-                    </select>
+                    <div className="relative custom-dropdown">
+                      <button
+                        type="button"
+                        disabled={!outletId || staffList.length === 0}
+                        onClick={() => setOpenDropdown(openDropdown === "staff" ? null : "staff")}
+                        className="w-full flex items-center justify-between rounded-xl border border-[var(--border-strong)] bg-[var(--bg-base)] px-3 py-2.5 text-sm font-medium focus:ring-2 focus:ring-[var(--accent-brand)] focus:outline-none transition-all disabled:opacity-50 disabled:cursor-not-allowed hover:border-[var(--text-muted)]"
+                      >
+                        <span className={staffId ? "text-[var(--text-primary)] font-semibold" : "text-[var(--text-muted)]"}>
+                          {staffId ? staffList.find(s => s.id === staffId)?.name : "-- Choose Your Name --"}
+                        </span>
+                        <ChevronDown className={`h-4 w-4 text-[var(--text-muted)] transition-transform duration-200 ${openDropdown === "staff" ? "rotate-180" : ""}`} />
+                      </button>
+                      
+                      {openDropdown === "staff" && (
+                        <div className="absolute z-10 mt-2 w-full max-h-60 overflow-y-auto rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1.5 shadow-xl shadow-[rgba(0,0,0,0.15)] ring-1 ring-black/5 animate-in fade-in slide-in-from-top-1">
+                          {staffList.map((s) => (
+                            <button
+                              key={s.id}
+                              type="button"
+                              onClick={() => {
+                                setStaffId(s.id);
+                                setOpenDropdown(null);
+                              }}
+                              className={`w-full text-left px-4 py-2.5 text-sm transition-colors flex items-center justify-between group ${
+                                staffId === s.id 
+                                  ? "bg-[var(--accent-brand)]/10 text-[var(--accent-brand)] font-bold" 
+                                  : "text-[var(--text-primary)] hover:bg-[var(--bg-base)] font-medium"
+                              }`}
+                            >
+                              <span>{s.name}</span>
+                              {staffId === s.id && <Check className="h-4 w-4" />}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                   )}
                 </label>
                 <label className="block space-y-1">

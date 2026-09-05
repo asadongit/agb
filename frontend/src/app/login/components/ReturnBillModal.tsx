@@ -104,7 +104,7 @@ export function ReturnBillModal({
           {/* Header */}
           <div className="text-center pb-4 border-b border-[var(--border-subtle)] mb-4">
             <h2 className="font-display text-lg font-black uppercase tracking-wide text-[var(--text-primary)]">
-              {restaurant?.name || "APNAGREEN BASKET"}
+              {restaurant?.name || "ApnaGreen Basket"}
             </h2>
             <p className="text-[11px] text-[var(--text-secondary)] mt-0.5 uppercase tracking-wider font-semibold">
               PURCHASE RETURN BILL / DEBIT NOTE

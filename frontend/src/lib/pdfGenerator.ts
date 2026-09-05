@@ -167,9 +167,9 @@ export async function generateReceiptPDF(
 
   const rawStoreName =
     getOutletField("name") ||
-    (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "ApnaGreen Basket" ? restaurantName : null) ||
-    "APNAGREEN BASKET";
-  const storeName = rawStoreName.toUpperCase();
+    (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "ApnaGreen Basket" && restaurantName !== "APNAGREEN BASKET" ? restaurantName : null) ||
+    "ApnaGreen Basket";
+  const storeName = rawStoreName;
 
   doc.setFont("courier", "bold");
   doc.setFontSize(11);
@@ -836,7 +836,7 @@ export interface ReturnPdfData {
 
 export async function generateReturnReceiptPDF(
   returnData: ReturnPdfData,
-  restaurantName: string = "APNAGREEN BASKET",
+  restaurantName: string = "ApnaGreen Basket",
   storeDetailsOrAction?: any,
   actionOpt: "download" | "view" = "download"
 ) {
@@ -908,9 +908,9 @@ export async function generateReturnReceiptPDF(
 
   const rawStoreName =
     getOutletField("name") ||
-    (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "APNAGREEN BASKET" ? restaurantName : null) ||
-    "APNAGREEN BASKET";
-  const storeName = rawStoreName.toUpperCase();
+    (restaurantName && restaurantName !== "Outlet Receipt" && restaurantName !== "ApnaGreen Basket" && restaurantName !== "APNAGREEN BASKET" ? restaurantName : null) ||
+    "ApnaGreen Basket";
+  const storeName = rawStoreName;
 
   doc.setFont("courier", "bold");
   doc.setFontSize(11);
@@ -1281,7 +1281,7 @@ function drawHeader(doc: any, restaurant: any, title: string, dateRangeLabel: st
   
   doc.setTextColor(255, 255, 255);
 
-  const resName = (restaurant?.name || "Apnagreen Basket").toUpperCase();
+  const resName = restaurant?.name || "ApnaGreen Basket";
 
   // Left Column
   doc.setFontSize(16);

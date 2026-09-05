@@ -11,7 +11,6 @@ class RoleEnum(str, enum.Enum):
     MANAGER = "MANAGER"
     FLOOR_STAFF = "FLOOR_STAFF"
     CASHIER = "CASHIER"
-    WAITER = "WAITER"
     DELIVERY_BOY = "DELIVERY_BOY"
     STAFF = "STAFF"
 
