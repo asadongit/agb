@@ -123,7 +123,11 @@ async def create_manual_bill(
         if item_in.unit_price is not None:
             price = Decimal(str(item_in.unit_price))
         elif getattr(item_in, "pricing_type", "RETAIL") == "WHOLESALE" and menu_item.wholesale_price is not None:
-            price = Decimal(str(menu_item.wholesale_price))
+            w_price = Decimal(str(menu_item.wholesale_price))
+            if menu_item.is_on_offer and menu_item.offer_price is not None and menu_item.offer_price > Decimal("0.00"):
+                price = min(w_price, menu_item.offer_price)
+            else:
+                price = w_price
         else:
             price = Decimal(str(menu_item.resolve_price(_evening_active)))
 
@@ -258,6 +262,11 @@ async def update_manual_bill(
             await db.delete(existing)
         await db.flush()
 
+        # Fetch outlet's evening price toggle once
+        from app.models.outlet import Outlet as OutletModel
+        _outlet_result = await db.execute(select(OutletModel.evening_price_active).where(OutletModel.id == outlet_id))
+        _evening_active = _outlet_result.scalar_one_or_none() or False
+
         subtotal = Decimal("0.00")
         total_tax = Decimal("0.00")
         for item_in in data.items:
@@ -268,9 +277,13 @@ async def update_manual_bill(
                 price = Decimal(str(item_in.unit_price))
             elif menu_item:
                 if getattr(item_in, "pricing_type", "RETAIL") == "WHOLESALE" and menu_item.wholesale_price is not None:
-                    price = Decimal(str(menu_item.wholesale_price))
+                    w_price = Decimal(str(menu_item.wholesale_price))
+                    if menu_item.is_on_offer and menu_item.offer_price is not None and menu_item.offer_price > Decimal("0.00"):
+                        price = min(w_price, menu_item.offer_price)
+                    else:
+                        price = w_price
                 else:
-                    price = Decimal(str(menu_item.price))
+                    price = Decimal(str(menu_item.resolve_price(_evening_active)))
             else:
                 price = Decimal("0.00")
 

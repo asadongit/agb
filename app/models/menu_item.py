@@ -8,7 +8,8 @@ import uuid
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
-from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text
+from datetime import datetime, timezone
+from sqlalchemy import Boolean, Enum, ForeignKey, Integer, Numeric, String, Text, DateTime
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -74,6 +75,9 @@ class MenuItem(Base, TimestampMixin):
     offer_label: Mapped[str | None] = mapped_column(
         String(255), nullable=True
     )
+    offer_expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     mrp: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
     )
@@ -91,10 +95,19 @@ class MenuItem(Base, TimestampMixin):
     )
 
     @property
+    def is_offer_active(self) -> bool:
+        if not self.is_on_offer:
+            return False
+        if self.offer_expires_at is not None:
+            if datetime.now(timezone.utc) >= self.offer_expires_at:
+                return False
+        return True
+
+    @property
     def effective_price(self) -> Decimal:
         """Legacy property for backward compatibility."""
-        if self.is_on_offer and self.offer_price is not None and self.offer_price > Decimal("0.00"):
-            return self.offer_price
+        if self.is_offer_active and self.offer_price is not None and self.offer_price > Decimal("0.00"):
+            return min(self.offer_price, self.price)
         return self.price
 
     def base_price(self, evening_active: bool = False) -> Decimal:
@@ -104,10 +117,11 @@ class MenuItem(Base, TimestampMixin):
         return self.price
 
     def resolve_price(self, evening_active: bool = False) -> Decimal:
-        """Compute the final checkout price. Offer price is the absolute highest priority."""
-        if self.is_on_offer and self.offer_price is not None and self.offer_price > Decimal("0.00"):
-            return self.offer_price
-        return self.base_price(evening_active)
+        """Compute the final checkout price. Returns the lower of base price and offer price."""
+        b_price = self.base_price(evening_active)
+        if self.is_offer_active and self.offer_price is not None and self.offer_price > Decimal("0.00"):
+            return min(self.offer_price, b_price)
+        return b_price
 
     # ── Dual pricing fields ──────────────────────────────────────────
     # WEIGHT_BASED: price is ₹ per kg/g, quantity entered as weight

@@ -74,7 +74,7 @@ async def create_order(
     has_flagged_item = False
 
     for item_req in data.items:
-        unit_price, is_verif, item_name, tax_rate, tax_category = await _compute_unit_price(
+        unit_price, mrp, is_verif, item_name, tax_rate, tax_category = await _compute_unit_price(
             db, outlet.id, item_req
         )
         # Strict online order stock cap validation (non-staff self-checkout)
@@ -102,6 +102,7 @@ async def create_order(
             added_by_staff_id=getattr(item_req, "added_by_staff_id", None),
             quantity=item_req.quantity,
             unit_price=unit_price,
+            mrp=mrp,
             item_name=item_name,
             tax_rate=tax_rate,
             tax_category=tax_category,
@@ -147,7 +148,7 @@ async def _compute_unit_price(
     db: AsyncSession,
     outlet_id: uuid.UUID,
     item_req: OrderItemRequest,
-) -> tuple[Decimal, bool, str, Decimal | None, str | None]:
+) -> tuple[Decimal, Decimal | None, bool, str, Decimal | None, str | None]:
     """
     Compute unit price, verification flag, item name, tax rate & category.
     unit_price = MenuItem.price + MenuItemVariant.price_delta (if variant selected)
@@ -172,6 +173,7 @@ async def _compute_unit_price(
     evening_active = outlet_result.scalar_one_or_none() or False
 
     price = menu_item.resolve_price(evening_active)
+    mrp = menu_item.mrp
     is_verif = getattr(menu_item, "is_verification_required", False)
     item_name = menu_item.name
     tax_rate = getattr(menu_item, "tax_rate", Decimal("0.00"))
@@ -192,9 +194,11 @@ async def _compute_unit_price(
                 detail=f"Variant {item_req.variant_id} not found or unavailable",
             )
         price += variant.price_delta
+        if mrp is not None:
+            mrp += variant.price_delta
         item_name = f"{menu_item.name} ({variant.name})"
 
-    return price, is_verif, item_name, tax_rate, tax_category
+    return price, mrp, is_verif, item_name, tax_rate, tax_category
 
 
 async def transition_order_status(

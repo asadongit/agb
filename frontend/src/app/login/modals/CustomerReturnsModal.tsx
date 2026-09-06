@@ -58,6 +58,15 @@ export function CustomerReturnsModal({
   // Selected Bill for bill-referenced return
   const [selectedBill, setSelectedBill] = useState<ManualBill | null>(null);
 
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   // Return quantities for bill items: item_id -> quantity to return
   const [returnItemsMap, setReturnItemsMap] = useState<Record<string, number>>({});
   const [returnReason, setReturnReason] = useState("DEFECTIVE_PRODUCT");
@@ -237,6 +246,7 @@ export function CustomerReturnsModal({
       setCustomerSearch("");
       setInvoiceSearch("");
       setLookupTab("USER_HISTORY");
+      setError(null);
     }
   }, [isOpen]);
 
@@ -303,7 +313,7 @@ export function CustomerReturnsModal({
       }));
 
       if (returnItemsPayload.length === 0) {
-        alert("Please select at least one item to return.");
+        setError("Please select at least one item to return.");
         return;
       }
 
@@ -336,7 +346,7 @@ export function CustomerReturnsModal({
     } else {
       // Direct Unbilled Return
       if (directReturnItems.length === 0) {
-        alert("Please add at least one store item for direct return.");
+        setError("Please add at least one store item for direct return.");
         return;
       }
 
@@ -379,32 +389,46 @@ export function CustomerReturnsModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 p-4 backdrop-blur-sm animate-in fade-in duration-150">
-      <div className="w-full max-w-5xl rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl flex flex-col h-[88vh] max-h-[92vh]">
-        {/* Modal Header */}
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)] flex-shrink-0">
-          <div className="flex items-center gap-2">
-            <RotateCcw className="h-5 w-5 text-sky-400" />
-            <h3 className="font-display text-lg font-bold text-[var(--text-primary)]">
-              Returns &amp; Exchanges
-            </h3>
-            {returnMode === "DIRECT_UNBILLED" && (
-              <span className="rounded-full bg-amber-500/10 border border-amber-500/30 px-2.5 py-0.5 text-[11px] font-bold text-amber-400">
-                Direct Unbilled Return
-              </span>
-            )}
+    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm p-4 sm:p-6">
+      <div className="flex h-full max-h-[90vh] w-full max-w-6xl flex-col overflow-hidden rounded-2xl bg-[var(--bg-surface)] shadow-2xl border border-[var(--border-subtle)] relative">
+        
+        {/* Header */}
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4 flex-shrink-0">
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-purple-500/10 p-2.5 shadow-sm border border-purple-500/20">
+              <RotateCcw className="h-6 w-6 text-purple-400" />
+            </div>
+            <div>
+              <h2 className="font-display text-xl font-bold tracking-tight text-[var(--text-primary)]">Customer Returns & Exchanges</h2>
+              <p className="text-xs text-[var(--text-muted)] font-mono mt-1 tracking-wide">
+                Process returns, issue store credit, or direct exchange.
+              </p>
+            </div>
           </div>
           <button
-            type="button"
             onClick={onClose}
-            className="p-1 rounded-lg hover:bg-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+            className="rounded-xl p-2 text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition"
           >
-            <X className="h-5 w-5" />
+            <X className="h-6 w-6" />
           </button>
         </div>
 
-        {/* Modal Content Grid: Fixed Containers */}
-        <div className="flex-1 overflow-hidden grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)]">
+        {error && (
+          <div className="bg-rose-500/10 border-b border-rose-500/30 px-4 py-2.5 flex items-center justify-between text-sm font-bold text-rose-500 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+                <X className="h-3.5 w-3.5" />
+              </span>
+              {error}
+            </div>
+            <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+              Dismiss
+            </button>
+          </div>
+        )}
+
+        {/* Content Body */}
+        <div className="flex flex-1 overflow-hidden min-h-0 bg-[var(--bg-body)] grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)]">
           {/* Left Column: Fixed Header/Tabs/Search, Only Middle Box Scrollable */}
           <div className="lg:col-span-6 p-5 flex flex-col h-full overflow-hidden space-y-4">
             {/* 3 Lookup Options Tabs */}

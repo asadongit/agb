@@ -45,6 +45,13 @@ export function CustomerServicesTab({
   const [isEditCustomerModalOpen, setIsEditCustomerModalOpen] = useState(false);
   const [customerToEdit, setCustomerToEdit] = useState<Customer | null>(null);
 
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   const fetchCustomers = async () => {
     try {
       setIsLoading(true);
@@ -121,7 +128,7 @@ export function CustomerServicesTab({
       }
       await fetchCustomers();
     } catch (err: any) {
-      alert(err.message || "Failed to delete customer.");
+      setError(err.message || "Failed to delete customer.");
     }
   };
 
@@ -130,6 +137,20 @@ export function CustomerServicesTab({
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-3 flex items-center justify-between text-sm font-bold text-rose-500">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+              <Trash2 className="h-4 w-4" />
+            </span>
+            {error}
+          </div>
+          <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header Toolbar & Subtabs Navigation */}
       <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>

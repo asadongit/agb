@@ -162,6 +162,7 @@ export interface MenuItemFormState {
   is_verification_required: boolean;
   offer_price: string;
   offer_label: string;
+  offer_expires_at?: string | null;
   mrp: string;
   tax_category: string;
   tax_rate: string;
@@ -179,6 +180,7 @@ export interface OfferFormState {
   is_on_offer: boolean;
   offer_price: string;
   offer_label: string;
+  expires_at_midnight: boolean;
 }
 
 export interface StaffFormState {

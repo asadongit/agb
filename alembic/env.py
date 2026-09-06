@@ -13,7 +13,7 @@ from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from app.config import get_settings
-from app.database import Base
+from app.database import Base, get_db_connection_args
 
 # Import all models so Base.metadata has everything for autogenerate
 import app.models  # noqa: F401
@@ -23,26 +23,11 @@ settings = get_settings()
 # Alembic Config object
 config = context.config
 
-# Parse and clean DATABASE_URL for asyncpg / SQLite
-db_url = settings.DATABASE_URL
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
-
-connect_args = {}
-if db_url.startswith("sqlite"):
-    connect_args = {"check_same_thread": False}
-else:
-    connect_args = {"ssl": True}
-    # Strip libpq sslmode query parameters which crash asyncpg's connection parser
-    if "?sslmode=" in db_url:
-        db_url = db_url.split("?sslmode=")[0]
-    elif "&sslmode=" in db_url:
-        db_url = db_url.split("&sslmode=")[0]
+parsed_url, engine_kwargs = get_db_connection_args(settings.DATABASE_URL, settings.DEBUG)
+connect_args = engine_kwargs.get("connect_args", {})
 
 # Override sqlalchemy.url from env var
-config.set_main_option("sqlalchemy.url", db_url)
+config.set_main_option("sqlalchemy.url", parsed_url)
 
 # Setup logging
 if config.config_file_name is not None:

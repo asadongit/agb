@@ -29,39 +29,68 @@ convention = {
 
 metadata = MetaData(naming_convention=convention)
 
-engine_kwargs: dict = {
-    "echo": settings.DEBUG,
-}
+from urllib.parse import urlparse, parse_qs, urlunparse, urlencode
 
-db_url = settings.DATABASE_URL
-if db_url.startswith("postgres://"):
-    db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
-elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
-    db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
+def get_db_connection_args(raw_url: str, is_debug: bool = False) -> tuple[str, dict]:
+    """
+    Parses the database URL and generates connection arguments.
+    Handles SQLite, Postgres, and various SSL requirements cleanly.
+    """
+    db_url = raw_url
+    
+    # Normalize URL scheme
+    if db_url.startswith("postgres://"):
+        db_url = db_url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif db_url.startswith("postgresql://") and not db_url.startswith("postgresql+asyncpg://"):
+        db_url = db_url.replace("postgresql://", "postgresql+asyncpg://", 1)
 
-if db_url.startswith("sqlite"):
-    engine_kwargs["connect_args"] = {"check_same_thread": False}
-else:
+    engine_kwargs: dict = {"echo": is_debug}
+    
+    if db_url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+        return db_url, engine_kwargs
+        
     engine_kwargs["pool_pre_ping"] = True
     engine_kwargs["pool_size"] = 10
     engine_kwargs["max_overflow"] = 20
-    # Enable SSL for secure Postgres connections (e.g. Neon, RDS)
-    # Use a permissive SSL context so self-signed certificates are accepted.
-    import ssl as _ssl
-    _pg_ssl_ctx = _ssl.create_default_context()
-    _pg_ssl_ctx.check_hostname = False
-    _pg_ssl_ctx.verify_mode = _ssl.CERT_NONE
-    engine_kwargs["connect_args"] = {"ssl": _pg_ssl_ctx}
+
+    # Parse and strip libpq sslmode query parameters which crash asyncpg's parser
+    parsed = urlparse(db_url)
+    qs = parse_qs(parsed.query)
+    sslmode = qs.pop("sslmode", [None])[0]
     
-    # Strip libpq sslmode query parameters which crash asyncpg's connection parser
-    if "?sslmode=" in db_url:
-        db_url = db_url.split("?sslmode=")[0]
-    elif "&sslmode=" in db_url:
-        db_url = db_url.split("&sslmode=")[0]
+    new_query = urlencode(qs, doseq=True)
+    db_url = urlunparse(parsed._replace(query=new_query))
+
+    if sslmode == "disable":
+        pass  # Local Postgres / No SSL
+    elif sslmode in ["verify-ca", "verify-full"]:
+        # Strict SSL: verifies CA and hostname
+        import ssl as _ssl
+        _pg_ssl_ctx = _ssl.create_default_context()
+        engine_kwargs["connect_args"] = {"ssl": _pg_ssl_ctx}
+    elif sslmode == "require":
+        # Standard 'require': encrypts but does not strictly verify CA/hostname (ideal for RDS)
+        import ssl as _ssl
+        _pg_ssl_ctx = _ssl.create_default_context()
+        _pg_ssl_ctx.check_hostname = False
+        _pg_ssl_ctx.verify_mode = _ssl.CERT_NONE
+        engine_kwargs["connect_args"] = {"ssl": _pg_ssl_ctx}
+    else:
+        # Default behavior (if no sslmode is specified): same as 'require' to safely connect to managed databases
+        import ssl as _ssl
+        _pg_ssl_ctx = _ssl.create_default_context()
+        _pg_ssl_ctx.check_hostname = False
+        _pg_ssl_ctx.verify_mode = _ssl.CERT_NONE
+        engine_kwargs["connect_args"] = {"ssl": _pg_ssl_ctx}
+        
+    return db_url, engine_kwargs
+
+parsed_url, engine_opts = get_db_connection_args(settings.DATABASE_URL, settings.DEBUG)
 
 engine = create_async_engine(
-    db_url,
-    **engine_kwargs,
+    parsed_url,
+    **engine_opts,
 )
 
 async_session_factory = async_sessionmaker(

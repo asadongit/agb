@@ -186,6 +186,15 @@ export function InventoryTab({
   const [manualBarcodeInput, setManualBarcodeInput] = useState("");
   const manualBarcodeRef = useRef<HTMLInputElement>(null);
 
+  const [localError, setLocalError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (localError) {
+      const timer = setTimeout(() => setLocalError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [localError]);
+
   // Global Barcode Listener for Inventory Tab
   useBarcodeScanner({
     onScan: (barcode) => {
@@ -258,6 +267,20 @@ export function InventoryTab({
 
   return (
     <div className="space-y-6">
+      {localError && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-3 flex items-center justify-between text-sm font-bold text-rose-500">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+              <X className="h-4 w-4" />
+            </span>
+            {localError}
+          </div>
+          <button type="button" onClick={() => setLocalError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+            Dismiss
+          </button>
+        </div>
+      )}
+      
       {/* Top Stats Banner */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-sm">
@@ -658,7 +681,7 @@ export function InventoryTab({
                                     try {
                                       if (deleteInventoryItem) await deleteInventoryItem(item.id);
                                     } catch (err: any) {
-                                      alert(err.message || "Failed to delete item.");
+                                      setLocalError(err.message || "Failed to delete item.");
                                     }
                                   }
                                 }}
@@ -1097,7 +1120,7 @@ export function InventoryTab({
                 await deleteBatch(b.id);
                 closeBatchDrawer?.();
               } catch (err: any) {
-                alert(err.message || "Failed to delete batch");
+                setLocalError(err.message || "Failed to delete batch");
               }
             }
           }}

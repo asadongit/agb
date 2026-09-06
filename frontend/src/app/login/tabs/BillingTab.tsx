@@ -84,6 +84,15 @@ export function BillingTab({
   const [successReturnData, setSuccessReturnData] = useState<any | null>(null);
   const [showReturnSuccessModal, setShowReturnSuccessModal] = useState(false);
   const [showDenomWidget, setShowDenomWidget] = useState(false);
+
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
   
   // Global Keyboard Shortcuts
   useEffect(() => {
@@ -158,9 +167,10 @@ export function BillingTab({
       setDrawerTxModalOpen(false);
       setDrawerTxNotes("");
       setDrawerTxDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
-      void fetchLiveDrawer();
+      await fetchLiveDrawer();
+      setDrawerTxModalOpen(false);
     } catch (err: any) {
-      alert(err.message || "Failed to process drawer transaction");
+      setError(err.message || "Failed to process drawer transaction");
     } finally {
       setIsSubmittingTx(false);
     }
@@ -175,14 +185,28 @@ export function BillingTab({
       setSuccessReturnData(res);
       setReturnsModalOpen(false);
       setShowReturnSuccessModal(true);
-      void loadBillingData();
+      setReturnsModalOpen(false);
     } catch (err: any) {
-      alert(err instanceof Error ? err.message : "Failed to process return.");
+      setError(err instanceof Error ? err.message : "Failed to process return.");
     }
   };
 
   return (
     <div className="space-y-6">
+      {error && (
+        <div className="bg-rose-500/10 border border-rose-500/30 rounded-xl px-4 py-3 flex items-center justify-between text-sm font-bold text-rose-500">
+          <div className="flex items-center gap-2">
+            <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+              <ShieldAlert className="h-4 w-4" />
+            </span>
+            {error}
+          </div>
+          <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Header & Control Bar */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[var(--border-subtle)] pb-4">
         <div>

@@ -1,8 +1,9 @@
 "use client";
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { Barcode, CreditCard, Minus, Moon, Plus, Receipt, ScanLine, Search, Trash2, X } from "lucide-react";
+import { Barcode, CreditCard, Minus, Moon, Plus, Receipt, ScanLine, Search, Trash2, X, Flame, Edit3, CheckCircle2 } from "lucide-react";
 import type { AdminMenuItem, AdminVariant } from "../adminTypes";
+import { useAdminAuth } from "../hooks/useAdminAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 
 import { apiRequest } from "../adminUtils";
@@ -38,6 +39,7 @@ type CreateBillDrawerProps = {
   handleCreateBill: (instantPayment: boolean) => Promise<void>;
   eveningPriceActive?: boolean;
   restaurant?: import("@/app/admin/adminTypes").RestaurantProfile | null;
+  onQuickEditOffer?: (itemId: string, updates: Partial<AdminMenuItem>) => Promise<void>;
 };
 
 function CartItemQuantityInput({
@@ -98,7 +100,11 @@ export function CreateBillDrawer({
   handleCreateBill,
   eveningPriceActive = false,
   restaurant,
+  onQuickEditOffer,
 }: CreateBillDrawerProps) {
+  const { isAdminRole } = useAdminAuth();
+  const isPrivileged = isAdminRole;
+
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
   const phoneInputRef = useRef<HTMLInputElement>(null);
@@ -115,6 +121,13 @@ export function CreateBillDrawer({
   const [showCustomCalendar, setShowCustomCalendar] = useState(false);
   const [insightsModalOpen, setInsightsModalOpen] = useState(false);
   const [isFetchingAnalytics, setIsFetchingAnalytics] = useState(false);
+
+  // Inline Offer Edit State
+  const [inlineEditingOfferId, setInlineEditingOfferId] = useState<string | null>(null);
+  const [inlineOfferActive, setInlineOfferActive] = useState(false);
+  const [inlineOfferPrice, setInlineOfferPrice] = useState("");
+  const [inlineOfferSaving, setInlineOfferSaving] = useState(false);
+  const inlineInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -356,11 +369,19 @@ export function CreateBillDrawer({
     const eveningPriceNum = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
     const retailPriceNum = (eveningPriceActive && eveningPriceNum > 0) ? eveningPriceNum : rawPriceNum;
     const wholesalePriceNum = item.wholesale_price ? parseFloat(item.wholesale_price) : null;
-    const activePriceNum = (pricingMode === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
+    let activePriceNum = (pricingMode === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
+    if (item.is_on_offer && item.offer_price) {
+      const offerPriceNum = parseFloat(String(item.offer_price));
+      if (offerPriceNum > 0 && offerPriceNum < activePriceNum) {
+        activePriceNum = offerPriceNum;
+      }
+    }
     const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
 
     const variantPriceNum = v ? activePriceNum + (parseFloat(v.price_delta) || 0) : activePriceNum;
-    const itemMrpNum = item.mrp ? parseFloat(String(item.mrp)) + (v ? parseFloat(v.price_delta) || 0 : 0) : variantPriceNum;
+    // Fall back to the original retail price if MRP isn't defined, so the discount calculation isn't zeroed out
+    const baseRetailFallback = v ? rawPriceNum + (parseFloat(v.price_delta) || 0) : rawPriceNum;
+    const itemMrpNum = item.mrp ? parseFloat(String(item.mrp)) + (v ? parseFloat(v.price_delta) || 0 : 0) : baseRetailFallback;
     const itemTaxRateNum = taxRate;
     const itemName = v ? `${item.name} (${v.name})` : item.name;
 
@@ -388,7 +409,41 @@ export function CreateBillDrawer({
         },
       ];
     });
-  }, [eveningPriceActive, pricingMode]);
+  }, [eveningPriceActive, pricingMode, setDraftCartItems]);
+
+  // Sync draft cart prices if menu items are updated (e.g. quick edit offer)
+  useEffect(() => {
+    setDraftCartItems((prev) => {
+      let hasChanges = false;
+      const updated = prev.map((ci) => {
+        const item = menuItems.find((m) => m.id === ci.menu_item_id);
+        if (!item) return ci;
+
+        const rawPriceNum = parseFloat(item.price) || 0;
+        const eveningPriceNum = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
+        const retailPriceNum = (eveningPriceActive && eveningPriceNum > 0) ? eveningPriceNum : rawPriceNum;
+        const wholesalePriceNum = item.wholesale_price ? parseFloat(item.wholesale_price) : null;
+        let activePriceNum = (ci.pricing_type === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
+        
+        if (item.is_on_offer && item.offer_price) {
+          const offerPriceNum = parseFloat(String(item.offer_price));
+          if (offerPriceNum > 0 && offerPriceNum < activePriceNum) {
+            activePriceNum = offerPriceNum;
+          }
+        }
+        
+        const v = ci.variant_id ? variantsByItem[item.id]?.find(variant => variant.id === ci.variant_id) : undefined;
+        const variantPriceNum = v ? activePriceNum + (parseFloat(v.price_delta) || 0) : activePriceNum;
+
+        if (variantPriceNum !== ci.unit_price && !ci.is_complimentary) {
+          hasChanges = true;
+          return { ...ci, unit_price: variantPriceNum };
+        }
+        return ci;
+      });
+      return hasChanges ? updated : prev;
+    });
+  }, [menuItems, eveningPriceActive, variantsByItem, setDraftCartItems]);
 
   if (!isOpen) return null;
 
@@ -519,8 +574,14 @@ export function CreateBillDrawer({
                 const eveningPriceNum = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
                 const retailPriceNum = (eveningPriceActive && eveningPriceNum > 0) ? eveningPriceNum : rawPriceNum;
                 const wholesalePriceNum = item.wholesale_price ? parseFloat(item.wholesale_price) : null;
-                const activePriceNum = (pricingMode === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
-                const mrpVal = item.mrp ? parseFloat(String(item.mrp)) : 0;
+                let activePriceNum = (pricingMode === "WHOLESALE" && wholesalePriceNum !== null) ? wholesalePriceNum : retailPriceNum;
+                if (item.is_on_offer && item.offer_price) {
+                  const offerPriceNum = parseFloat(String(item.offer_price));
+                  if (offerPriceNum > 0 && offerPriceNum < activePriceNum) {
+                    activePriceNum = offerPriceNum;
+                  }
+                }
+                const mrpVal = item.mrp ? parseFloat(String(item.mrp)) : rawPriceNum;
                 const hasDiscount = mrpVal > activePriceNum;
                 const discountPercent = hasDiscount ? Math.round(((mrpVal - activePriceNum) / mrpVal) * 100) : 0;
                 const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
@@ -550,11 +611,15 @@ export function CreateBillDrawer({
                             {discountPercent}% OFF
                           </span>
                         )}
-                        {eveningPriceActive && item.evening_price && parseFloat(String(item.evening_price)) > 0 && (
+                        {item.is_on_offer && item.offer_price && parseFloat(String(item.offer_price)) === activePriceNum ? (
+                          <span title={`Special Offer Active: ₹${parseFloat(String(item.offer_price)).toFixed(2)}`}>
+                            <Flame className="h-3.5 w-3.5 text-orange-400 fill-orange-400/20 shrink-0 cursor-pointer" />
+                          </span>
+                        ) : eveningPriceActive && item.evening_price && parseFloat(String(item.evening_price)) === activePriceNum ? (
                           <span title={`Evening Price Active: ₹${parseFloat(String(item.evening_price)).toFixed(2)}`}>
                             <Moon className="h-3.5 w-3.5 text-amber-400 fill-amber-400/20 shrink-0 cursor-pointer" />
                           </span>
-                        )}
+                        ) : null}
                         {taxRate > 0 && (
                           <span className="text-[var(--text-muted)] text-[10px]">
                             GST {taxRate}%
@@ -562,30 +627,120 @@ export function CreateBillDrawer({
                         )}
                       </div>
 
-                      {cartQtyForItem > 0 && (
-                        <span className="rounded-md bg-sky-500 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">
-                          In Cart: {cartQtyForItem}
-                        </span>
-                      )}
-                    </div>
-
-                    {/* Product Title & Pricing (Enlarged text-sm font-bold with line-clamp-2) */}
-                    <div className="flex items-start justify-between gap-2 my-auto">
-                      <h4 className="font-extrabold text-xl text-[var(--text-primary)] group-hover:text-sky-400 transition leading-snug line-clamp-2 break-words flex-1 min-w-0">
-                        {item.name}
-                      </h4>
-
-                      <div className="flex flex-col items-end flex-shrink-0">
-                        <span className={`font-mono text-base font-black ${pricingMode === "WHOLESALE" && wholesalePriceNum !== null ? "text-purple-400" : "text-sky-400"}`}>
-                          ₹{activePriceNum.toFixed(2)}
-                        </span>
-                        {hasDiscount && (
-                          <span className="font-mono text-[10px] text-[var(--text-muted)] line-through">
-                            MRP ₹{mrpVal.toFixed(2)}
+                      <div className="flex items-center gap-1.5">
+                        {isPrivileged && (
+                          <button 
+                            type="button" 
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setInlineEditingOfferId(item.id);
+                              setInlineOfferActive(item.is_on_offer ?? false);
+                              setInlineOfferPrice(item.offer_price ? String(item.offer_price) : "");
+                              setTimeout(() => inlineInputRef.current?.focus(), 100);
+                            }}
+                            className="p-1 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-amber-500 hover:border-amber-500/50 shadow-sm transition-all flex items-center justify-center"
+                            title="Quick Edit Offer"
+                          >
+                            <Edit3 className="h-3 w-3" />
+                          </button>
+                        )}
+                        {cartQtyForItem > 0 && (
+                          <span className="rounded-md bg-sky-500 px-1.5 py-0.5 font-mono text-[10px] font-bold text-white shadow-xs">
+                            In Cart: {cartQtyForItem}
                           </span>
                         )}
                       </div>
                     </div>
+
+                    {inlineEditingOfferId === item.id ? (
+                      <div className="absolute inset-0 z-20 flex flex-col rounded-md bg-[var(--bg-surface-elevated)] p-3 shadow-2xl border-2 border-amber-500" onClick={(e) => e.stopPropagation()}>
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-bold text-[var(--text-primary)]">Quick Edit Offer</span>
+                          <button onClick={() => setInlineEditingOfferId(null)} className="p-0.5 text-[var(--text-muted)] hover:text-[var(--text-primary)]"><X className="h-4 w-4"/></button>
+                        </div>
+                        <label className="flex items-center gap-2 cursor-pointer mb-2">
+                          <input type="checkbox" checked={inlineOfferActive} onChange={e => setInlineOfferActive(e.target.checked)} className="rounded border-[var(--border-strong)] text-amber-500 focus:ring-amber-500 h-4 w-4" />
+                          <span className="text-xs font-semibold">Active Offer</span>
+                        </label>
+                        {inlineOfferActive && (
+                          <div className="flex items-center gap-1 mb-2">
+                            <span className="text-sm font-mono font-bold text-[var(--text-muted)]">₹</span>
+                            <input
+                              ref={inlineInputRef}
+                              type="number"
+                              value={inlineOfferPrice}
+                              onChange={e => setInlineOfferPrice(e.target.value)}
+                              placeholder="Price"
+                              className="w-full bg-[var(--bg-surface)] rounded border border-[var(--border-strong)] focus:border-amber-500 outline-none text-sm font-mono font-bold text-amber-500 px-2 py-1"
+                              onKeyDown={(e) => {
+                                if (e.key === 'Enter' && onQuickEditOffer && !inlineOfferSaving) {
+                                  e.preventDefault();
+                                  void (async () => {
+                                    setInlineOfferSaving(true);
+                                    let offerExpiresAt = null;
+                                    const now = new Date();
+                                    const istFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+                                    const istDateString = istFormatter.format(now);
+                                    const midnightIstStr = `${istDateString}T23:59:59.999+05:30`;
+                                    offerExpiresAt = new Date(midnightIstStr).toISOString();
+
+                                    await onQuickEditOffer(item.id, {
+                                      is_on_offer: true,
+                                      offer_price: parseFloat(inlineOfferPrice) || null,
+                                      offer_expires_at: offerExpiresAt as any
+                                    });
+                                    setInlineOfferSaving(false);
+                                    setInlineEditingOfferId(null);
+                                  })();
+                                }
+                              }}
+                            />
+                          </div>
+                        )}
+                        <button
+                          disabled={inlineOfferSaving}
+                          onClick={async () => {
+                            if (!onQuickEditOffer) return;
+                            setInlineOfferSaving(true);
+                            let offerExpiresAt = null;
+                            if (inlineOfferActive) {
+                              const now = new Date();
+                              const istFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+                              const istDateString = istFormatter.format(now);
+                              const midnightIstStr = `${istDateString}T23:59:59.999+05:30`;
+                              offerExpiresAt = new Date(midnightIstStr).toISOString();
+                            }
+                            await onQuickEditOffer(item.id, {
+                              is_on_offer: inlineOfferActive,
+                              offer_price: inlineOfferActive ? (parseFloat(inlineOfferPrice) || null) : null,
+                              offer_expires_at: offerExpiresAt as any
+                            });
+                            setInlineOfferSaving(false);
+                            setInlineEditingOfferId(null);
+                          }}
+                          className="mt-auto flex items-center justify-center gap-1 rounded bg-amber-500 py-1.5 text-xs font-bold text-white hover:bg-amber-600 disabled:opacity-50"
+                        >
+                          {inlineOfferSaving ? "..." : "Save (Till Midnight)"}
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="flex items-start justify-between gap-2 my-auto">
+                        <h4 className="font-extrabold text-xl text-[var(--text-primary)] group-hover:text-sky-400 transition leading-snug line-clamp-2 break-words flex-1 min-w-0 pr-2">
+                          {item.name}
+                        </h4>
+
+                        <div className="flex flex-col items-end flex-shrink-0">
+                          <span className={`font-mono text-base font-black ${pricingMode === "WHOLESALE" && wholesalePriceNum !== null ? "text-purple-400" : "text-sky-400"}`}>
+                            ₹{activePriceNum.toFixed(2)}
+                          </span>
+                          {hasDiscount && (
+                            <span className="font-mono text-[10px] text-[var(--text-muted)] line-through">
+                              MRP ₹{mrpVal.toFixed(2)}
+                            </span>
+                          )}
+                        </div>
+                      </div>
+                    )}
 
                     {/* Variant Selection Area (Only rendered if variants exist) */}
                     {itemVariants.length > 0 && (
@@ -785,7 +940,20 @@ export function CreateBillDrawer({
               ) : (
                 draftCartItems.map((ci, idx) => {
                   const originalItem = menuItems.find(m => m.id === ci.menu_item_id);
-                  const isEveningApplied = eveningPriceActive && ci.pricing_type !== "WHOLESALE" && originalItem?.evening_price && parseFloat(String(originalItem.evening_price)) > 0;
+                  
+                  let isOfferApplied = false;
+                  let isEveningApplied = false;
+                  if (originalItem) {
+                    const variant = ci.variant_id ? variantsByItem[originalItem.id]?.find(v => v.id === ci.variant_id) : undefined;
+                    const variantDelta = variant ? (parseFloat(variant.price_delta) || 0) : 0;
+                    const baseUnit = ci.unit_price - variantDelta;
+                    
+                    if (originalItem.is_on_offer && originalItem.offer_price && parseFloat(String(originalItem.offer_price)) === baseUnit) {
+                      isOfferApplied = true;
+                    } else if (eveningPriceActive && ci.pricing_type !== "WHOLESALE" && originalItem.evening_price && parseFloat(String(originalItem.evening_price)) === baseUnit) {
+                      isEveningApplied = true;
+                    }
+                  }
 
                   return (
                     <div
@@ -793,21 +961,30 @@ export function CreateBillDrawer({
                       className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2 text-xs"
                     >
                       <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
-                        <span className="font-bold text-lg text-[var(--text-primary)]">
+                        <span 
+                          onClick={() => {
+                            setSearchQuery(ci.item_name);
+                            setTimeout(() => searchInputRef.current?.focus(), 0);
+                          }}
+                          className="font-bold text-lg text-[var(--text-primary)] hover:text-sky-400 cursor-pointer transition-colors"
+                          title="Click to search catalog"
+                        >
                           {ci.item_name}
                         </span>
-                        <div className="flex items-center gap-2 font-mono text-[12px] pt-0.5">
+                        <div className="flex items-center gap-2 font-mono text-[16px] pt-0.5">
                           <span className="text-sky-400 font-bold flex items-center gap-1">
                             ₹{ci.unit_price.toFixed(2)}
-                            {isEveningApplied && (
-                              <Moon className="h-3 w-3 text-amber-400 fill-amber-400/20" title="Evening Price Applied" />
-                            )}
+                            {isOfferApplied ? (
+                              <Flame className="h-4 w-4 text-orange-400 fill-orange-400/20" title="Special Offer Applied" />
+                            ) : isEveningApplied ? (
+                              <Moon className="h-4 w-4 text-amber-400 fill-amber-400/20" title="Evening Price Applied" />
+                            ) : null}
                           </span>
                         {ci.mrp && ci.mrp > ci.unit_price && (
-                          <span className="text-[10px] text-gray-400 line-through">MRP: ₹{ci.mrp.toFixed(2)}</span>
+                          <span className="text-[14px] text-gray-400 line-through">MRP: ₹{ci.mrp.toFixed(2)}</span>
                         )}
                         {ci.tax_rate && ci.tax_rate > 0 ? (
-                          <span className="text-[10px] text-emerald-400 font-bold border border-emerald-500/20 bg-emerald-500/10 px-1 rounded">GST {ci.tax_rate}%</span>
+                          <span className="text-[12px] text-emerald-400 font-bold border border-emerald-500/20 bg-emerald-500/10 px-1 rounded">GST {ci.tax_rate}%</span>
                         ) : null}
                       </div>
                     </div>

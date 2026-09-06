@@ -9,7 +9,7 @@
 "use client";
 
 import React from "react";
-import { Image as ImageIcon } from "lucide-react";
+import { Image as ImageIcon, Flame } from "lucide-react";
 import { resolveImageUrl } from "@/lib/api";
 import type { AdminMenuItem } from "../../../adminTypes";
 
@@ -29,10 +29,16 @@ export function ItemPickerPreviewCard({ items }: ItemPickerPreviewCardProps) {
   return (
     <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {items.map((item) => {
-        const mrpVal = item.mrp ? parseFloat(String(item.mrp)) : 0;
         const priceVal = parseFloat(String(item.price)) || 0;
         const eveningPriceVal = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
-        const effectivePrice = eveningPriceVal > 0 ? eveningPriceVal : priceVal;
+        let effectivePrice = eveningPriceVal > 0 ? eveningPriceVal : priceVal;
+        if (item.is_on_offer && item.offer_price) {
+          const offerPriceNum = parseFloat(String(item.offer_price));
+          if (offerPriceNum > 0 && offerPriceNum < effectivePrice) {
+            effectivePrice = offerPriceNum;
+          }
+        }
+        const mrpVal = item.mrp ? parseFloat(String(item.mrp)) : priceVal;
         const hasDiscount = mrpVal > effectivePrice;
         const discPercent = hasDiscount ? Math.round(((mrpVal - effectivePrice) / mrpVal) * 100) : 0;
 
@@ -98,8 +104,9 @@ export function ItemPickerPreviewCard({ items }: ItemPickerPreviewCardProps) {
               )}
 
               {item.is_on_offer && (
-                <span className="inline-flex items-center gap-1 rounded-full bg-purple-500/10 px-2 py-0.5 text-[10px] font-bold text-purple-400 border border-purple-500/30">
-                  Offer: ₹{item.offer_price}
+                <span className="inline-flex items-center gap-1 rounded-full bg-gradient-to-r from-amber-500 to-orange-500 px-2 py-0.5 text-[10px] font-bold text-white shadow-xs">
+                  <Flame className="h-3 w-3" />
+                  {item.offer_label || `Offer: ₹${item.offer_price}`}
                 </span>
               )}
             </div>

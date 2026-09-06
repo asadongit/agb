@@ -89,6 +89,15 @@ export function PaymentModal({
   const [paymentEditMode, setPaymentEditMode] = useState<"ADJUST" | "FULL">("ADJUST");
   const [activeTappingMode, setActiveTappingMode] = useState<"INTAKE" | "RETURN">("INTAKE");
 
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (error) {
+      const timer = setTimeout(() => setError(null), 6000);
+      return () => clearTimeout(timer);
+    }
+  }, [error]);
+
   // Fetch analytics for loyalty points
   useEffect(() => {
     if (isOpen && paymentTargetBill?.customer_phone) {
@@ -120,6 +129,7 @@ export function PaymentModal({
       setSettleDebit(false);
       setPaymentEditMode("ADJUST");
       setActiveTappingMode("INTAKE");
+      setError(null);
     }
   }, [isOpen, paymentTargetBill]);
 
@@ -475,7 +485,7 @@ export function PaymentModal({
     // Validation: Cannot process Udhaar or Store Credit without linking a customer
     const isCustomerLinked = Boolean(paymentTargetBill?.customer_phone);
     if (!isCustomerLinked && (applyCredit > 0 || recordDebit > 0 || recordCredit > 0 || debtSettled > 0 || finalCreditCashedOut > 0)) {
-        alert("Cannot process Udhaar or Store Credit without linking a customer first. Please link a customer to the bill.");
+        setError("Cannot process Udhaar or Store Credit without linking a customer first. Please link a customer to the bill.");
         return;
     }
 
@@ -644,6 +654,20 @@ export function PaymentModal({
             <X className="h-4 w-4" />
           </button>
         </div>
+
+        {error && (
+          <div className="bg-rose-500/10 border-b border-rose-500/30 px-4 py-2.5 flex items-center justify-between text-sm font-bold text-rose-500 flex-shrink-0">
+            <div className="flex items-center gap-2">
+              <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+                <X className="h-3.5 w-3.5" />
+              </span>
+              {error}
+            </div>
+            <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+              Dismiss
+            </button>
+          </div>
+        )}
 
         {/* Modal Body: 2 Columns (Flex-1 min-h-0 overflow-hidden) */}
         <div className="flex-1 min-h-0 grid lg:grid-cols-12 overflow-hidden divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)]">

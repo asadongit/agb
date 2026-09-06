@@ -14,6 +14,7 @@ export type OfferFormState = {
   is_on_offer: boolean;
   offer_price: string;
   offer_label: string;
+  expires_at_midnight: boolean;
 };
 
 type OfferModalProps = {
@@ -138,6 +139,19 @@ export function OfferModal({
                   onChange={(e) => setOfferForm((prev) => ({ ...prev, offer_label: e.target.value }))}
                   placeholder="e.g. 20% OFF, Today's Pick, Combo Deal"
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3.5 py-2.5 text-xs font-semibold"
+                />
+              </label>
+
+              <label className="flex items-center justify-between rounded-xl border border-sky-500/30 bg-sky-500/10 p-3 mt-4 cursor-pointer">
+                <div className="space-y-0.5">
+                  <span className="font-bold text-xs text-sky-400">Expire at Midnight (IST)</span>
+                  <p className="text-[10px] text-[var(--text-muted)]">Automatically turns off this offer at the end of the day</p>
+                </div>
+                <input
+                  type="checkbox"
+                  checked={offerForm.expires_at_midnight}
+                  onChange={(e) => setOfferForm((prev) => ({ ...prev, expires_at_midnight: e.target.checked }))}
+                  className="h-4 w-4 rounded-md border-sky-500/50 text-sky-500 focus:ring-0 accent-sky-500"
                 />
               </label>
             </div>

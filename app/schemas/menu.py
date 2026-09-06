@@ -8,7 +8,10 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import Field, computed_field, field_validator
+from datetime import datetime, timezone
+from decimal import Decimal
+
+from pydantic import Field, computed_field, field_validator, model_validator
 
 from app.models.enums import PricingModeEnum
 from app.schemas.common import BaseResponse, StrictSchema
@@ -30,6 +33,7 @@ class MenuItemCreate(StrictSchema):
     is_verification_required: bool = False
     offer_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     offer_label: str | None = None
+    offer_expires_at: datetime | None = None
     mrp: Decimal | None = Field(None, ge=0, decimal_places=2)
     wholesale_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
@@ -66,6 +70,7 @@ class MenuItemUpdate(StrictSchema):
     is_verification_required: bool | None = None
     offer_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     offer_label: str | None = None
+    offer_expires_at: datetime | None = None
     mrp: Decimal | None = Field(None, ge=0, decimal_places=2)
     wholesale_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
@@ -104,6 +109,7 @@ class MenuItemResponse(BaseResponse):
     is_verification_required: bool = False
     offer_price: Decimal | None = None
     offer_label: str | None = None
+    offer_expires_at: datetime | None = None
     mrp: Decimal | None = None
     wholesale_price: Decimal | None = None
     evening_price: Decimal | None = None
@@ -115,6 +121,15 @@ class MenuItemResponse(BaseResponse):
     variants: list[VariantResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
+
+    @model_validator(mode="after")
+    def mask_expired_offer(self) -> MenuItemResponse:
+        if self.is_on_offer and self.offer_expires_at is not None:
+            if datetime.now(timezone.utc) >= self.offer_expires_at:
+                self.is_on_offer = False
+                self.offer_price = None
+                self.offer_label = None
+        return self
 
 
 # ── MenuItemVariant ──────────────────────────────────────────────────────
@@ -164,9 +179,19 @@ class PublicMenuItem(BaseResponse):
     is_verification_required: bool = False
     offer_price: Decimal | None = None
     offer_label: str | None = None
+    offer_expires_at: datetime | None = None
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = "piece"
     variants: list[PublicVariant] = []
+
+    @model_validator(mode="after")
+    def mask_expired_offer(self) -> PublicMenuItem:
+        if self.is_on_offer and self.offer_expires_at is not None:
+            if datetime.now(timezone.utc) >= self.offer_expires_at:
+                self.is_on_offer = False
+                self.offer_price = None
+                self.offer_label = None
+        return self
 
 
 class PublicCategory(BaseResponse):

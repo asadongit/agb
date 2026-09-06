@@ -46,6 +46,7 @@ export function useMenuManagement({
     is_on_offer: true,
     offer_price: "",
     offer_label: "",
+    expires_at_midnight: false,
   });
   const [isSavingOffer, setIsSavingOffer] = useState(false);
 
@@ -115,6 +116,7 @@ export function useMenuManagement({
             formData.tax_rate && String(formData.tax_rate).trim() !== ""
               ? parseFloat(String(formData.tax_rate))
               : 0,
+          offer_expires_at: formData.offer_expires_at || null,
         };
 
         if (itemId) {
@@ -269,6 +271,7 @@ export function useMenuManagement({
       is_on_offer: item.is_on_offer ?? false,
       offer_price: item.offer_price ? String(item.offer_price) : "",
       offer_label: item.offer_label || "",
+      expires_at_midnight: false,
     });
     setIsOfferModalOpen(true);
   };
@@ -283,6 +286,16 @@ export function useMenuManagement({
     if (!selectedItemForOffer) return;
     try {
       setIsSavingOffer(true);
+      
+      let offerExpiresAt = null;
+      if (offerForm.is_on_offer && offerForm.expires_at_midnight) {
+        const now = new Date();
+        const istFormatter = new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Kolkata', year: 'numeric', month: '2-digit', day: '2-digit' });
+        const istDateString = istFormatter.format(now);
+        const midnightIstStr = `${istDateString}T23:59:59.999+05:30`;
+        offerExpiresAt = new Date(midnightIstStr).toISOString();
+      }
+
       const payload = {
         is_on_offer: offerForm.is_on_offer,
         offer_price:
@@ -293,6 +306,7 @@ export function useMenuManagement({
           offerForm.is_on_offer && offerForm.offer_label && String(offerForm.offer_label).trim() !== ""
             ? String(offerForm.offer_label).trim()
             : null,
+        offer_expires_at: offerExpiresAt,
       };
 
       const updated = await apiRequest<AdminMenuItem>(

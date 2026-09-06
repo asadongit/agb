@@ -613,6 +613,19 @@ export default function AdminDashboardPage() {
         handleCreateBill={billingState.handleCreateBill}
         eveningPriceActive={restaurant?.evening_price_active ?? false}
         restaurant={restaurant}
+        onQuickEditOffer={async (itemId, updates) => {
+          try {
+            const updated = await apiRequest<AdminMenuItem>(`/api/admin/menu-items/${itemId}`, {
+              method: "PATCH",
+              body: JSON.stringify(updates),
+            });
+            menuState.setMenuItems((prev) => prev.map((it) => (it.id === itemId ? updated : it)));
+            setNotice("Special offer updated");
+          } catch (err: any) {
+            setError(err.message || "Failed to quick-edit offer");
+            throw err;
+          }
+        }}
       />
 
       <PaymentModal
