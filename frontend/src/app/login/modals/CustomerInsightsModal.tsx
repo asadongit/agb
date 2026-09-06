@@ -12,6 +12,8 @@ export type CustomerAnalytics = {
   best_categories: { category_name: string; total_quantity: number; total_amount: number }[];
   best_items: { item_name: string; total_quantity: number; total_amount: number }[];
   loyalty_points?: number;
+  credit_balance?: number;
+  extra_detail?: string;
 };
 
 type CustomerInsightsModalProps = {

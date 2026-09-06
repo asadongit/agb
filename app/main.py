@@ -30,14 +30,8 @@ async def lifespan(app: FastAPI):
         from app.models.enums import RoleEnum
         from app.models.user import User
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-            from sqlalchemy import text
-            try:
-                if not settings.DATABASE_URL.startswith("sqlite"):
-                    await conn.execute(text("ALTER TABLE menu_items ADD COLUMN IF NOT EXISTS evening_price NUMERIC(10,2);"))
-            except Exception as e:
-                print(f"[Startup Info] ALTER TABLE menu_items: {e}")
+        # Removed Base.metadata.create_all and raw ALTER TABLE commands.
+        # Alembic will exclusively manage database schema and migrations.
 
         async with async_session_factory() as db:
             result = await db.execute(select(User).where(User.role == RoleEnum.SUPERADMIN))

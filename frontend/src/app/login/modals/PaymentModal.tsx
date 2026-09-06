@@ -83,6 +83,7 @@ export function PaymentModal({
   const [recordCreditAmount, setRecordCreditAmount] = useState<string>("");
   const [autoConvertCredit, setAutoConvertCredit] = useState<boolean>(false);
   const [autoRecordDebitOnShortfall, setAutoRecordDebitOnShortfall] = useState<boolean>(false);
+  const [autoRecordExtraChangeAsDebt, setAutoRecordExtraChangeAsDebt] = useState<boolean>(false);
   const [settleDebit, setSettleDebit] = useState<boolean>(false);
 
   const [paymentEditMode, setPaymentEditMode] = useState<"ADJUST" | "FULL">("ADJUST");
@@ -309,10 +310,10 @@ export function PaymentModal({
     if (effectiveGrandTotalForCollection > 0 && denomTotal <= 0 && !isRestUpiConfirmed && !autoRecordDebitOnShortfall) return false;
 
     // Check if Change Tapping is valid
-    if (changeRequired > 0) {
-      if (autoConvertCredit) {
-        if (changeDenomTotal > changeRequired) return false; // cannot give more cash than required
-      } else {
+    if (changeDenomTotal > changeRequired) {
+      if (!autoRecordExtraChangeAsDebt) return false;
+    } else if (changeDenomTotal < changeRequired) {
+      if (!autoConvertCredit) {
         const manualCredit = parseFloat(recordCreditAmount) || 0;
         if (changeDenomTotal + manualCredit !== changeRequired) return false;
       }
@@ -321,7 +322,7 @@ export function PaymentModal({
     if (denomTotal >= effectiveGrandTotalForCollection) return true;
     if (targetCash >= effectiveGrandTotalForCollection) return true;
     return (isRestUpiConfirmed || autoRecordDebitOnShortfall) && (denomTotal + Math.max(0, effectiveGrandTotalForCollection - denomTotal)) >= effectiveGrandTotalForCollection;
-  }, [selectedPaymentMethod, denomTotal, effectiveGrandTotalForCollection, isRestUpiConfirmed, autoRecordDebitOnShortfall, targetCash, changeRequired, changeDenomTotal, autoConvertCredit, recordCreditAmount]);
+  }, [selectedPaymentMethod, denomTotal, effectiveGrandTotalForCollection, isRestUpiConfirmed, autoRecordDebitOnShortfall, targetCash, changeRequired, changeDenomTotal, autoConvertCredit, recordCreditAmount, autoRecordExtraChangeAsDebt]);
 
   const smartHighlightedChangeDenoms = useMemo(() => {
     if (changeRequired <= 0) return new Set<number>();
@@ -439,6 +440,11 @@ export function PaymentModal({
             recordCredit = remainingChange;
         }
       }
+
+      if (changeDenomTotal > changeRequired && autoRecordExtraChangeAsDebt) {
+        recordDebit += (changeDenomTotal - changeRequired);
+      }
+
       if (effectiveGrandTotalForCollection > denomTotal && autoRecordDebitOnShortfall) {
         const shortfall = effectiveGrandTotalForCollection - denomTotal;
         
@@ -465,6 +471,14 @@ export function PaymentModal({
     if (settleDebit && customerAnalytics && customerAnalytics.credit_balance !== undefined && customerAnalytics.credit_balance < 0) {
       debtSettled += Math.abs(customerAnalytics.credit_balance);
     }
+    
+    // Validation: Cannot process Udhaar or Store Credit without linking a customer
+    const isCustomerLinked = Boolean(paymentTargetBill?.customer_phone);
+    if (!isCustomerLinked && (applyCredit > 0 || recordDebit > 0 || recordCredit > 0 || debtSettled > 0 || finalCreditCashedOut > 0)) {
+        alert("Cannot process Udhaar or Store Credit without linking a customer first. Please link a customer to the bill.");
+        return;
+    }
+
     await handleMarkPaid(finalCash, finalChange, redeemPoints, deliveryCharge, handlingCharge, applyCredit, recordDebit, recordCredit, debtSettled, finalCreditCashedOut);
     // Requirement 4: Once marked paid & settled, clear note denomination selection
     handleResetNotes();
@@ -597,8 +611,8 @@ export function PaymentModal({
   if (!isOpen || !paymentTargetBill) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-[1400px] max-h-[96vh] h-[95vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="w-full h-full max-w-none max-h-none flex flex-col rounded-none border-none bg-[var(--bg-surface)] overflow-hidden">
         {/* Header (Fixed Top flex-shrink-0) */}
         <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)] flex-shrink-0">
           <div className="flex items-center gap-3">
@@ -646,20 +660,79 @@ export function PaymentModal({
                 </span>
               </div>
 
-              {/* Customer & Basket Info */}
+              {/* Customer & Loyalty Points */}
               <div className="grid grid-cols-2 gap-3 text-xs bg-[var(--bg-surface-elevated)] p-2.5 rounded-xl border border-[var(--border-subtle)]">
                 <div>
                   <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">Customer</span>
-                  <span className="font-bold text-[var(--text-primary)]">
+                  <span className="font-bold text-[var(--text-primary)] text-base block mt-0.5">
                     {paymentTargetBill.customer_name || "Walk-In Customer"}
                   </span>
                   {paymentTargetBill.customer_phone && (
-                    <span className="block text-[11px] text-[var(--text-muted)]">{paymentTargetBill.customer_phone}</span>
+                    <span className="block text-sm text-[var(--text-muted)] font-mono">{paymentTargetBill.customer_phone}</span>
                   )}
                 </div>
-                <div>
-                  <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">Basket / Station</span>
-                  <span className="font-bold text-[var(--text-primary)]">{paymentTargetBill.basket_number}</span>
+                
+                <div className="flex flex-col space-y-1 border-l border-[var(--border-subtle)] pl-3">
+                  <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                    <span>Loyalty Points</span>
+                  </div>
+                  {(() => {
+                    const applicableTier = (restaurant?.loyalty_redemption_tiers || []).find(t => 
+                      (customerAnalytics?.loyalty_points || 0) >= t.min_points && 
+                      (t.max_points == null || (customerAnalytics?.loyalty_points || 0) <= t.max_points)
+                    );
+                    const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
+                    const maxBillPercentage = parseFloat(String(restaurant?.loyalty_max_bill_percentage || "100.00"));
+                    const maxAllowedDiscount = (maxBillPercentage / 100) * subtotalAmount;
+                    const pointsRequiredForMax = pointValue > 0 ? Math.ceil(maxAllowedDiscount / pointValue) : 0;
+                    const maxPointsToRedeem = Math.min(customerAnalytics?.loyalty_points || 0, pointsRequiredForMax);
+
+                    if ((customerAnalytics?.loyalty_points || 0) > 0 && pointValue > 0) {
+                      return (
+                        <div className="flex-1 flex flex-col justify-center space-y-1.5">
+                          <div className="flex items-center gap-1.5">
+                            <input
+                              type="number"
+                              min={0}
+                              max={maxPointsToRedeem}
+                              value={redeemPoints || ""}
+                              onChange={(e) => {
+                                const val = parseInt(e.target.value) || 0;
+                                setRedeemPoints(Math.min(val, maxPointsToRedeem));
+                              }}
+                              placeholder="Pts"
+                              className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                            />
+                            <button
+                              type="button"
+                              onClick={() => setRedeemPoints(maxPointsToRedeem)}
+                              className="px-2 py-1 rounded-lg bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[10px] font-bold hover:border-sky-500 transition"
+                            >
+                              Max
+                            </button>
+                          </div>
+                          <div className="text-[12px] text-[var(--text-muted)] font-bold flex justify-between items-center">
+                            <span>Bal: {customerAnalytics?.loyalty_points}</span>
+                            <span className="text-emerald-500">
+                              {redeemPoints > 0 ? `-₹${Math.min(redeemPoints * pointValue, maxAllowedDiscount).toFixed(2)}` : `≈ ₹${(customerAnalytics.loyalty_points! * pointValue).toFixed(2)}`}
+                            </span>
+                          </div>
+                        </div>
+                      );
+                    } else if (customerAnalytics) {
+                       const hasPoints = (customerAnalytics.loyalty_points || 0) > 0;
+                       if (hasPoints) {
+                         return (
+                           <div className="flex-1 flex flex-col items-center justify-center text-xs text-[var(--text-muted)] text-center opacity-70">
+                             <div>Bal: {customerAnalytics.loyalty_points}</div>
+                             <div className="text-[10px] text-rose-400 font-bold">Not enough to redeem</div>
+                           </div>
+                         );
+                       }
+                       return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">No points avail</div>;
+                    }
+                    return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">Link customer</div>;
+                  })()}
                 </div>
               </div>
             </div>
@@ -684,21 +757,21 @@ export function PaymentModal({
                   return (
                     <div
                       key={idx}
-                      className="flex items-center justify-between p-2 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-xs"
+                      className="flex items-center justify-between p-2.5 rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-base"
                     >
                       <div className="flex items-center gap-2 min-w-0 flex-1">
                         <span className="font-bold text-[var(--text-primary)] truncate">
                           {qty}× {item.item_name || item.menu_item?.name || "Item"}
                         </span>
                         {item.is_complimentary && (
-                          <span className="text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-1.5 py-0.2 rounded font-bold">
+                          <span className="text-[10px] bg-purple-500/10 text-purple-400 border border-purple-500/20 px-1.5 py-0.5 rounded font-bold">
                             FREE
                           </span>
                         )}
                       </div>
 
                       <div className="flex items-center gap-6 font-mono">
-                        <span className="text-[var(--text-muted)] line-through text-[11px] w-16 text-right">
+                        <span className="text-[var(--text-muted)] line-through text-sm w-16 text-right">
                           ₹{lineMrpTotal.toFixed(2)}
                         </span>
                         <span className="font-bold text-[var(--text-primary)] w-20 text-right">
@@ -832,9 +905,141 @@ export function PaymentModal({
               )}
             </div>
 
+            {/* Bottom Actions: Delivery, Handling, Wallet */}
+            <div className="flex-shrink-0 grid grid-cols-2 gap-3 mt-3">
+              {/* Box 1: Delivery & Handling (Horizontally Split) */}
+              <div className="flex flex-col p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] shadow-sm">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-2">
+                  <span>Additional Charges</span>
+                </div>
+                <div className="flex gap-2 h-full">
+                  <div className="flex-1 flex flex-col justify-end">
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">Delivery</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={deliveryCharge || ""}
+                      onChange={(e) => setDeliveryCharge(parseFloat(e.target.value) || 0)}
+                      placeholder="₹0.00"
+                      className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                    />
+                  </div>
+                  <div className="flex-1 flex flex-col justify-end">
+                    <label className="block text-[9px] font-bold uppercase tracking-wider text-[var(--text-muted)] mb-1">Handling</label>
+                    <input
+                      type="number"
+                      min="0"
+                      value={handlingCharge || ""}
+                      onChange={(e) => setHandlingCharge(parseFloat(e.target.value) || 0)}
+                      placeholder="₹0.00"
+                      className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                    />
+                  </div>
+                </div>
+              </div>
 
+              {/* Box 2: Customer Wallet */}
+              <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] shadow-sm">
+                <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                  <span>Customer Wallet</span>
+                  {customerAnalytics && customerAnalytics.credit_balance !== undefined && (
+                    (() => {
+                      let bal = customerAnalytics.credit_balance;
+                      
+                      if (settleDebit && customerAnalytics.credit_balance < 0) {
+                        bal += Math.abs(customerAnalytics.credit_balance);
+                      }
+                      
+                      const creditToApply = parseFloat(applyCreditAmount) || 0;
+                      if (creditToApply > 0) {
+                        bal -= creditToApply;
+                      }
 
+                      if (selectedPaymentMethod === "CASH") {
+                        if (changeRequired > changeDenomTotal && autoConvertCredit) {
+                          bal += (changeRequired - changeDenomTotal);
+                        }
+                        if (effectiveGrandTotalForCollection > denomTotal && autoRecordDebitOnShortfall) {
+                          bal -= (effectiveGrandTotalForCollection - denomTotal);
+                        }
+                        if (changeDenomTotal > changeRequired && autoRecordExtraChangeAsDebt) {
+                          bal -= (changeDenomTotal - changeRequired);
+                        }
+                      }
+                      const orig = Number(customerAnalytics.credit_balance) || 0;
+                      const isModified = Math.abs(Number(bal) - orig) > 0.005;
 
+                      if (bal > 0) {
+                        return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-emerald-500'}`}>₹{bal.toFixed(2)} (Cr)</span>
+                      } else if (bal < 0) {
+                        return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-rose-500'}`}>-₹{Math.abs(bal).toFixed(2)} (Dr)</span>
+                      } else {
+                        return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-[var(--text-muted)]'}`}>₹0.00</span>
+                      }
+                    })()
+                  )}
+                </div>
+                {customerAnalytics && customerAnalytics.credit_balance !== undefined ? (
+                  <div className="flex-1 flex flex-col justify-center space-y-2">
+                    {customerAnalytics.credit_balance > 0 ? (
+                      <div className="flex items-center gap-1.5 mt-auto mb-auto">
+                        <input
+                          type="number"
+                          min={0}
+                          max={customerAnalytics.credit_balance}
+                          value={applyCreditAmount}
+                          onChange={(e) => {
+                            const val = parseFloat(e.target.value) || 0;
+                            setApplyCreditAmount(Math.min(val, customerAnalytics.credit_balance!).toString());
+                          }}
+                          placeholder="Apply Cr."
+                          className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] py-1.5 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
+                        />
+                        <div className="flex gap-1.5 flex-1">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplyCreditAmount(Math.min(grandTotalBeforeCredit, customerAnalytics.credit_balance!).toString());
+                            }}
+                            className="flex-1 rounded-lg bg-[var(--bg-surface)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[10px] font-bold hover:border-sky-500 transition whitespace-nowrap"
+                          >
+                            Max
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setApplyCreditAmount(customerAnalytics.credit_balance!.toString());
+                              setActiveTappingMode("RETURN");
+                            }}
+                            className="flex-1 rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/30 text-[10px] font-bold hover:bg-orange-500 hover:text-white transition whitespace-nowrap"
+                          >
+                            Cash Out
+                          </button>
+                        </div>
+                      </div>
+                    ) : customerAnalytics.credit_balance < 0 ? (
+                      <label className="flex items-center justify-between bg-[var(--bg-surface)] px-2 py-1.5 rounded-lg cursor-pointer border border-[var(--border-strong)] hover:border-sky-500/50 transition mt-auto mb-auto">
+                        <span className="text-xs font-bold text-[var(--text-primary)]">Settle Debt</span>
+                        <input 
+                          type="checkbox" 
+                          checked={settleDebit}
+                          onChange={(e) => setSettleDebit(e.target.checked)}
+                          className="rounded border-[var(--border-strong)] bg-[var(--bg-surface)] text-sky-500 focus:ring-sky-500/30 w-3.5 h-3.5"
+                        />
+                      </label>
+                    ) : (
+                       <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
+                         No balance
+                       </div>
+                    )}
+                  </div>
+                ) : (
+                  <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
+                    Link customer
+                  </div>
+                )}
+              </div>
+            </div>
 
           </div>
 
@@ -1040,7 +1245,7 @@ export function PaymentModal({
                       <span>Shortfall / Cash Deficiency:</span>
                       <span>₹{remainingNeeded.toFixed(2)} short</span>
                     </div>
-                    <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
+                    <label className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
                       <input
                         type="checkbox"
                         checked={autoRecordDebitOnShortfall}
@@ -1068,7 +1273,7 @@ export function PaymentModal({
                         })()}
                       </span>
                     </label>
-                    <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
+                    <label className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-sky-500/20">
                       <input
                         type="checkbox"
                         checked={isRestUpiConfirmed}
@@ -1195,13 +1400,33 @@ export function PaymentModal({
                           </div>
                         )}
                         
+                        {changeDenomTotal > changeRequired && (
+                          <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-2.5 mt-2 space-y-1.5 text-xs">
+                            <div className="flex justify-between items-center text-amber-400 font-bold font-mono">
+                              <span>Excess Change Tapped:</span>
+                              <span>₹{(changeDenomTotal - changeRequired).toFixed(2)} extra</span>
+                            </div>
+                            <label className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-amber-500/20">
+                              <input
+                                type="checkbox"
+                                checked={autoRecordExtraChangeAsDebt}
+                                onChange={(e) => setAutoRecordExtraChangeAsDebt(e.target.checked)}
+                                className="rounded h-4 w-4 text-amber-600 focus:ring-amber-500 border-[var(--border-strong)] bg-[var(--bg-surface)]"
+                              />
+                              <span className="leading-tight">
+                                Record extra ₹{(changeDenomTotal - changeRequired).toFixed(2)} as Customer Debt (Udhaar)
+                              </span>
+                            </label>
+                          </div>
+                        )}
+
                         {changeRequired > changeDenomTotal && (
                           <div className="rounded-lg border border-emerald-500/30 bg-emerald-500/10 p-2.5 mt-2 space-y-1.5 text-xs">
                             <div className="flex justify-between items-center text-emerald-400 font-bold font-mono">
                               <span>Cashier Shortfall:</span>
                               <span>₹{(changeRequired - changeDenomTotal).toFixed(2)} short</span>
                             </div>
-                            <label className="flex items-center gap-2 text-[11px] font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-emerald-500/20">
+                            <label className="flex items-center gap-2 text-sm font-bold text-[var(--text-primary)] cursor-pointer pt-1 border-t border-emerald-500/20">
                               <input
                                 type="checkbox"
                                 checked={autoConvertCredit}
@@ -1279,204 +1504,6 @@ export function PaymentModal({
                   {isPaymentValid && <span className="ml-1 opacity-70 font-mono text-[10px] bg-black/20 px-1.5 rounded">↵</span>}
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Bottom 4-Box Grid for Adjustments */}
-        <div className="flex-shrink-0 border-t border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
-          <div className="grid grid-cols-4 gap-3 h-full">
-            {/* 1. Delivery Charge */}
-            <div className="flex flex-col justify-center space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Delivery Charge (₹)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={deliveryCharge || ""}
-                onChange={(e) => setDeliveryCharge(parseFloat(e.target.value) || 0)}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-              />
-            </div>
-
-            {/* 2. Handling Charge */}
-            <div className="flex flex-col justify-center space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
-              <label className="block text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                Handling Charge (₹)
-              </label>
-              <input
-                type="number"
-                min="0"
-                value={handlingCharge || ""}
-                onChange={(e) => setHandlingCharge(parseFloat(e.target.value) || 0)}
-                placeholder="0.00"
-                className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2 py-1.5 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-              />
-            </div>
-
-            {/* 3. Customer Wallet */}
-            <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
-              <div className="flex justify-between items-center text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
-                <span>Customer Wallet</span>
-                {customerAnalytics && customerAnalytics.credit_balance !== undefined && (
-                  (() => {
-                    let bal = customerAnalytics.credit_balance;
-                    
-                    if (settleDebit && customerAnalytics.credit_balance < 0) {
-                      bal += Math.abs(customerAnalytics.credit_balance);
-                    }
-                    
-                    const creditToApply = parseFloat(applyCreditAmount) || 0;
-                    if (creditToApply > 0) {
-                      bal -= creditToApply;
-                    }
-
-                    if (selectedPaymentMethod === "CASH") {
-                      if (changeRequired > changeDenomTotal && autoConvertCredit) {
-                        bal += (changeRequired - changeDenomTotal);
-                      }
-                      if (effectiveGrandTotalForCollection > denomTotal && autoRecordDebitOnShortfall) {
-                        bal -= (effectiveGrandTotalForCollection - denomTotal);
-                      }
-                    }
-                    const orig = Number(customerAnalytics.credit_balance) || 0;
-                    const isModified = Math.abs(Number(bal) - orig) > 0.005;
-
-                    if (bal > 0) {
-                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-emerald-500'}`}>₹{bal.toFixed(2)} (Cr)</span>
-                    } else if (bal < 0) {
-                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-rose-500'}`}>-₹{Math.abs(bal).toFixed(2)} (Dr)</span>
-                    } else {
-                      return <span className={`font-mono text-[20px] transition-colors ${isModified ? 'text-amber-400 font-bold' : 'text-[var(--text-muted)]'}`}>₹0.00</span>
-                    }
-                  })()
-                )}
-              </div>
-              {customerAnalytics && customerAnalytics.credit_balance !== undefined ? (
-                <div className="flex-1 flex flex-col justify-center space-y-2">
-                  {customerAnalytics.credit_balance > 0 ? (
-                    <div className="flex items-center gap-1.5 mt-auto mb-auto">
-                      <input
-                        type="number"
-                        min={0}
-                        max={customerAnalytics.credit_balance}
-                        value={applyCreditAmount}
-                        onChange={(e) => {
-                          const val = parseFloat(e.target.value) || 0;
-                          setApplyCreditAmount(Math.min(val, customerAnalytics.credit_balance!).toString());
-                        }}
-                        placeholder="Apply Cr."
-                        className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-                      />
-                      <div className="flex gap-1.5 flex-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setApplyCreditAmount(Math.min(grandTotalBeforeCredit, customerAnalytics.credit_balance!).toString());
-                          }}
-                          className="flex-1 rounded-lg bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[10px] font-bold hover:border-sky-500 transition whitespace-nowrap"
-                        >
-                          Max
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setApplyCreditAmount(customerAnalytics.credit_balance!.toString());
-                            setActiveTappingMode("RETURN");
-                          }}
-                          className="flex-1 rounded-lg bg-orange-500/10 text-orange-400 border border-orange-500/30 text-[10px] font-bold hover:bg-orange-500 hover:text-white transition whitespace-nowrap"
-                        >
-                          Cash Out
-                        </button>
-                      </div>
-                    </div>
-                  ) : customerAnalytics.credit_balance < 0 ? (
-                    <label className="flex items-center justify-between bg-[var(--bg-surface-elevated)] px-2 py-1.5 rounded-lg cursor-pointer border border-[var(--border-strong)] hover:border-sky-500/50 transition mt-auto mb-auto">
-                      <span className="text-[10px] font-bold text-[var(--text-primary)]">Settle Debt</span>
-                      <input 
-                        type="checkbox" 
-                        checked={settleDebit}
-                        onChange={(e) => setSettleDebit(e.target.checked)}
-                        className="rounded border-[var(--border-strong)] bg-[var(--bg-surface)] text-sky-500 focus:ring-sky-500/30 w-3.5 h-3.5"
-                      />
-                    </label>
-                  ) : (
-                     <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
-                       No balance
-                     </div>
-                  )}
-                </div>
-              ) : (
-                <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">
-                  Link customer
-                </div>
-              )}
-            </div>
-
-            {/* 5. Loyalty */}
-            <div className="flex flex-col space-y-1.5 p-2.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] shadow-sm">
-              <div className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">Loyalty Points</div>
-              {(() => {
-                const sortedTiers = [...(restaurant?.loyalty_redemption_tiers || [])].sort((a, b) => b.min_points - a.min_points);
-                const applicableTier = sortedTiers.find(t => (customerAnalytics?.loyalty_points || 0) >= t.min_points);
-                const pointValue = applicableTier ? (applicableTier.discount_percentage / 100) : 0;
-                const maxBillPercentage = parseFloat(String(restaurant?.loyalty_max_bill_percentage || "100.00"));
-                const maxAllowedDiscount = (maxBillPercentage / 100) * subtotalAmount;
-                const pointsRequiredForMax = pointValue > 0 ? Math.ceil(maxAllowedDiscount / pointValue) : 0;
-                const maxPointsToRedeem = Math.min(customerAnalytics?.loyalty_points || 0, pointsRequiredForMax);
-
-                if ((customerAnalytics?.loyalty_points || 0) > 0 && pointValue > 0) {
-                  return (
-                    <div className="flex-1 flex flex-col justify-center space-y-1.5">
-                      <div className="flex items-center gap-1.5">
-                        <input
-                          type="number"
-                          min={0}
-                          max={maxPointsToRedeem}
-                          value={redeemPoints || ""}
-                          onChange={(e) => {
-                            const val = parseInt(e.target.value) || 0;
-                            setRedeemPoints(Math.min(val, maxPointsToRedeem));
-                          }}
-                          placeholder="Pts"
-                          className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1 px-2 text-xs font-mono font-bold focus:border-sky-500 outline-none"
-                        />
-                        <button
-                          type="button"
-                          onClick={() => setRedeemPoints(maxPointsToRedeem)}
-                          className="px-2 py-1 rounded-lg bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] border border-[var(--border-strong)] text-[9px] font-bold hover:border-sky-500 transition"
-                        >
-                          Max
-                        </button>
-                      </div>
-                      <div className="text-[14px] text-[var(--text-muted)] text-center font-bold space-y-0.5">
-                        <div>
-                          Bal: {customerAnalytics?.loyalty_points} (≈ ₹{(customerAnalytics.loyalty_points! * pointValue).toFixed(2)})
-                        </div>
-                        {redeemPoints > 0 && (
-                          <div className="text-emerald-500 text-lg mt-1">
-                            Applying: -₹{Math.min(redeemPoints * pointValue, maxAllowedDiscount).toFixed(2)}
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  );
-                } else if (customerAnalytics) {
-                   const hasPoints = (customerAnalytics.loyalty_points || 0) > 0;
-                   if (hasPoints) {
-                     return (
-                       <div className="flex-1 flex flex-col items-center justify-center text-[20px] text-[var(--text-muted)] text-center opacity-70">
-                         <div>Bal: {customerAnalytics.loyalty_points}</div>
-                         <div className="text-[18px] text-rose-400 mt-0.5 font-bold">Not enough to redeem</div>
-                       </div>
-                     );
-                   }
-                   return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">No points avail</div>;
-                }
-                return <div className="flex-1 flex items-center justify-center text-[10px] text-[var(--text-muted)] text-center opacity-70">Link customer</div>;
-              })()}
             </div>
           </div>
         </div>

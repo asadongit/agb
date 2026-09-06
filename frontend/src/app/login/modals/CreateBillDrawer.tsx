@@ -33,6 +33,8 @@ type CreateBillDrawerProps = {
   setCustomerName: (name: string) => void;
   customerPhone: string;
   setCustomerPhone: (phone: string) => void;
+  customerExtraDetail: string;
+  setCustomerExtraDetail: (detail: string) => void;
   handleCreateBill: (instantPayment: boolean) => Promise<void>;
   eveningPriceActive?: boolean;
   restaurant?: import("@/app/admin/adminTypes").RestaurantProfile | null;
@@ -91,6 +93,8 @@ export function CreateBillDrawer({
   setCustomerName,
   customerPhone,
   setCustomerPhone,
+  customerExtraDetail,
+  setCustomerExtraDetail,
   handleCreateBill,
   eveningPriceActive = false,
   restaurant,
@@ -174,6 +178,11 @@ export function CreateBillDrawer({
       setCustomerAnalytics(data);
       if (data.customer_name && data.customer_name !== "Walk-In Customer") {
         setCustomerName(data.customer_name);
+      }
+      if (data.extra_detail) {
+        setCustomerExtraDetail(data.extra_detail);
+      } else {
+        setCustomerExtraDetail("");
       }
     } catch {
       /* ignore */
@@ -406,10 +415,10 @@ export function CreateBillDrawer({
 
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-6xl max-h-[95vh] h-[85vh] flex flex-col rounded-3xl border border-[var(--border-strong)] bg-[var(--bg-surface)] overflow-hidden shadow-2xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
+      <div className="w-full h-full max-w-none max-h-none flex flex-col rounded-none border-none bg-[var(--bg-surface)] overflow-hidden">
         {/* Header */}
-        <div className="p-4 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
+        <div className="px-4 py-2 border-b border-[var(--border-subtle)] flex items-center justify-between bg-[var(--bg-surface-elevated)]">
           <div className="flex items-center gap-2">
             <Receipt className="h-5 w-5 text-[var(--accent-brand)]" />
             <h3 className="font-display text-lg font-bold">Create New Manual Bill (POS)</h3>
@@ -424,17 +433,13 @@ export function CreateBillDrawer({
         </div>
 
         {/* Modal Body: 2 Columns */}
-        <div className="flex-1 min-h-0 grid lg:grid-cols-12 divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)] overflow-hidden">
+        <div className="flex-1 min-h-0 grid lg:grid-cols-[35%_65%] divide-y lg:divide-y-0 lg:divide-x divide-[var(--border-subtle)] overflow-hidden">
           {/* Left Column: Product Catalog Picker */}
-          <div className="lg:col-span-7 p-4 space-y-3 flex flex-col h-full overflow-hidden">
+          <div className="p-4 space-y-3 flex flex-col h-full overflow-hidden">
             <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-2 flex-shrink-0">
               <div className="flex items-center gap-2">
-                <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                <span className="text-sm font-bold uppercase tracking-wider text-[var(--text-muted)]">
                   Products Catalog
-                </span>
-                <span className="inline-flex items-center gap-1 rounded-full bg-sky-500/10 px-2 py-0.5 text-[10px] font-bold text-sky-400 border border-sky-500/30">
-                  <ScanLine className="h-3 w-3 animate-pulse" />
-                  Scanner Ready
                 </span>
               </div>
 
@@ -507,7 +512,7 @@ export function CreateBillDrawer({
             </div>
 
             {/* Products Grid (Scrollable list container with fixed boxy card dimensions) */}
-            <div className="grid gap-2.5 grid-cols-2 xl:grid-cols-3 content-start flex-1 min-h-0 overflow-y-auto pr-1">
+            <div className="grid gap-2.5 grid-cols-2 content-start flex-1 min-h-0 overflow-y-auto pr-1">
               {filteredMenuItems.map((item) => {
                 const itemVariants = variantsByItem[item.id] || [];
                 const rawPriceNum = parseFloat(item.price) || 0;
@@ -531,7 +536,7 @@ export function CreateBillDrawer({
                         addItemToCart(item, itemVariants[0]);
                       }
                     }}
-                    className={`group relative rounded-md border p-3 h-[110px] flex flex-col justify-between transition-all duration-150 cursor-pointer select-none ${
+                    className={`group relative rounded-md border p-4 min-h-[140px] h-auto flex flex-col justify-between transition-all duration-150 cursor-pointer select-none ${
                       pricingMode === "WHOLESALE" && wholesalePriceNum !== null
                         ? "border-purple-500/40 bg-purple-500/5 hover:border-purple-500 shadow-xs"
                         : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] hover:border-sky-500 hover:shadow-md"
@@ -566,12 +571,12 @@ export function CreateBillDrawer({
 
                     {/* Product Title & Pricing (Enlarged text-sm font-bold with line-clamp-2) */}
                     <div className="flex items-start justify-between gap-2 my-auto">
-                      <h4 className="font-bold text-sm text-[var(--text-primary)] group-hover:text-sky-400 transition leading-snug line-clamp-2 break-words flex-1 min-w-0">
+                      <h4 className="font-extrabold text-xl text-[var(--text-primary)] group-hover:text-sky-400 transition leading-snug line-clamp-2 break-words flex-1 min-w-0">
                         {item.name}
                       </h4>
 
                       <div className="flex flex-col items-end flex-shrink-0">
-                        <span className={`font-mono text-sm font-black ${pricingMode === "WHOLESALE" && wholesalePriceNum !== null ? "text-purple-400" : "text-sky-400"}`}>
+                        <span className={`font-mono text-base font-black ${pricingMode === "WHOLESALE" && wholesalePriceNum !== null ? "text-purple-400" : "text-sky-400"}`}>
                           ₹{activePriceNum.toFixed(2)}
                         </span>
                         {hasDiscount && (
@@ -610,12 +615,12 @@ export function CreateBillDrawer({
           </div>
 
           {/* Right Column: Draft Bill Summary (Fixed Header, Scrollable List, Fixed Hardcoded Footer) */}
-          <div className="lg:col-span-5 flex flex-col h-full overflow-hidden bg-[var(--bg-surface-elevated)]/20">
+          <div className="flex flex-col h-full overflow-hidden bg-[var(--bg-surface-elevated)]/20">
             {/* Header: Customer Info & Auto-Suggest (Fixed Top) */}
-            <div className="p-4 space-y-3 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 flex-shrink-0">
-              <div className="grid grid-cols-2 gap-3 relative">
+            <div className="p-4 space-y-2 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/40 flex-shrink-0">
+              <div className="grid grid-cols-[1.2fr_1fr_1fr] gap-3 relative">
                 <div className="relative">
-                  <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">
+                  <label className="block text-base font-semibold text-[var(--text-muted)] mb-1">
                     Customer Phone * (Auto-Account)
                   </label>
                   <input
@@ -648,7 +653,7 @@ export function CreateBillDrawer({
                         }
                       }
                     }}
-                    className={`w-full rounded-xl border bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs font-mono text-[var(--text-primary)] focus:outline-none ${
+                    className={`w-full rounded-xl border bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-base font-mono text-[var(--text-primary)] focus:outline-none ${
                       customerPhone.trim() && customerPhone.replace(/\D/g, "").length < 10
                         ? "border-rose-500/60 focus:border-rose-500"
                         : "border-[var(--border-strong)] focus:border-sky-500"
@@ -675,12 +680,12 @@ export function CreateBillDrawer({
                             void fetchCustomerAnalytics(s.phone);
                           }}
                           onMouseEnter={() => setHighlightedSuggestionIndex(i)}
-                          className={`w-full text-left rounded-lg p-2 text-xs transition cursor-pointer flex items-center justify-between ${
+                          className={`w-full text-left rounded-lg p-3 text-lg transition cursor-pointer flex items-center justify-between ${
                             highlightedSuggestionIndex === i ? "bg-[var(--accent-brand)]/20 border border-[var(--accent-brand)]" : "hover:bg-[var(--bg-surface)]"
                           }`}
                         >
                           <span className="font-bold text-[var(--text-primary)]">{s.name}</span>
-                          <span className="font-mono text-[11px] text-[var(--text-muted)]">{s.phone}</span>
+                          <span className="font-mono text-base text-[var(--text-muted)]">{s.phone}</span>
                         </button>
                       ))}
                     </div>
@@ -688,7 +693,7 @@ export function CreateBillDrawer({
                 </div>
 
                 <div>
-                  <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">
+                  <label className="block text-base font-semibold text-[var(--text-muted)] mb-1">
                     Customer Name
                   </label>
                   <input
@@ -696,7 +701,20 @@ export function CreateBillDrawer({
                     placeholder="e.g. Rahul Sharma"
                     value={customerName}
                     onChange={(e) => setCustomerName(e.target.value)}
-                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs text-[var(--text-primary)] focus:border-sky-500 focus:outline-none"
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-base text-[var(--text-primary)] focus:border-sky-500 focus:outline-none"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-base font-semibold text-[var(--text-muted)] mb-1">
+                    Extra Detail
+                  </label>
+                  <input
+                    type="text"
+                    placeholder="e.g. Address"
+                    value={customerExtraDetail}
+                    onChange={(e) => setCustomerExtraDetail(e.target.value)}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-base text-[var(--text-primary)] focus:border-sky-500 focus:outline-none"
                   />
                 </div>
               </div>
@@ -716,6 +734,26 @@ export function CreateBillDrawer({
                         ({customerAnalytics.total_orders} Orders)
                       </span>
                     </div>
+                    {customerAnalytics.credit_balance !== undefined && (
+                      <div className="text-right hidden sm:block">
+                        <span className="text-[10px] uppercase font-bold text-sky-300/80 block">
+                          Wallet Balance
+                        </span>
+                        {customerAnalytics.credit_balance > 0 ? (
+                          <span className="font-mono text-base font-black text-emerald-400">
+                            ₹{customerAnalytics.credit_balance.toFixed(2)} (Cr)
+                          </span>
+                        ) : customerAnalytics.credit_balance < 0 ? (
+                          <span className="font-mono text-base font-black text-rose-400">
+                            -₹{Math.abs(customerAnalytics.credit_balance).toFixed(2)} (Dr)
+                          </span>
+                        ) : (
+                          <span className="font-mono text-base font-black text-sky-400/50">
+                            ₹0.00
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {(customerAnalytics.loyalty_points ?? 0) > 0 && (
                       <div className="text-right">
                         <span className="text-[10px] uppercase font-bold text-amber-400/80 block">
@@ -745,22 +783,31 @@ export function CreateBillDrawer({
                   No items in bill yet. Scan a barcode or click products on the left.
                 </div>
               ) : (
-                draftCartItems.map((ci, idx) => (
-                  <div
-                    key={idx}
-                    className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2 text-xs"
-                  >
-                    <div className="flex-1 min-w-0">
-                      <p className="font-semibold text-[var(--text-primary)] truncate">
-                        {ci.item_name}
-                      </p>
-                      <div className="flex items-center gap-2 font-mono text-[11px]">
-                        <span className="text-[var(--text-muted)]">₹{ci.unit_price.toFixed(2)}</span>
+                draftCartItems.map((ci, idx) => {
+                  const originalItem = menuItems.find(m => m.id === ci.menu_item_id);
+                  const isEveningApplied = eveningPriceActive && ci.pricing_type !== "WHOLESALE" && originalItem?.evening_price && parseFloat(String(originalItem.evening_price)) > 0;
+
+                  return (
+                    <div
+                      key={idx}
+                      className="flex items-center justify-between gap-2 border-b border-[var(--border-subtle)] pb-2 text-xs"
+                    >
+                      <div className="flex-1 min-w-0 flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span className="font-bold text-lg text-[var(--text-primary)]">
+                          {ci.item_name}
+                        </span>
+                        <div className="flex items-center gap-2 font-mono text-[12px] pt-0.5">
+                          <span className="text-sky-400 font-bold flex items-center gap-1">
+                            ₹{ci.unit_price.toFixed(2)}
+                            {isEveningApplied && (
+                              <Moon className="h-3 w-3 text-amber-400 fill-amber-400/20" title="Evening Price Applied" />
+                            )}
+                          </span>
                         {ci.mrp && ci.mrp > ci.unit_price && (
                           <span className="text-[10px] text-gray-400 line-through">MRP: ₹{ci.mrp.toFixed(2)}</span>
                         )}
                         {ci.tax_rate && ci.tax_rate > 0 ? (
-                          <span className="text-[9px] text-emerald-400 font-bold bg-emerald-500/10 px-1 rounded">GST {ci.tax_rate}%</span>
+                          <span className="text-[10px] text-emerald-400 font-bold border border-emerald-500/20 bg-emerald-500/10 px-1 rounded">GST {ci.tax_rate}%</span>
                         ) : null}
                       </div>
                     </div>
@@ -811,7 +858,7 @@ export function CreateBillDrawer({
                       </button>
                     </div>
 
-                    <span className="font-mono font-bold w-16 text-right text-sky-400">
+                    <span className="font-mono font-bold w-24 text-right text-sky-400 text-lg">
                       ₹{(ci.unit_price * ci.quantity).toFixed(2)}
                     </span>
 
@@ -825,43 +872,25 @@ export function CreateBillDrawer({
                       <Trash2 className="h-3.5 w-3.5" />
                     </button>
                   </div>
-                ))
+                  );
+                })
               )}
             </div>
 
             {/* Footer: Hardcoded Fixed Bottom Summary & Action Buttons */}
-            <div className="flex-shrink-0 p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] space-y-2.5 text-xs font-mono shadow-lg">
-              <div className="flex items-center justify-between text-[var(--text-muted)]">
-                <span>Subtotal (Selling Price)</span>
-                <span className="font-bold text-[var(--text-primary)]">₹{subtotal.toFixed(2)}</span>
-              </div>
-
-              {mrpDiscount > 0 && (
-                <div className="flex items-center justify-between text-emerald-400 font-bold">
-                  <span>Total Discount Against MRP</span>
-                  <span>- ₹{mrpDiscount.toFixed(2)}</span>
-                </div>
-              )}
-
-              {totalTax > 0 && (
-                <div className="flex items-center justify-between text-cyan-400">
-                  <span>GST Tax Component</span>
-                  <span className="font-bold">₹{totalTax.toFixed(2)}</span>
-                </div>
-              )}
-
-              <div className="flex items-center justify-between border-t border-[var(--border-subtle)] pt-2 text-sm font-bold font-sans">
+            <div className="flex-shrink-0 p-4 border-t border-[var(--border-subtle)] bg-[var(--bg-surface)] space-y-3 font-mono shadow-lg">
+              <div className="flex items-center justify-between text-xl font-bold font-sans">
                 <span className="text-[var(--text-primary)] font-black">Grand Total Payable:</span>
-                <span className="font-mono text-lg font-black text-sky-400">
+                <span className="font-mono text-3xl font-black text-sky-400">
                   ₹{grandTotalPayable.toFixed(2)}
                 </span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2 pt-1 font-sans">
+              <div className="grid grid-cols-3 gap-2 pt-2 font-sans">
                 <button
                   type="button"
                   onClick={onClose}
-                  className="rounded-xl border border-[var(--border-strong)] py-2.5 text-xs font-bold text-[var(--text-muted)] hover:bg-[var(--bg-surface-elevated)] transition"
+                  className="rounded-xl border border-[var(--border-strong)] py-3 text-base font-bold text-[var(--text-muted)] hover:bg-[var(--bg-surface-elevated)] transition"
                 >
                   Cancel
                 </button>
@@ -869,7 +898,7 @@ export function CreateBillDrawer({
                   type="button"
                   disabled={draftCartItems.length === 0}
                   onClick={() => handleCreateBill(false)}
-                  className="rounded-xl border border-[var(--border-strong)] py-2.5 text-xs font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface-elevated)] transition disabled:opacity-50"
+                  className="rounded-xl border border-[var(--border-strong)] py-3 text-base font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface-elevated)] transition disabled:opacity-50"
                 >
                   Save as Draft
                 </button>
@@ -877,10 +906,10 @@ export function CreateBillDrawer({
                   type="button"
                   disabled={draftCartItems.length === 0}
                   onClick={() => handleCreateBill(true)}
-                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-brand)] py-2.5 text-xs font-bold text-[var(--text-on-accent)] shadow-md hover:opacity-90 transition disabled:opacity-50"
+                  className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-brand)] py-3 text-base font-bold text-[var(--text-on-accent)] shadow-md hover:opacity-90 transition disabled:opacity-50"
                 >
-                  <CreditCard className="h-4 w-4" />
-                  Settle &amp; Collect <span className="ml-1 opacity-70 font-mono text-[10px] bg-black/20 px-1.5 rounded">↵</span>
+                  <CreditCard className="h-5 w-5" />
+                  Settle &amp; Collect <span className="ml-1 opacity-70 font-mono text-xs bg-black/20 px-1.5 rounded">↵</span>
                 </button>
               </div>
             </div>

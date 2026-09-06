@@ -821,6 +821,12 @@ export interface ReturnPdfData {
   refund_payment_method?: string;
   created_at?: string;
   processed_at?: string;
+  credit_applied?: number;
+  credit_cashed_out?: number;
+  debt_settled?: number;
+  credit_awarded?: number;
+  debit_applied?: number;
+  wallet_balance_after?: number | null;
   restaurant?: {
     name?: string;
     address?: string;
@@ -1153,10 +1159,6 @@ export async function generateReturnReceiptPDF(
     summaryY += 3.5;
   });
 
-  summaryY += 1;
-  drawDashedLine(summaryY);
-
-  summaryY += 4.5;
   const netRefund = Math.round(totalRefundValue);
   const roundOff = netRefund - totalRefundValue;
 
@@ -1164,6 +1166,10 @@ export async function generateReturnReceiptPDF(
   doc.setFontSize(7.5);
   
   if (Math.abs(roundOff) > 0.001) {
+    summaryY += 1;
+    drawDashedLine(summaryY);
+    summaryY += 4.5;
+    
     doc.text("Round Off", margin, summaryY);
     const sign = roundOff > 0 ? "+" : "";
     doc.text(`${sign}${roundOff.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
@@ -1179,8 +1185,82 @@ export async function generateReturnReceiptPDF(
   doc.text("NET REFUND", margin, summaryY);
   doc.text(`INR ${netRefund.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
   
-  summaryY += 1;
-  drawSolidLine(summaryY + 2);
+  summaryY += 2;
+  drawSolidLine(summaryY);
+  summaryY += 5;
+
+  let netPaid = netRefund;
+  const creditApplied = returnData.credit_applied || 0;
+  const debitApplied = returnData.debit_applied || 0;
+  const debtSettled = returnData.debt_settled || 0;
+  const creditAwarded = returnData.credit_awarded || 0;
+  const creditCashedOut = returnData.credit_cashed_out || 0;
+
+  if (creditApplied > 0 || debitApplied > 0 || debtSettled > 0 || creditAwarded > 0 || creditCashedOut > 0) {
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7.5);
+      
+      if (creditApplied > 0) {
+          doc.text("Credit Applied (to Exchange)", margin, summaryY);
+          doc.text(`+ INR ${creditApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid += creditApplied;
+      }
+      
+      if (debitApplied > 0) {
+          doc.text("Debit (Shortfall Unpaid)", margin, summaryY);
+          doc.text(`+ INR ${debitApplied.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid += debitApplied;
+      }
+      
+      if (debtSettled > 0) {
+          doc.text("Debt Settled", margin, summaryY);
+          doc.text(`- INR ${debtSettled.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid -= debtSettled;
+      }
+      
+      if (creditAwarded > 0) {
+          doc.text("Credit Awarded", margin, summaryY);
+          doc.text(`- INR ${creditAwarded.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid -= creditAwarded;
+      }
+      
+      if (creditCashedOut > 0) {
+          doc.text("Credit Cashed Out", margin, summaryY);
+          doc.text(`+ INR ${creditCashedOut.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+          summaryY += 3.5;
+          netPaid += creditCashedOut;
+      }
+      
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+      summaryY += 6;
+      doc.setFont("courier", "bold");
+      doc.setFontSize(8.5);
+      doc.text("NET SETTLEMENT (CASH)", margin, summaryY);
+      doc.text(`INR ${netPaid.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 1;
+      drawSolidLine(summaryY + 2);
+  }
+
+  const customerBalanceRaw = returnData.wallet_balance_after;
+  if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
+      const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
+      summaryY += 5;
+      doc.setFont("courier", "normal");
+      doc.setFontSize(7.5);
+      if (customerBalance >= 0) {
+          doc.text("Store Credit Balance", margin, summaryY);
+          doc.text(`INR ${customerBalance.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      } else {
+          doc.text("Outstanding Debit", margin, summaryY);
+          doc.text(`INR ${Math.abs(customerBalance).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      }
+      summaryY += 2;
+  }
 
   // 5. FOOTER & QR CODE
   summaryY += 8;

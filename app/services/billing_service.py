@@ -57,6 +57,7 @@ async def create_manual_bill(
             outlet_id,
             name=data.customer_name or "POS Customer",
             phone=data.customer_phone,
+            extra_detail=data.customer_extra_detail,
         )
         cust_id = cust.id
 
@@ -231,10 +232,25 @@ async def update_manual_bill(
 
     if data.basket_number is not None:
         order.basket_number = data.basket_number
-    if data.customer_name is not None:
+
+    if data.customer_phone and data.customer_phone.strip():
+        from app.services.customer_service import create_customer
+        cust = await create_customer(
+            db,
+            outlet_id,
+            name=data.customer_name or order.customer_name or "POS Customer",
+            phone=data.customer_phone,
+            extra_detail=getattr(data, "customer_extra_detail", None),
+        )
+        order.customer_id = cust.id
+        order.customer_phone = cust.phone
+        order.customer_name = cust.name
+    elif data.customer_phone == "":
+        order.customer_id = None
+        order.customer_phone = None
+        order.customer_name = None
+    elif data.customer_name is not None:
         order.customer_name = data.customer_name
-    if data.customer_phone is not None:
-        order.customer_phone = data.customer_phone
 
     if data.items:
         # Delete existing items
@@ -594,6 +610,9 @@ async def mark_bill_paid(
     order = res.scalar_one_or_none()
     if not order:
         raise HTTPException(status_code=404, detail="Bill not found.")
+
+    if not order.customer_id and (apply_credit > 0 or record_debit > 0 or record_credit > 0 or debt_settled > 0 or credit_cashed_out > 0):
+        raise HTTPException(status_code=400, detail="Cannot process Udhaar or Store Credit without linking a customer first.")
 
     order.payment_method = payment_method
     if payment_method == "CASH":
@@ -1082,6 +1101,93 @@ async def process_customer_return(
                 created_by=_get_user_id(staff_user)
             )
             db.add(refund_tx)
+
+    # Process Customer Wallet (Store Credit/Debt) & Loyalty Points deduction
+    if customer_phone:
+        from app.models.customer import Customer
+        from app.models.customer_ledger import CustomerLedger
+        
+        cust_res = await db.execute(
+            select(Customer).where(
+                Customer.outlet_id == outlet_id,
+                Customer.phone == customer_phone
+            )
+        )
+        customer = cust_res.scalar_one_or_none()
+        
+        if customer:
+            # 1. Loyalty Points Deduction for Return Value
+            res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+            outlet = res_rest.scalar_one_or_none()
+            if outlet and getattr(outlet, "loyalty_points_per_rupee", 0) > 0 and total_return_amount > 0:
+                points_to_deduct = int(float(total_return_amount) * float(outlet.loyalty_points_per_rupee))
+                if points_to_deduct > 0:
+                    customer.loyalty_points = max(0, (customer.loyalty_points or 0) - points_to_deduct)
+
+            # 2. Process Ledger Operations
+            ledger_entries = []
+            
+            if data.apply_credit > 0:
+                customer.credit_balance -= data.apply_credit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        entry_type="CREDIT_APPLIED",
+                        amount=-data.apply_credit,
+                        balance_after=customer.credit_balance,
+                        note=f"Store credit applied to return/exchange {return_num}"
+                    )
+                )
+            if data.credit_cashed_out > 0:
+                customer.credit_balance -= data.credit_cashed_out
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        entry_type="CREDIT_APPLIED",
+                        amount=-data.credit_cashed_out,
+                        balance_after=customer.credit_balance,
+                        note=f"Store credit cashed out during return {return_num}"
+                    )
+                )
+            if data.debt_settled > 0:
+                customer.credit_balance += data.debt_settled
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        entry_type="DEBIT_APPLIED",
+                        amount=data.debt_settled,
+                        balance_after=customer.credit_balance,
+                        note=f"Excess cash applied to settle debt during return {return_num}"
+                    )
+                )
+            if data.record_credit > 0:
+                customer.credit_balance += data.record_credit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        entry_type="CREDIT_ADDED",
+                        amount=data.record_credit,
+                        balance_after=customer.credit_balance,
+                        note=f"Refund shortfall converted to Store Credit {return_num}"
+                    )
+                )
+            if data.record_debit > 0:
+                customer.credit_balance -= data.record_debit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        entry_type="DEBIT_ADDED",
+                        amount=-data.record_debit,
+                        balance_after=customer.credit_balance,
+                        note=f"Extra refund given / payment shortfall recorded as Debt {return_num}"
+                    )
+                )
+            db.add_all(ledger_entries)
     
     # OUTBOX: Queue action for cloud sync if local
     append_to_outbox(
@@ -1108,6 +1214,12 @@ async def process_customer_return(
         "returned_items": returned_items_summary,
         "refund_payment_method": data.refund_payment_method or "CASH",
         "processed_at": datetime.now(timezone.utc).isoformat(),
+        "credit_applied": float(data.apply_credit or 0),
+        "credit_cashed_out": float(data.credit_cashed_out or 0),
+        "debt_settled": float(data.debt_settled or 0),
+        "credit_awarded": float(data.record_credit or 0),
+        "debit_applied": float(data.record_debit or 0),
+        "wallet_balance_after": float(customer.credit_balance) if customer else None,
     }
 
 

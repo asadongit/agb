@@ -27,6 +27,7 @@ class CreateManualBillRequest(StrictSchema):
     basket_number: str = "WALK-IN"
     customer_name: str | None = None
     customer_phone: str | None = None
+    customer_extra_detail: str | None = Field(None, max_length=1000)
     replaces_bill_id: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
@@ -35,6 +36,7 @@ class UpdateManualBillRequest(StrictSchema):
     basket_number: str | None = None
     customer_name: str | None = None
     customer_phone: str | None = None
+    customer_extra_detail: str | None = Field(None, max_length=1000)
     replaces_bill_id: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
@@ -83,6 +85,13 @@ class CustomerReturnRequest(StrictSchema):
     refund_cash_denominations: dict[str, int] | None = None
     inward_cash_denominations: dict[str, int] | None = None
     notes: str | None = None
+    
+    # Wallet / Ledger integrations
+    apply_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    record_debit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    record_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
+    debt_settled: Decimal = Field(default=Decimal("0.00"), ge=0)
+    credit_cashed_out: Decimal = Field(default=Decimal("0.00"), ge=0)
 
 
 class CustomerReturnResponse(BaseResponse):

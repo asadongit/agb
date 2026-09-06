@@ -61,6 +61,7 @@ async def list_customers(
             "outlet_id": c.outlet_id,
             "name": c.name,
             "phone": c.phone,
+            "extra_detail": c.extra_detail,
             "total_orders": orders_count,
             "total_spent": spent,
             "loyalty_points": c.loyalty_points,
@@ -76,6 +77,7 @@ async def create_customer(
     outlet_id: uuid.UUID,
     name: str,
     phone: str,
+    extra_detail: str | None = None,
 ) -> Customer:
     """Create a new customer or return existing customer if phone matches."""
     clean_phone = phone.strip()
@@ -90,6 +92,8 @@ async def create_customer(
     cust = existing.scalar_one_or_none()
     if cust:
         cust.name = clean_name
+        if extra_detail is not None:
+            cust.extra_detail = extra_detail
         await db.flush()
         await db.refresh(cust)
         return cust
@@ -99,6 +103,7 @@ async def create_customer(
         outlet_id=outlet_id,
         name=clean_name,
         phone=clean_phone,
+        extra_detail=extra_detail,
     )
     db.add(cust)
     await db.flush()
@@ -112,6 +117,7 @@ async def update_customer(
     customer_id: uuid.UUID,
     name: str | None = None,
     phone: str | None = None,
+    extra_detail: str | None = None,
 ) -> Customer:
     """Update a customer's details (name, phone)."""
     res = await db.execute(
@@ -126,6 +132,8 @@ async def update_customer(
 
     if name is not None:
         cust.name = name
+    if extra_detail is not None:
+        cust.extra_detail = extra_detail
     if phone is not None:
         # Check if new phone is already taken by another customer
         if phone != cust.phone:
@@ -195,6 +203,7 @@ async def get_customer_analytics(
     cust_name = cust.name if cust else "Walk-In Customer"
     loyalty_points = cust.loyalty_points if cust else 0
     credit_balance = float(cust.credit_balance) if cust else 0.0
+    extra_detail = cust.extra_detail if cust else None
 
     # Base query for paid or completed orders
     order_stmt = select(Order.id, Order.total_amount, Order.created_at).where(
@@ -301,6 +310,7 @@ async def get_customer_analytics(
         "total_orders": total_orders,
         "loyalty_points": loyalty_points,
         "credit_balance": credit_balance,
+        "extra_detail": extra_detail,
         "best_categories": best_categories,
         "best_items": best_items,
     }

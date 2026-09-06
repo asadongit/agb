@@ -45,6 +45,7 @@ class Customer(Base, TimestampMixin):
     credit_balance: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, server_default="0.00", default=Decimal("0.00")
     )
+    extra_detail: Mapped[str | None] = mapped_column(String(1000), nullable=True)
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(

@@ -37,6 +37,7 @@ export function useBillingManagement({
   const [selectedTable, setSelectedTable] = useState("WALK-IN");
   const [customerName, setCustomerName] = useState("");
   const [customerPhone, setCustomerPhone] = useState("");
+  const [customerExtraDetail, setCustomerExtraDetail] = useState("");
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0);
   const [handlingCharge, setHandlingCharge] = useState<number>(0);
   const [draftCartItems, setDraftCartItems] = useState<DraftCartItem[]>([]);
@@ -99,6 +100,7 @@ export function useBillingManagement({
         basket_number: selectedTable || "WALK-IN",
         customer_name: customerName || null,
         customer_phone: customerPhone || null,
+        customer_extra_detail: customerExtraDetail || null,
         items: draftCartItems.map((item) => ({
           menu_item_id: item.menu_item_id || null,
           variant_id: item.variant_id || null,
@@ -324,6 +326,7 @@ export function useBillingManagement({
     setSelectedTable("WALK-IN");
     setCustomerName("");
     setCustomerPhone("");
+    setCustomerExtraDetail("");
     setDeliveryCharge(0);
     setHandlingCharge(0);
     setDraftCartItems([]);
@@ -397,6 +400,8 @@ export function useBillingManagement({
     setCustomerName,
     customerPhone,
     setCustomerPhone,
+    customerExtraDetail,
+    setCustomerExtraDetail,
     deliveryCharge,
     setDeliveryCharge,
     handlingCharge,

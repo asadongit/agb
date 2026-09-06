@@ -8,7 +8,7 @@ interface EditCustomerModalProps {
   isOpen: boolean;
   onClose: () => void;
   customer: Customer | null;
-  onEditCustomer: (id: string, name: string, phone: string) => Promise<void>;
+  onEditCustomer: (id: string, name: string, phone: string, extraDetail: string) => Promise<void>;
 }
 
 export function EditCustomerModal({
@@ -19,13 +19,15 @@ export function EditCustomerModal({
 }: EditCustomerModalProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [extraDetail, setExtraDetail] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     if (customer) {
-      setName(customer.name);
-      setPhone(customer.phone);
+      setName(customer.name || "");
+      setPhone(customer.phone || "");
+      setExtraDetail(customer.extra_detail || "");
     }
   }, [customer]);
 
@@ -41,7 +43,7 @@ export function EditCustomerModal({
     try {
       setIsSubmitting(true);
       setError(null);
-      await onEditCustomer(customer.id, name.trim(), phone.trim());
+      await onEditCustomer(customer.id, name.trim(), phone.trim(), extraDetail.trim());
       onClose();
     } catch (err: any) {
       setError(err?.message || "Failed to edit customer.");
@@ -109,6 +111,19 @@ export function EditCustomerModal({
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+              Extra Detail
+            </label>
+            <textarea
+              placeholder="e.g. Address, Notes"
+              value={extraDetail}
+              onChange={(e) => setExtraDetail(e.target.value)}
+              rows={3}
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none resize-none"
             />
           </div>
 

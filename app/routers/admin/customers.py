@@ -60,7 +60,7 @@ async def create_customer_route(
     db: DBSession,
 ):
     """Register a new customer for current outlet."""
-    cust = await create_customer(db, current_user.outlet_id, data.name, data.phone)
+    cust = await create_customer(db, current_user.outlet_id, data.name, data.phone, data.extra_detail)
 
     await log_action(
         db,
@@ -89,6 +89,7 @@ async def update_customer_route(
         customer_id,
         name=data.name,
         phone=data.phone,
+        extra_detail=data.extra_detail,
     )
 
     await log_action(

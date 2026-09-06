@@ -608,6 +608,8 @@ export default function AdminDashboardPage() {
         setCustomerName={billingState.setCustomerName}
         customerPhone={billingState.customerPhone}
         setCustomerPhone={billingState.setCustomerPhone}
+        customerExtraDetail={billingState.customerExtraDetail}
+        setCustomerExtraDetail={billingState.setCustomerExtraDetail}
         handleCreateBill={billingState.handleCreateBill}
         eveningPriceActive={restaurant?.evening_price_active ?? false}
         restaurant={restaurant}

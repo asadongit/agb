@@ -90,14 +90,14 @@ export function CustomerServicesTab({
     await fetchCustomers();
   };
 
-  const handleEditCustomer = async (id: string, name: string, phone: string) => {
+  const handleEditCustomer = async (id: string, name: string, phone: string, extra_detail: string) => {
     const res = await fetch(`/api/admin/customers/${id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ name, phone }),
+      body: JSON.stringify({ name, phone, extra_detail }),
     });
 
     if (!res.ok) {

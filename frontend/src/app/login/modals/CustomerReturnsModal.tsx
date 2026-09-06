@@ -82,6 +82,15 @@ export function CustomerReturnsModal({
     500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0
   });
 
+  // Wallet / Analytics State
+  const [customerAnalytics, setCustomerAnalytics] = useState<any>(null);
+  const [autoConvertCredit, setAutoConvertCredit] = useState(false);
+  const [autoRecordDebitOnShortfall, setAutoRecordDebitOnShortfall] = useState(false);
+  const [autoRecordExtraChangeAsDebt, setAutoRecordExtraChangeAsDebt] = useState(false);
+  const [settleDebit, setSettleDebit] = useState(false);
+  const [applyCreditAmount, setApplyCreditAmount] = useState("");
+  const [creditCashedOut, setCreditCashedOut] = useState("");
+
   const handleRefundDenomChange = (denom: number, change: number) => {
     setRefundCashDenoms(prev => {
       const current = prev[denom] || 0;
@@ -180,6 +189,26 @@ export function CustomerReturnsModal({
     return highlighted;
   }, [remainingNeededInward, inwardDenomTotal]);
 
+  const fetchCustomerAnalytics = async (phone: string) => {
+    try {
+      const data = await apiRequest<any>(`/api/admin/customers/analytics?phone=${phone}&period=all_time`);
+      setCustomerAnalytics(data || null);
+    } catch (err) {
+      console.error("Error fetching customer analytics:", err);
+      setCustomerAnalytics(null);
+    }
+  };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const phone = returnMode === "BILL_REFERENCED" ? selectedBill?.customer_phone : directCustomerPhone;
+    if (phone && phone.trim().length >= 10) {
+      fetchCustomerAnalytics(phone.trim());
+    } else {
+      setCustomerAnalytics(null);
+    }
+  }, [isOpen, returnMode, selectedBill, directCustomerPhone]);
+
   // Fetch return bills history when tab 3 (Return Log) is opened
   useEffect(() => {
     if (isOpen && lookupTab === "RETURN_HISTORY") {
@@ -197,6 +226,13 @@ export function CustomerReturnsModal({
       setRefundCashDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
       setInwardCashDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
       setDirectReturnItems([]);
+      setCustomerAnalytics(null);
+      setAutoConvertCredit(false);
+      setAutoRecordDebitOnShortfall(false);
+      setAutoRecordExtraChangeAsDebt(false);
+      setSettleDebit(false);
+      setApplyCreditAmount("");
+      setCreditCashedOut("");
       setExchangeItems([]);
       setCustomerSearch("");
       setInvoiceSearch("");
@@ -271,6 +307,22 @@ export function CustomerReturnsModal({
         return;
       }
 
+      const walletPayload = {
+        apply_credit: applyCreditAmount ? parseFloat(applyCreditAmount) : 0,
+        record_credit: autoConvertCredit && Math.max(0, targetRefundAmt - (refundDenomTotal - inwardDenomTotal)) > 0 
+          ? Math.max(0, targetRefundAmt - (refundDenomTotal - inwardDenomTotal)) 
+          : (autoConvertCredit && netBalance < 0 && Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) > 0 ? Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) : 0),
+        record_debit: autoRecordDebitOnShortfall && Math.max(0, targetRefundAmt - (inwardDenomTotal - refundDenomTotal)) > 0
+          ? Math.max(0, targetRefundAmt - (inwardDenomTotal - refundDenomTotal))
+          : (autoRecordExtraChangeAsDebt && Math.max(0, (refundDenomTotal - inwardDenomTotal) - targetRefundAmt) > 0 
+            ? Math.max(0, (refundDenomTotal - inwardDenomTotal) - targetRefundAmt) 
+            : 0),
+        debt_settled: settleDebit && Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) > 0
+          ? Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt)
+          : 0,
+        credit_cashed_out: creditCashedOut ? parseFloat(creditCashedOut) : 0,
+      };
+
       await onRequestReturn({
         order_id: selectedBill.id,
         return_items: returnItemsPayload,
@@ -279,6 +331,7 @@ export function CustomerReturnsModal({
         refund_cash_denominations: refundMethod === "CASH" ? refundCashDenoms : undefined,
         inward_cash_denominations: refundMethod === "CASH" ? inwardCashDenoms : undefined,
         notes: returnReason,
+        ...walletPayload,
       });
     } else {
       // Direct Unbilled Return
@@ -295,6 +348,22 @@ export function CustomerReturnsModal({
         reason: returnReason,
       }));
 
+      const walletPayload = {
+        apply_credit: applyCreditAmount ? parseFloat(applyCreditAmount) : 0,
+        record_credit: autoConvertCredit && Math.max(0, targetRefundAmt - (refundDenomTotal - inwardDenomTotal)) > 0 
+          ? Math.max(0, targetRefundAmt - (refundDenomTotal - inwardDenomTotal)) 
+          : (autoConvertCredit && netBalance < 0 && Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) > 0 ? Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) : 0),
+        record_debit: autoRecordDebitOnShortfall && Math.max(0, targetRefundAmt - (inwardDenomTotal - refundDenomTotal)) > 0
+          ? Math.max(0, targetRefundAmt - (inwardDenomTotal - refundDenomTotal))
+          : (autoRecordExtraChangeAsDebt && Math.max(0, (refundDenomTotal - inwardDenomTotal) - targetRefundAmt) > 0 
+            ? Math.max(0, (refundDenomTotal - inwardDenomTotal) - targetRefundAmt) 
+            : 0),
+        debt_settled: settleDebit && Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt) > 0
+          ? Math.max(0, (inwardDenomTotal - refundDenomTotal) - targetRefundAmt)
+          : 0,
+        credit_cashed_out: creditCashedOut ? parseFloat(creditCashedOut) : 0,
+      };
+
       await onRequestReturn({
         order_id: null,
         customer_name: directCustomerName.trim() || null,
@@ -303,6 +372,7 @@ export function CustomerReturnsModal({
         exchange_items: exchangeItems,
         refund_payment_method: refundMethod,
         refund_cash_denominations: refundMethod === "CASH" ? refundCashDenoms : undefined,
+        ...walletPayload,
       });
     }
     onClose();
@@ -770,6 +840,254 @@ export function CustomerReturnsModal({
                     <span className="font-mono text-base font-black text-sky-400">₹{Math.abs(netBalance).toFixed(2)}</span>
                   </div>
                 </div>
+
+                {/* --- CUSTOMER WALLET & CASH ADJUSTMENTS --- */}
+                {customerAnalytics && (
+                  <div className="space-y-3 mt-4 border-t border-[var(--border-subtle)] pt-4">
+                    {/* Live Wallet Balance UI */}
+                    {(() => {
+                      let projectedBalance = customerAnalytics.credit_balance || 0;
+                      
+                      const appliedWallet = parseFloat(applyCreditAmount || "0");
+                      const cashedOutWallet = parseFloat(creditCashedOut || "0");
+                      
+                      // Base deductions (using credit / cashing out)
+                      projectedBalance -= appliedWallet;
+                      projectedBalance -= cashedOutWallet;
+                      
+                      if (netBalance > 0) {
+                        // Net Collection Scenarios
+                        const remainingOwedToUs = netBalance - appliedWallet;
+                        const netCashPaid = inwardDenomTotal - refundDenomTotal;
+                        
+                        if (netCashPaid < remainingOwedToUs && netCashPaid > 0 && autoRecordDebitOnShortfall) {
+                          const shortfall = remainingOwedToUs - netCashPaid;
+                          projectedBalance -= shortfall;
+                        }
+                        
+                        if (netCashPaid > remainingOwedToUs) {
+                          const extraCash = netCashPaid - remainingOwedToUs;
+                          if (autoConvertCredit) projectedBalance += extraCash;
+                          if (settleDebit) projectedBalance += Math.min(extraCash, Math.abs(customerAnalytics.credit_balance || 0));
+                        }
+                      } else {
+                        // Net Refund Scenarios
+                        const refundOwed = Math.abs(netBalance);
+                        const totalOwedToCustomer = refundOwed + cashedOutWallet;
+                        const netCashGiven = refundDenomTotal - inwardDenomTotal;
+                        
+                        if (refundMethod === "STORE_CREDIT") {
+                          projectedBalance += refundOwed;
+                        } else {
+                          if (netCashGiven < totalOwedToCustomer && autoConvertCredit) {
+                            const unpaidRefund = totalOwedToCustomer - netCashGiven;
+                            projectedBalance += unpaidRefund;
+                          }
+                          if (netCashGiven > totalOwedToCustomer && autoRecordExtraChangeAsDebt) {
+                            const extraCashGiven = netCashGiven - totalOwedToCustomer;
+                            projectedBalance -= extraCashGiven;
+                          }
+                        }
+                      }
+
+                      const isModified = Math.abs(projectedBalance - (customerAnalytics.credit_balance || 0)) > 0.001;
+
+                      return (
+                        <div className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-2">
+                            <UserCheck className="h-4 w-4 text-[var(--text-muted)]" />
+                            <span className="text-xs font-bold text-[var(--text-primary)] uppercase">
+                              Customer Wallet
+                            </span>
+                          </div>
+                          <div className="text-right">
+                            {projectedBalance > 0.001 ? (
+                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-emerald-400"}`}>
+                                ₹{projectedBalance.toFixed(2)} <span className={`text-[10px] ${isModified ? "text-amber-400/80" : "text-emerald-500/80"}`}>(Cr)</span>
+                              </span>
+                            ) : projectedBalance < -0.001 ? (
+                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-rose-400"}`}>
+                                -₹{Math.abs(projectedBalance).toFixed(2)} <span className={`text-[10px] ${isModified ? "text-amber-400/80" : "text-rose-500/80"}`}>(Dr)</span>
+                              </span>
+                            ) : (
+                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-[var(--text-muted)]"}`}>
+                                ₹0.00
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                      );
+                    })()}
+
+                    {/* Edge Cases Logic Boxes */}
+                    {netBalance > 0 ? (
+                      // --- NET COLLECTION (Customer owes us money) ---
+                      <div className="space-y-2">
+                        {/* 1. Apply Credit */}
+                        {customerAnalytics.credit_balance > 0 && (
+                          <div className="rounded-lg bg-[var(--bg-surface-elevated)] p-2 flex items-center gap-2 text-xs border border-[var(--border-strong)]">
+                            <input
+                              type="number"
+                              min="0"
+                              max={Math.min(customerAnalytics.credit_balance, netBalance)}
+                              value={applyCreditAmount}
+                              onChange={(e) => setApplyCreditAmount(e.target.value)}
+                              placeholder="₹0"
+                              className="w-16 px-2 py-1 rounded bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)]"
+                            />
+                            <span className="font-bold text-[var(--text-muted)]">Apply Store Credit</span>
+                            <button
+                              type="button"
+                              onClick={() => setApplyCreditAmount(Math.min(customerAnalytics.credit_balance, netBalance).toString())}
+                              className="ml-auto text-[10px] bg-emerald-500/20 text-emerald-400 font-bold px-2 py-1 rounded-md"
+                            >
+                              MAX
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* 2. Collection Edge Cases */}
+                        {(() => {
+                          const appliedWallet = parseFloat(applyCreditAmount || "0");
+                          const remainingOwedToUs = netBalance - appliedWallet;
+                          const netCashPaid = inwardDenomTotal - refundDenomTotal; // Cash customer handed us minus change we gave back
+
+                          if (netCashPaid < remainingOwedToUs && netCashPaid > 0) {
+                            const shortfall = remainingOwedToUs - netCashPaid;
+                            return (
+                              <label className="flex items-start gap-2 p-2 rounded-lg bg-amber-500/10 border border-amber-500/30 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={autoRecordDebitOnShortfall}
+                                  onChange={(e) => setAutoRecordDebitOnShortfall(e.target.checked)}
+                                  className="mt-0.5"
+                                />
+                                <div className="text-xs">
+                                  <span className="font-bold text-amber-400 block">Record ₹{shortfall.toFixed(2)} shortfall as Debt (Udhaar)</span>
+                                  <span className="text-[10px] text-amber-400/70">They paid less cash than required.</span>
+                                </div>
+                              </label>
+                            );
+                          }
+                          
+                          if (netCashPaid > remainingOwedToUs) {
+                            const extraCash = netCashPaid - remainingOwedToUs;
+                            return (
+                              <div className="space-y-2">
+                                <label className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={autoConvertCredit}
+                                    onChange={(e) => {
+                                      setAutoConvertCredit(e.target.checked);
+                                      if (e.target.checked) setSettleDebit(false);
+                                    }}
+                                    className="mt-0.5"
+                                  />
+                                  <div className="text-xs">
+                                    <span className="font-bold text-emerald-400 block">Convert ₹{extraCash.toFixed(2)} extra cash into Store Credit</span>
+                                    <span className="text-[10px] text-emerald-400/70">They didn't take their exact change back.</span>
+                                  </div>
+                                </label>
+                                {customerAnalytics.credit_balance < 0 && (
+                                  <label className="flex items-start gap-2 p-2 rounded-lg bg-sky-500/10 border border-sky-500/30 cursor-pointer">
+                                    <input
+                                      type="checkbox"
+                                      checked={settleDebit}
+                                      onChange={(e) => {
+                                        setSettleDebit(e.target.checked);
+                                        if (e.target.checked) setAutoConvertCredit(false);
+                                      }}
+                                      className="mt-0.5"
+                                    />
+                                    <div className="text-xs">
+                                      <span className="font-bold text-sky-400 block">Settle ₹{Math.min(extraCash, Math.abs(customerAnalytics.credit_balance)).toFixed(2)} of old Debt</span>
+                                      <span className="text-[10px] text-sky-400/70">Apply this extra cash towards their existing udhaar.</span>
+                                    </div>
+                                  </label>
+                                )}
+                              </div>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    ) : (
+                      // --- NET REFUND (We owe customer money) ---
+                      <div className="space-y-2">
+                        {/* 1. Cash Out Credit */}
+                        {customerAnalytics.credit_balance > 0 && (
+                          <div className="rounded-lg bg-[var(--bg-surface-elevated)] p-2 flex items-center gap-2 text-xs border border-[var(--border-strong)]">
+                            <input
+                              type="number"
+                              min="0"
+                              max={customerAnalytics.credit_balance}
+                              value={creditCashedOut}
+                              onChange={(e) => setCreditCashedOut(e.target.value)}
+                              placeholder="₹0"
+                              className="w-16 px-2 py-1 rounded bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)]"
+                            />
+                            <span className="font-bold text-[var(--text-muted)]">Cash Out Store Credit</span>
+                            <button
+                              type="button"
+                              onClick={() => setCreditCashedOut(customerAnalytics.credit_balance.toString())}
+                              className="ml-auto text-[10px] bg-rose-500/20 text-rose-400 font-bold px-2 py-1 rounded-md"
+                            >
+                              MAX
+                            </button>
+                          </div>
+                        )}
+                        
+                        {/* 2. Refund Edge Cases */}
+                        {(() => {
+                          const refundOwed = Math.abs(netBalance);
+                          const cashedOutWallet = parseFloat(creditCashedOut || "0");
+                          const totalOwedToCustomer = refundOwed + cashedOutWallet;
+                          const netCashGiven = refundDenomTotal - inwardDenomTotal;
+
+                          if (refundMethod === "STORE_CREDIT") return null;
+
+                          if (netCashGiven < totalOwedToCustomer) {
+                            const unpaidRefund = totalOwedToCustomer - netCashGiven;
+                            return (
+                              <label className="flex items-start gap-2 p-2 rounded-lg bg-emerald-500/10 border border-emerald-500/30 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={autoConvertCredit}
+                                  onChange={(e) => setAutoConvertCredit(e.target.checked)}
+                                  className="mt-0.5"
+                                />
+                                <div className="text-xs">
+                                  <span className="font-bold text-emerald-400 block">Convert remaining ₹{unpaidRefund.toFixed(2)} refund into Store Credit</span>
+                                  <span className="text-[10px] text-emerald-400/70">Add this balance to their wallet instead of giving cash.</span>
+                                </div>
+                              </label>
+                            );
+                          }
+                          
+                          if (netCashGiven > totalOwedToCustomer) {
+                            const extraCashGiven = netCashGiven - totalOwedToCustomer;
+                            return (
+                              <label className="flex items-start gap-2 p-2 rounded-lg bg-rose-500/10 border border-rose-500/30 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={autoRecordExtraChangeAsDebt}
+                                  onChange={(e) => setAutoRecordExtraChangeAsDebt(e.target.checked)}
+                                  className="mt-0.5"
+                                />
+                                <div className="text-xs">
+                                  <span className="font-bold text-rose-400 block">Record extra ₹{extraCashGiven.toFixed(2)} given as Debt (Udhaar)</span>
+                                  <span className="text-[10px] text-rose-400/70">You gave them more cash than the refund amount.</span>
+                                </div>
+                              </label>
+                            );
+                          }
+                          return null;
+                        })()}
+                      </div>
+                    )}
+                  </div>
+                )}
               </div>
             )}
 
