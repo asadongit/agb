@@ -1,0 +1,2007 @@
+"""
+Inventory service — recipe-based auto-deduction, stock intake logging, ledger tracking, and cancellation reversals.
+"""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from decimal import Decimal
+from typing import Sequence
+
+logger = logging.getLogger(__name__)
+
+from fastapi import HTTPException, status
+from sqlalchemy import func, select, update
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
+
+from datetime import datetime, timezone, timedelta
+
+from app.models.enums import InventoryUnitEnum, StockChangeTypeEnum, MarginTypeEnum
+from app.models.inventory_item import InventoryItem
+from app.models.menu_item_recipe import MenuItemRecipe
+from app.models.order import Order
+from app.core.datetime_utils import utc_now, ensure_naive_utc
+from app.models.order_item import OrderItem
+from app.models.stock_intake import StockIntake
+from app.models.stock_ledger import StockLedger
+from app.models.supplier import Supplier
+from app.schemas.inventory import (
+    BatchUpdateMetadataRequest,
+    InventoryItemCreate,
+    InventoryItemUpdate,
+    RecipeSaveRequest,
+    StockIntakeCreate,
+    StockWastageRequest,
+)
+
+
+def get_unit_conversion_multiplier(
+    selected_unit: str | None,
+    inv_item: InventoryItem | None = None,
+    menu_item: Any | None = None,
+) -> Decimal:
+    """
+    Calculate the conversion multiplier from the sold/selected unit to the base inventory unit.
+    For example, if base unit is "piece" and alternate unit is 1 "pair" = 2 "piece",
+    calling with selected_unit="pair" returns Decimal("2.0").
+    If selected_unit is the base unit (or None/empty), returns Decimal("1.0").
+    """
+    if not selected_unit or not str(selected_unit).strip():
+        return Decimal("1.0")
+
+    unit_clean = str(selected_unit).strip().lower()
+
+    # Determine base unit
+    base_unit = None
+    if inv_item and getattr(inv_item, "unit", None):
+        base_unit = str(inv_item.unit).strip().lower()
+    elif menu_item and getattr(menu_item, "unit_label", None):
+        base_unit = str(menu_item.unit_label).strip().lower()
+
+    # If selected unit matches base unit directly, multiplier is 1.0
+    if base_unit and unit_clean == base_unit:
+        return Decimal("1.0")
+
+    # Common unit synonyms that represent 1.0 base unit
+    piece_synonyms = {"pc", "pcs", "piece", "pieces", "unit", "units", "nos", "no"}
+    if base_unit in piece_synonyms and unit_clean in piece_synonyms:
+        return Decimal("1.0")
+
+    weight_kg_synonyms = {"kg", "kgs", "kilogram", "kilograms"}
+    if base_unit in weight_kg_synonyms and unit_clean in weight_kg_synonyms:
+        return Decimal("1.0")
+
+    weight_g_synonyms = {"g", "gm", "gms", "gram", "grams"}
+    if base_unit in weight_g_synonyms and unit_clean in weight_g_synonyms:
+        return Decimal("1.0")
+
+    volume_l_synonyms = {"l", "ltr", "liter", "liters", "litre", "litres"}
+    if base_unit in volume_l_synonyms and unit_clean in volume_l_synonyms:
+        return Decimal("1.0")
+
+    volume_ml_synonyms = {"ml", "milliliter", "milliliters", "millilitre"}
+    if base_unit in volume_ml_synonyms and unit_clean in volume_ml_synonyms:
+        return Decimal("1.0")
+
+    # 1. Search in MenuItem.alternate_units or InventoryItem.alternate_units
+    sources: list[list[dict[str, Any]]] = []
+    if menu_item and getattr(menu_item, "alternate_units", None):
+        sources.append(menu_item.alternate_units)
+    if inv_item and getattr(inv_item, "alternate_units", None):
+        sources.append(inv_item.alternate_units)
+
+    for alt_list in sources:
+        if not isinstance(alt_list, list):
+            continue
+        for alt in alt_list:
+            if not isinstance(alt, dict):
+                continue
+            lbl = str(alt.get("unit_label", "")).strip().lower()
+            if lbl == unit_clean:
+                cf = alt.get("conversion_factor")
+                if cf is not None:
+                    try:
+                        val = Decimal(str(cf))
+                        if val > Decimal("0.000"):
+                            return val
+                    except Exception:
+                        pass
+
+    # 2. Universal Metric & Packaging Fallbacks
+    if unit_clean in {"pair", "pairs"}:
+        return Decimal("2.0")
+    if unit_clean in {"dozen", "doz"}:
+        return Decimal("12.0")
+    if unit_clean in {"half dozen", "half-dozen", "half doz"}:
+        return Decimal("6.0")
+
+    if base_unit in weight_kg_synonyms and unit_clean in weight_g_synonyms:
+        return Decimal("0.001")
+    if base_unit in weight_g_synonyms and unit_clean in weight_kg_synonyms:
+        return Decimal("1000.0")
+
+    if base_unit in volume_l_synonyms and unit_clean in volume_ml_synonyms:
+        return Decimal("0.001")
+    if base_unit in volume_ml_synonyms and unit_clean in volume_l_synonyms:
+        return Decimal("1000.0")
+
+    return Decimal("1.0")
+
+
+async def process_order_auto_deduction(
+    db: AsyncSession,
+    order: Order,
+) -> None:
+    """
+    Auto-deduct stock for an order based on recipe mappings.
+    Triggers when order enters PAID or PREPARING state.
+    Deducts stock at the BATCH level in FIFO order by earliest expiry_date.
+    Does NOT block order fulfillment if aggregate stock goes negative.
+    Converts alternate units (e.g. 1 pair = 2 pieces) to base inventory unit.
+    """
+    # Check if already deducted
+    existing = await db.execute(
+        select(StockLedger).where(
+            StockLedger.reference_order_id == order.id,
+            StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+        )
+    )
+    if existing.scalars().first() is not None:
+        return
+
+    # Ensure order items are loaded
+    if not order.items:
+        items_res = await db.execute(
+            select(OrderItem).where(OrderItem.order_id == order.id)
+        )
+        order_items = items_res.scalars().all()
+    else:
+        order_items = order.items
+
+    for item in order_items:
+        if not item.menu_item_id:
+            continue
+
+        # Fetch recipe for this menu item
+        recipe_res = await db.execute(
+            select(MenuItemRecipe).where(
+                MenuItemRecipe.menu_item_id == item.menu_item_id
+            )
+        )
+        recipes = recipe_res.scalars().all()
+
+        if recipes:
+            # ── Type B: Recipe / Composite Product Deduction ─────────────────────
+            from app.models.menu_item import MenuItem
+            mi_res = await db.execute(
+                select(MenuItem).where(MenuItem.id == item.menu_item_id)
+            )
+            menu_item_obj = mi_res.scalar_one_or_none()
+
+            unit_multiplier = get_unit_conversion_multiplier(
+                selected_unit=getattr(item, "selected_unit", None),
+                inv_item=None,
+                menu_item=menu_item_obj,
+            )
+
+            for recipe in recipes:
+                deduct_qty = (
+                    Decimal(str(recipe.quantity_required))
+                    * Decimal(str(item.quantity))
+                    * unit_multiplier
+                )
+
+                inv_res = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.id == recipe.inventory_item_id,
+                        InventoryItem.outlet_id == order.outlet_id,
+                    )
+                )
+                inv_item = inv_res.scalar_one_or_none()
+                if not inv_item:
+                    continue
+
+                inv_item.current_stock = inv_item.current_stock - deduct_qty
+
+                # FEFO batch stock drawdown by earliest expiry date
+                batches_res = await db.execute(
+                    select(StockIntake)
+                    .where(
+                        StockIntake.item_id == inv_item.id,
+                        StockIntake.outlet_id == order.outlet_id,
+                        StockIntake.remaining_quantity > Decimal("0.000"),
+                    )
+                    .order_by(
+                        StockIntake.expiry_date.asc().nulls_last(),
+                        StockIntake.intake_date.asc(),
+                    )
+                )
+                batches = batches_res.scalars().all()
+
+                needed = deduct_qty
+                for batch in batches:
+                    if needed <= Decimal("0.000"):
+                        break
+                    take = min(batch.remaining_quantity, needed)
+                    batch.remaining_quantity = batch.remaining_quantity - take
+                    needed = needed - take
+
+                    db.add(StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=order.outlet_id,
+                        item_id=inv_item.id,
+                        intake_id=batch.id,
+                        change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                        quantity_change=-take,
+                        resulting_stock=inv_item.current_stock,
+                        reference_order_id=order.id,
+                        unit_cost_snapshot=batch.unit_cost,
+                    ))
+
+                # If needed > 0 remains (unbatched POS overselling balance)
+                if needed > Decimal("0.000"):
+                    db.add(StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=order.outlet_id,
+                        item_id=inv_item.id,
+                        intake_id=None,
+                        change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                        quantity_change=-needed,
+                        resulting_stock=inv_item.current_stock,
+                        reference_order_id=order.id,
+                        unit_cost_snapshot=inv_item.cost_per_unit,
+                    ))
+                else:
+                    await reconcile_item_stock_from_batches(db, inv_item.id)
+        else:
+            # ── Type A: Direct 1:1 Product Deduction Fallback ───────────────────
+            from app.models.menu_item import MenuItem
+            mi_res = await db.execute(
+                select(MenuItem).where(MenuItem.id == item.menu_item_id)
+            )
+            menu_item_obj = mi_res.scalar_one_or_none()
+            if not menu_item_obj:
+                continue
+
+            target_inv_item: InventoryItem | None = None
+            if menu_item_obj.inventory_item_id:
+                inv_res = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.id == menu_item_obj.inventory_item_id,
+                        InventoryItem.outlet_id == order.outlet_id,
+                    )
+                )
+                target_inv_item = inv_res.scalar_one_or_none()
+            elif menu_item_obj.barcode:
+                inv_res = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.outlet_id == order.outlet_id,
+                        InventoryItem.barcode == menu_item_obj.barcode,
+                    )
+                )
+                target_inv_item = inv_res.scalar_one_or_none()
+
+            if not target_inv_item:
+                inv_res = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.outlet_id == order.outlet_id,
+                        InventoryItem.name.ilike(menu_item_obj.name.strip()),
+                    )
+                )
+                target_inv_item = inv_res.scalar_one_or_none()
+
+            if not target_inv_item:
+                continue
+
+            unit_multiplier = get_unit_conversion_multiplier(
+                selected_unit=getattr(item, "selected_unit", None),
+                inv_item=target_inv_item,
+                menu_item=menu_item_obj,
+            )
+            deduct_qty = Decimal(str(item.quantity)) * unit_multiplier
+            target_inv_item.current_stock = target_inv_item.current_stock - deduct_qty
+
+            # FEFO batch stock drawdown by earliest expiry date
+            batches_res = await db.execute(
+                select(StockIntake)
+                .where(
+                    StockIntake.item_id == target_inv_item.id,
+                    StockIntake.outlet_id == order.outlet_id,
+                    StockIntake.remaining_quantity > Decimal("0.000"),
+                )
+                .order_by(
+                    StockIntake.expiry_date.asc().nulls_last(),
+                    StockIntake.intake_date.asc(),
+                )
+            )
+            batches = batches_res.scalars().all()
+
+            needed = deduct_qty
+            for batch in batches:
+                if needed <= Decimal("0.000"):
+                    break
+                take = min(batch.remaining_quantity, needed)
+                batch.remaining_quantity = batch.remaining_quantity - take
+                needed = needed - take
+
+                db.add(StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=order.outlet_id,
+                    item_id=target_inv_item.id,
+                    intake_id=batch.id,
+                    change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                    quantity_change=-take,
+                    resulting_stock=target_inv_item.current_stock,
+                    reference_order_id=order.id,
+                    unit_cost_snapshot=batch.unit_cost,
+                ))
+
+            if needed > Decimal("0.000"):
+                db.add(StockLedger(
+                    id=uuid.uuid4(),
+                    outlet_id=order.outlet_id,
+                    item_id=target_inv_item.id,
+                    intake_id=None,
+                    change_type=StockChangeTypeEnum.AUTO_DEDUCTION,
+                    quantity_change=-needed,
+                    resulting_stock=target_inv_item.current_stock,
+                    reference_order_id=order.id,
+                    unit_cost_snapshot=target_inv_item.cost_per_unit,
+                ))
+            else:
+                await reconcile_item_stock_from_batches(db, target_inv_item.id)
+
+    await db.flush()
+
+
+async def process_order_cancellation_reversal(
+    db: AsyncSession,
+    order: Order,
+) -> None:
+    """
+    Reverse auto-deduction if an order is cancelled or refunded after stock deduction.
+    Restores deducted quantities to current_stock and appends RESTOCK ledger entries.
+    """
+    # Fetch deduction entries for this order
+    deductions_res = await db.execute(
+        select(StockLedger).where(
+            StockLedger.reference_order_id == order.id,
+            StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+        )
+    )
+    deductions = deductions_res.scalars().all()
+    if not deductions:
+        return  # Was never deducted
+
+    # Check if already restocked
+    restocked_res = await db.execute(
+        select(StockLedger).where(
+            StockLedger.reference_order_id == order.id,
+            StockLedger.change_type == StockChangeTypeEnum.RESTOCK,
+        )
+    )
+    if restocked_res.scalars().first() is not None:
+        return  # Already restocked
+
+    for entry in deductions:
+        restore_qty = abs(entry.quantity_change)
+
+        inv_res = await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.id == entry.item_id,
+                InventoryItem.outlet_id == order.outlet_id,
+            )
+        )
+        inv_item = inv_res.scalar_one_or_none()
+        if not inv_item:
+            continue
+
+        if entry.intake_id:
+            batch = await db.get(StockIntake, entry.intake_id)
+            if batch:
+                batch.remaining_quantity = batch.remaining_quantity + restore_qty
+
+        inv_item.current_stock = inv_item.current_stock + restore_qty
+
+        restock_ledger = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=order.outlet_id,
+            item_id=inv_item.id,
+            intake_id=entry.intake_id,
+            change_type=StockChangeTypeEnum.RESTOCK,
+            quantity_change=restore_qty,
+            resulting_stock=inv_item.current_stock,
+            reference_order_id=order.id,
+            unit_cost_snapshot=entry.unit_cost_snapshot or inv_item.cost_per_unit,
+        )
+        db.add(restock_ledger)
+
+    await db.flush()
+    for entry in deductions:
+        await reconcile_item_stock_from_batches(db, entry.item_id)
+
+
+async def create_inventory_item(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    data: InventoryItemCreate,
+) -> InventoryItem:
+    """Create a new ingredient in the master list for an outlet."""
+    item = InventoryItem(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        name=data.name.trim() if hasattr(data.name, "trim") else data.name.strip(),
+        unit=data.unit,
+        category=data.category.strip() if data.category else "General",
+        current_stock=data.current_stock,
+        reorder_threshold=data.reorder_threshold,
+        cost_per_unit=data.cost_per_unit,
+        mrp=getattr(data, "mrp", None),
+        tax_category=getattr(data, "tax_category", "GST 0%"),
+        tax_rate=getattr(data, "tax_rate", Decimal("0.00")),
+        shelf_life_alert_hrs=getattr(data, "shelf_life_alert_hrs", None),
+        alternate_units=getattr(data, "alternate_units", []) or [],
+        is_active=True,
+    )
+    db.add(item)
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+async def update_inventory_item(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    item_id: uuid.UUID,
+    data: InventoryItemUpdate,
+) -> InventoryItem:
+    """Update an ingredient master record."""
+    res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.id == item_id,
+            InventoryItem.outlet_id == outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found",
+        )
+
+    if data.name is not None:
+        item.name = data.name.strip()
+    if data.unit is not None:
+        item.unit = data.unit
+    if data.category is not None:
+        item.category = data.category.strip()
+    if data.current_stock is not None:
+        item.current_stock = data.current_stock
+    if data.reorder_threshold is not None:
+        item.reorder_threshold = data.reorder_threshold
+    if data.cost_per_unit is not None:
+        item.cost_per_unit = data.cost_per_unit
+    if getattr(data, "mrp", None) is not None:
+        item.mrp = data.mrp
+    if getattr(data, "tax_category", None) is not None:
+        item.tax_category = data.tax_category
+    if getattr(data, "tax_rate", None) is not None:
+        item.tax_rate = data.tax_rate
+    if getattr(data, "shelf_life_alert_hrs", None) is not None:
+        item.shelf_life_alert_hrs = data.shelf_life_alert_hrs
+    if getattr(data, "retail_price", None) is not None:
+        item.retail_price = data.retail_price
+    if getattr(data, "wholesale_price", None) is not None:
+        item.wholesale_price = data.wholesale_price
+    if getattr(data, "margin_type", None) is not None:
+        item.margin_type = data.margin_type
+    if getattr(data, "retail_margin_pct", None) is not None:
+        item.retail_margin_pct = data.retail_margin_pct
+    if getattr(data, "mrp_margin_pct", None) is not None:
+        item.mrp_margin_pct = data.mrp_margin_pct
+    if getattr(data, "wholesale_margin_pct", None) is not None:
+        item.wholesale_margin_pct = data.wholesale_margin_pct
+    if data.is_active is not None:
+        item.is_active = data.is_active
+
+    if getattr(data, "alternate_units", None) is not None:
+        item.alternate_units = data.alternate_units
+
+    # Sync to linked MenuItem
+    from app.models.menu_item import MenuItem
+    mi_res = await db.execute(
+        select(MenuItem).where(
+            MenuItem.outlet_id == outlet_id,
+            MenuItem.inventory_item_id == item.id,
+        )
+    )
+    for mi in mi_res.scalars().all():
+        if getattr(data, "mrp", None) is not None:
+            mi.mrp = data.mrp
+        if data.name is not None:
+            mi.name = data.name.strip()
+        if getattr(data, "alternate_units", None) is not None:
+            mi.alternate_units = data.alternate_units
+
+    from app.services.menu_service import invalidate_outlet_menu
+    await invalidate_outlet_menu(db, outlet_id)
+
+    await db.flush()
+    await db.refresh(item)
+    return item
+
+
+def generate_batch_number(prefix: str = "BAT") -> str:
+    """Generate a unique batch number, e.g. BAT-20260810-AB12."""
+    date_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+    random_suffix = uuid.uuid4().hex[:4].upper()
+    return f"{prefix}-{date_str}-{random_suffix}"
+
+
+async def log_stock_intake(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    data: StockIntakeCreate,
+) -> StockIntake:
+    """
+    Log a daily stock arrival:
+    1. Creates StockIntake record with unique batch number
+    2. Increments InventoryItem.current_stock
+    3. Updates InventoryItem.cost_per_unit with new unit cost
+    4. Appends StockLedger entry (change_type="intake")
+    """
+    res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.id == data.item_id,
+            InventoryItem.outlet_id == outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found",
+        )
+
+    batch_num = data.batch_number.strip() if data.batch_number else generate_batch_number()
+
+    # POS Auto-Reconciliation: check if pre-intake current_stock was negative
+    pre_stock = item.current_stock
+    unbatched_oversold = max(Decimal("0.000"), -pre_stock)
+    remaining_qty = data.quantity
+
+    if unbatched_oversold > Decimal("0.000"):
+        absorbed = min(remaining_qty, unbatched_oversold)
+        remaining_qty = remaining_qty - absorbed
+        print(f"🔄 [POS Auto-Reconciliation] Absorbed {absorbed} units of oversold backorder into batch #{batch_num}")
+
+    supplier_id = data.supplier_id
+    if not supplier_id and data.supplier_name and data.supplier_name.strip():
+        name_strip = data.supplier_name.strip()
+        sup_res = await db.execute(
+            select(Supplier).where(
+                Supplier.outlet_id == outlet_id,
+                Supplier.name.ilike(name_strip),
+            )
+        )
+        sup = sup_res.scalars().first()
+        if not sup:
+            sup = Supplier(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                name=name_strip,
+            )
+            db.add(sup)
+            await db.flush()
+        supplier_id = sup.id
+
+    intake = StockIntake(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        item_id=item.id,
+        batch_number=batch_num,
+        quantity=data.quantity,
+        initial_quantity=data.quantity,
+        remaining_quantity=remaining_qty,
+        unit_cost=data.unit_cost,
+        supplier_id=supplier_id,
+        intake_date=ensure_naive_utc(data.intake_date) or utc_now(),
+        expiry_date=ensure_naive_utc(data.expiry_date),
+        added_by=user_id,
+        notes=data.notes.strip() if data.notes else None,
+    )
+    db.add(intake)
+
+    if unbatched_oversold > Decimal("0.000"):
+        # Retroactively update unit_cost_snapshot for recent unbatched AUTO_DEDUCTION ledger entries
+        stmt = (
+            update(StockLedger)
+            .where(
+                StockLedger.item_id == item.id,
+                StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+                StockLedger.intake_id.is_(None),
+            )
+            .values(intake_id=intake.id, unit_cost_snapshot=data.unit_cost)
+        )
+        await db.execute(stmt)
+
+    # Increment stock and update cost per unit
+    item.current_stock = item.current_stock + data.quantity
+    item.cost_per_unit = data.unit_cost
+
+    # Update item margin config if provided in the intake request
+    if data.margin_type is not None:
+        item.margin_type = data.margin_type
+    if data.retail_margin_pct is not None:
+        item.retail_margin_pct = data.retail_margin_pct
+    if data.mrp_margin_pct is not None:
+        item.mrp_margin_pct = data.mrp_margin_pct
+    if data.wholesale_margin_pct is not None:
+        item.wholesale_margin_pct = data.wholesale_margin_pct
+
+    # Auto-calculate prices based on new cost_per_unit and margins
+    cost = item.cost_per_unit
+    
+    def calc_price(margin_pct: Decimal | None) -> Decimal | None:
+        if margin_pct is None or cost == Decimal("0.00"):
+            return None
+        if item.margin_type == MarginTypeEnum.MARKUP:
+            return (cost + (cost * margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+        elif item.margin_type == MarginTypeEnum.MARGIN:
+            if margin_pct >= Decimal("100"):
+                return None # Avoid division by zero or negative
+            return (cost / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+        return None
+
+    new_retail_price = calc_price(item.retail_margin_pct)
+    new_mrp = calc_price(item.mrp_margin_pct)
+    new_wholesale_price = calc_price(item.wholesale_margin_pct)
+
+    price_changed = False
+    if new_retail_price is not None and item.retail_price != new_retail_price:
+        item.retail_price = new_retail_price
+        price_changed = True
+    if new_mrp is not None and item.mrp != new_mrp:
+        item.mrp = new_mrp
+        price_changed = True
+    if new_wholesale_price is not None and item.wholesale_price != new_wholesale_price:
+        item.wholesale_price = new_wholesale_price
+        price_changed = True
+
+    if price_changed:
+        # Also update linked MenuItem if it exists
+        from app.models.menu_item import MenuItem
+        menu_res = await db.execute(
+            select(MenuItem).where(MenuItem.inventory_item_id == item.id)
+        )
+        menu_item = menu_res.scalar_one_or_none()
+        if menu_item:
+            if new_retail_price is not None:
+                menu_item.price = new_retail_price
+            if new_mrp is not None:
+                menu_item.mrp = new_mrp
+            if new_wholesale_price is not None:
+                menu_item.wholesale_price = new_wholesale_price
+
+            from app.services.menu_service import invalidate_outlet_menu
+            await invalidate_outlet_menu(db, outlet_id)
+
+    ledger = StockLedger(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        item_id=item.id,
+        intake_id=intake.id,
+        change_type=StockChangeTypeEnum.INTAKE,
+        quantity_change=data.quantity,
+        resulting_stock=item.current_stock,
+        created_by=user_id,
+        unit_cost_snapshot=data.unit_cost,
+    )
+    db.add(ledger)
+
+    await db.flush()
+    await db.refresh(intake)
+    return intake
+
+
+async def quick_scan_increment(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    barcode: str,
+    quantity: Decimal = Decimal("1.000"),
+    batch_number: str | None = None,
+    expiry_date: datetime | None = None,
+    unit_cost: Decimal | None = None,
+) -> tuple[InventoryItem, StockIntake]:
+    """
+    Subsequent scan: Auto-increments item count for recognized barcode.
+    Creates a new batch record and ledger entry.
+    """
+    clean_barcode = barcode.strip()
+    res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.outlet_id == outlet_id,
+            InventoryItem.barcode == clean_barcode,
+            InventoryItem.is_active == True,  # noqa: E712
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"No item registered with barcode '{clean_barcode}'",
+        )
+
+    effective_cost = unit_cost if unit_cost is not None else item.cost_per_unit
+    batch_num = batch_number.strip() if batch_number else generate_batch_number()
+
+    intake = StockIntake(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        item_id=item.id,
+        batch_number=batch_num,
+        quantity=quantity,
+        remaining_quantity=quantity,
+        unit_cost=effective_cost,
+        intake_date=utc_now(),
+        expiry_date=ensure_naive_utc(expiry_date),
+        added_by=user_id,
+        notes="Quick barcode scan inward",
+    )
+    db.add(intake)
+
+    item.current_stock = item.current_stock + quantity
+    if unit_cost is not None:
+        item.cost_per_unit = unit_cost
+
+    ledger = StockLedger(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        item_id=item.id,
+        change_type=StockChangeTypeEnum.INTAKE,
+        quantity_change=quantity,
+        resulting_stock=item.current_stock,
+        created_by=user_id,
+    )
+    db.add(ledger)
+
+    await db.flush()
+    await db.refresh(item)
+    await db.refresh(intake)
+    return item, intake
+
+
+async def onboard_scanned_item(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    user_id: uuid.UUID | None,
+    barcode: str,
+    name: str,
+    category: str = "General",
+    unit: InventoryUnitEnum = InventoryUnitEnum.PCS,
+    initial_stock: Decimal = Decimal("0.000"),
+    cost_per_unit: Decimal = Decimal("0.00"),
+    selling_price: Decimal | None = None,
+    reorder_threshold: Decimal = Decimal("5.000"),
+    batch_number: str | None = None,
+    expiry_date: datetime | None = None,
+    supplier_id: uuid.UUID | None = None,
+    mrp: Decimal | None = None,
+    tax_category: str | None = "GST 0%",
+    tax_rate: Decimal | None = Decimal("0.00"),
+    sorted_quantity: Decimal | None = None,
+    total_billed_amount: Decimal | None = None,
+    item_id: uuid.UUID | None = None,
+    wholesale_price: Decimal | None = None,
+    shelf_life_alert_hrs: int | None = None,
+    margin_type: MarginTypeEnum = MarginTypeEnum.MARKUP,
+    retail_margin_pct: Decimal | None = None,
+    mrp_margin_pct: Decimal | None = None,
+    wholesale_margin_pct: Decimal | None = None,
+    alternate_units: list[dict[str, Any]] | None = None,
+) -> tuple[InventoryItem, StockIntake | None]:
+    """
+    Scan / Manual Inward Stock: Registers a new item or appends a new batch to an existing item.
+    Also creates or updates corresponding MenuItem if selling_price is provided.
+    """
+    clean_barcode = barcode.strip() if barcode and barcode.strip() else None
+
+    # Determine net usable stock (Sorted Qty takes priority over Initial Qty)
+    effective_stock = sorted_quantity if (sorted_quantity is not None and sorted_quantity > Decimal("0.000")) else initial_stock
+
+    # Compute unit cost based on total billed amount if provided
+    if total_billed_amount is not None and total_billed_amount > Decimal("0.00") and effective_stock > Decimal("0.000"):
+        computed_unit_cost = (total_billed_amount / effective_stock).quantize(Decimal("0.01"))
+    else:
+        computed_unit_cost = cost_per_unit
+
+    # Check if target item already exists by item_id, barcode, or name
+    item: InventoryItem | None = None
+    if item_id:
+        res = await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.outlet_id == outlet_id,
+                InventoryItem.id == item_id,
+                InventoryItem.is_active == True,  # noqa: E712
+            )
+        )
+        item = res.scalar_one_or_none()
+
+    if not item:
+        # Check by name (case-insensitive) for outlet
+        res_name = await db.execute(
+            select(InventoryItem).where(
+                InventoryItem.outlet_id == outlet_id,
+                InventoryItem.name.ilike(name.strip()),
+                InventoryItem.is_active == True,  # noqa: E712
+            )
+        )
+        item = res_name.scalar_one_or_none()
+
+    if item:
+        # Item exists -> Update existing item stock, cost_per_unit, mrp, wholesale_price, tax, etc.
+        item.current_stock = item.current_stock + effective_stock
+        if computed_unit_cost > Decimal("0.00"):
+            item.cost_per_unit = computed_unit_cost
+        if mrp is not None and mrp > Decimal("0.00"):
+            item.mrp = mrp
+        if wholesale_price is not None:
+            item.wholesale_price = wholesale_price
+        if selling_price is not None:
+            item.retail_price = selling_price
+        
+        item.margin_type = margin_type
+        if retail_margin_pct is not None:
+            item.retail_margin_pct = retail_margin_pct
+        if mrp_margin_pct is not None:
+            item.mrp_margin_pct = mrp_margin_pct
+        if wholesale_margin_pct is not None:
+            item.wholesale_margin_pct = wholesale_margin_pct
+
+        if tax_category:
+            item.tax_category = tax_category
+        if tax_rate is not None:
+            item.tax_rate = tax_rate
+        if shelf_life_alert_hrs is not None:
+            item.shelf_life_alert_hrs = shelf_life_alert_hrs
+        if clean_barcode and not item.barcode:
+            item.barcode = clean_barcode
+        if alternate_units is not None:
+            item.alternate_units = alternate_units
+    else:
+        # Item does not exist -> Create new InventoryItem
+        if clean_barcode:
+            existing = await db.execute(
+                select(InventoryItem).where(
+                    InventoryItem.outlet_id == outlet_id,
+                    InventoryItem.barcode == clean_barcode,
+                )
+            )
+            if existing.scalar_one_or_none():
+                raise HTTPException(
+                    status_code=status.HTTP_409_CONFLICT,
+                    detail=f"Barcode '{clean_barcode}' is already assigned to another inventory item",
+                )
+
+        item = InventoryItem(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            name=name.strip(),
+            barcode=clean_barcode,
+            unit=unit,
+            category=category.strip(),
+            current_stock=effective_stock,
+            reorder_threshold=reorder_threshold,
+            cost_per_unit=computed_unit_cost,
+            mrp=mrp,
+            wholesale_price=wholesale_price,
+            retail_price=selling_price,
+            margin_type=margin_type,
+            retail_margin_pct=retail_margin_pct,
+            mrp_margin_pct=mrp_margin_pct,
+            wholesale_margin_pct=wholesale_margin_pct,
+            tax_category=tax_category,
+            tax_rate=tax_rate,
+            shelf_life_alert_hrs=shelf_life_alert_hrs,
+            alternate_units=alternate_units or [],
+            is_active=True,
+        )
+        db.add(item)
+        await db.flush()
+
+    intake = None
+    if effective_stock > Decimal("0.000"):
+        batch_num = batch_number.strip() if batch_number else generate_batch_number()
+        intake = StockIntake(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            batch_number=batch_num,
+            quantity=effective_stock,
+            initial_quantity=initial_stock,
+            remaining_quantity=effective_stock,
+            unit_cost=computed_unit_cost,
+            supplier_id=supplier_id,
+            intake_date=utc_now(),
+            expiry_date=ensure_naive_utc(expiry_date),
+            added_by=user_id,
+            notes="Initial barcode onboarding batch",
+        )
+        db.add(intake)
+
+        ledger = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            change_type=StockChangeTypeEnum.INTAKE,
+            quantity_change=effective_stock,
+            resulting_stock=effective_stock,
+            created_by=user_id,
+        )
+        db.add(ledger)
+
+    # 2. Optionally create/link MenuItem for POS billing
+    if selling_price is not None:
+        from app.models.category import Category
+        from app.models.menu_item import MenuItem
+
+        # Look up or create category
+        cat_res = await db.execute(
+            select(Category).where(
+                Category.outlet_id == outlet_id,
+                Category.name.ilike(category.strip()),
+            )
+        )
+        cat_row = cat_res.scalar_one_or_none()
+        if not cat_row:
+            cat_row = Category(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                name=category.strip(),
+                display_order=0,
+            )
+            db.add(cat_row)
+            await db.flush()
+
+        # Check if MenuItem already exists for this inventory item
+        mi_stmt = select(MenuItem).where(
+            MenuItem.outlet_id == outlet_id,
+            MenuItem.inventory_item_id == item.id,
+        )
+        mi_res = await db.execute(mi_stmt)
+        menu_item = mi_res.scalar_one_or_none()
+        unit_str = unit.value.lower() if hasattr(unit, "value") else str(unit).lower()
+
+        if menu_item:
+            menu_item.name = name.strip()
+            menu_item.category_id = cat_row.id
+            menu_item.price = selling_price
+            menu_item.mrp = mrp
+            menu_item.wholesale_price = wholesale_price
+            menu_item.tax_category = tax_category
+            menu_item.tax_rate = tax_rate
+            menu_item.unit_label = unit_str
+            if alternate_units is not None:
+                menu_item.alternate_units = alternate_units
+            if clean_barcode:
+                menu_item.barcode = clean_barcode
+        else:
+            menu_item = MenuItem(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                category_id=cat_row.id,
+                inventory_item_id=item.id,
+                name=name.strip(),
+                barcode=clean_barcode,
+                price=selling_price,
+                mrp=mrp,
+                wholesale_price=wholesale_price,
+                tax_category=tax_category,
+                tax_rate=tax_rate,
+                is_available=True,
+                is_verification_required=False,
+                unit_label=unit_str,
+                alternate_units=alternate_units or item.alternate_units or [],
+            )
+            db.add(menu_item)
+
+    from app.services.menu_service import invalidate_outlet_menu
+    await invalidate_outlet_menu(db, outlet_id)
+
+    if selling_price is not None:
+        try:
+            from app.services.websocket_service import broadcast_catalog_updated
+            await broadcast_catalog_updated(outlet_id, reason="INVENTORY_ONBOARDED", item_id=str(item.id))
+        except Exception as e:
+            logger.warning(f"Failed to broadcast catalog update: {e}")
+
+    await db.flush()
+    await db.refresh(item)
+    if intake:
+        await db.refresh(intake)
+    return item, intake
+
+
+async def get_all_batches(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    item_id: uuid.UUID | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Get list of all intake batches for an outlet with FEFO / expiry status.
+    Optionally filter by item_id.
+    """
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    stmt = (
+        select(StockIntake)
+        .options(
+            selectinload(StockIntake.item),
+            selectinload(StockIntake.supplier)
+        )
+        .where(StockIntake.outlet_id == outlet_id)
+    )
+    if item_id:
+        stmt = stmt.where(StockIntake.item_id == item_id)
+    stmt = stmt.order_by(StockIntake.intake_date.desc())
+    res = await db.execute(stmt)
+    batches = res.scalars().all()
+
+    result = []
+    for b in batches:
+        if b.remaining_quantity <= Decimal("0.000"):
+            status_str = "DEPLETED"
+        elif b.expiry_date and b.expiry_date < now:
+            status_str = "EXPIRED"
+        elif b.expiry_date and b.expiry_date <= now + timedelta(days=7):
+            status_str = "EXPIRING_SOON"
+        else:
+            status_str = "ACTIVE"
+
+        init_q = float(b.initial_quantity) if (b.initial_quantity is not None and float(b.initial_quantity) > 0) else float(b.quantity)
+        usable_q = float(b.quantity)
+        u_cost = float(b.unit_cost)
+        total_billed = u_cost * usable_q
+        purchase_cost = round(total_billed / init_q, 2) if init_q > 0 else u_cost
+
+        result.append({
+            "id": b.id,
+            "outlet_id": b.outlet_id,
+            "item_id": b.item_id,
+            "item_name": b.item.name if b.item else "Unknown Item",
+            "item_barcode": b.item.barcode if b.item else None,
+            "unit": b.item.unit if b.item else InventoryUnitEnum.PCS,
+            "batch_number": b.batch_number or f"BAT-{b.id.hex[:6]}",
+            "quantity": b.quantity,
+            "initial_quantity": b.initial_quantity if b.initial_quantity is not None else b.quantity,
+            "remaining_quantity": b.remaining_quantity,
+            "unit_cost": b.unit_cost,
+            "purchase_unit_cost": purchase_cost,
+            "supplier_id": b.supplier_id,
+            "supplier_name": b.supplier.name if b.supplier else None,
+            "intake_date": b.intake_date.replace(tzinfo=timezone.utc) if b.intake_date else None,
+            "expiry_date": b.expiry_date.replace(tzinfo=timezone.utc) if b.expiry_date else None,
+            "shelf_life_alert_hrs": b.item.shelf_life_alert_hrs if b.item else None,
+            "status": status_str,
+            "notes": b.notes,
+            "item_cost_per_unit": b.item.cost_per_unit if b.item else None,
+            "item_retail_price": b.item.retail_price if b.item else None,
+            "item_mrp": b.item.mrp if b.item else None,
+            "margin_type": b.item.margin_type if b.item else None,
+            "retail_margin_pct": b.item.retail_margin_pct if b.item else None,
+            "mrp_margin_pct": b.item.mrp_margin_pct if b.item else None,
+        })
+    return result
+
+
+async def save_menu_item_recipe(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    data: RecipeSaveRequest,
+) -> list[MenuItemRecipe]:
+    """Save/update the ingredient recipe mapping for a menu item."""
+    # Delete existing recipe rows for this menu item
+    existing_res = await db.execute(
+        select(MenuItemRecipe).where(
+            MenuItemRecipe.menu_item_id == data.menu_item_id
+        )
+    )
+    for old_row in existing_res.scalars().all():
+        await db.delete(old_row)
+
+    new_recipes: list[MenuItemRecipe] = []
+    for ing in data.ingredients:
+        recipe_row = MenuItemRecipe(
+            id=uuid.uuid4(),
+            menu_item_id=data.menu_item_id,
+            inventory_item_id=ing.inventory_item_id,
+            quantity_required=ing.quantity_required,
+            unit=ing.unit,
+        )
+        db.add(recipe_row)
+        new_recipes.append(recipe_row)
+
+    await db.flush()
+    return new_recipes
+
+
+async def get_near_expiry_alerts(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    threshold_days: int | None = None,
+) -> list[dict[str, Any]]:
+    """
+    Find active intake batches (remaining_quantity > 0) with expiry_date <= NOW() + threshold_days.
+    Uses outlet's near_expiry_threshold_days setting if threshold_days is not provided.
+    """
+    if threshold_days is None:
+        outlet = await db.get(Outlet, outlet_id)
+        threshold_days = outlet.near_expiry_threshold_days if outlet else 7
+
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    cutoff_date = now + timedelta(days=threshold_days)
+
+    res = await db.execute(
+        select(StockIntake)
+        .options(selectinload(StockIntake.item))
+        .where(
+            StockIntake.outlet_id == outlet_id,
+            StockIntake.remaining_quantity > Decimal("0.000"),
+            StockIntake.expiry_date.is_not(None),
+            StockIntake.expiry_date <= cutoff_date,
+        )
+        .order_by(StockIntake.expiry_date.asc())
+    )
+    batches = res.scalars().all()
+
+    alerts = []
+    for batch in batches:
+        if not batch.expiry_date:
+            continue
+        days_left = (batch.expiry_date.date() - now.date()).days
+        status_str = "EXPIRED" if days_left < 0 else "EXPIRING_SOON"
+        alerts.append({
+            "intake_id": batch.id,
+            "item_id": batch.item_id,
+            "item_name": batch.item.name if batch.item else "Unknown Item",
+            "unit": batch.item.unit if batch.item else InventoryUnitEnum.PCS,
+            "remaining_quantity": batch.remaining_quantity,
+            "expiry_date": batch.expiry_date,
+            "days_until_expiry": days_left,
+            "status": status_str,
+        })
+    return alerts
+
+
+async def log_stock_wastage(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    data: StockWastageRequest,
+    user_id: uuid.UUID | None = None,
+) -> dict[str, Any]:
+    """
+    Log stock loss/spoilage/breakage/theft as MANUAL_ADJUSTMENT in ledger,
+    decrement current_stock, and draw down batch lot if applicable.
+    """
+    res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.id == data.item_id,
+            InventoryItem.outlet_id == outlet_id,
+        )
+    )
+    item = res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Inventory item not found",
+        )
+
+    waste_qty = data.quantity
+    unit_val = item.unit.value if hasattr(item.unit, "value") else str(item.unit or "units")
+
+    # Determine maximum stock available to write off
+    max_available = item.current_stock
+
+    # Draw down batch if specified or FEFO
+    target_batch = None
+    if data.batch_number:
+        b_res = await db.execute(
+            select(StockIntake).where(
+                StockIntake.item_id == item.id,
+                StockIntake.outlet_id == outlet_id,
+                StockIntake.batch_number == data.batch_number.strip(),
+            )
+        )
+        target_batch = b_res.scalar_one_or_none()
+        if not target_batch:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND,
+                detail=f"Batch lot '{data.batch_number}' not found for item '{item.name}'."
+            )
+        max_available = target_batch.remaining_quantity
+
+    if max_available <= Decimal("0.000"):
+        source_label = f"batch #{target_batch.batch_number}" if target_batch else f"'{item.name}'"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Cannot log wastage: {source_label} has 0 available stock.",
+        )
+
+    if waste_qty > max_available:
+        source_label = f"available stock in batch #{target_batch.batch_number}" if target_batch else "total available stock"
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Wastage quantity ({waste_qty}) exceeds {source_label} ({max_available} {unit_val}).",
+        )
+
+    if target_batch:
+        target_batch.remaining_quantity = max(Decimal("0.000"), target_batch.remaining_quantity - waste_qty)
+    else:
+        # Draw down active batches by FEFO (earliest expiry first)
+        batches_res = await db.execute(
+            select(StockIntake)
+            .where(
+                StockIntake.item_id == item.id,
+                StockIntake.outlet_id == outlet_id,
+                StockIntake.remaining_quantity > Decimal("0.000"),
+            )
+            .order_by(StockIntake.expiry_date.asc().nulls_last(), StockIntake.intake_date.asc())
+        )
+        active_batches = batches_res.scalars().all()
+        rem_to_deduct = waste_qty
+        for b in active_batches:
+            if rem_to_deduct <= Decimal("0.000"):
+                break
+            deduct_from_batch = min(b.remaining_quantity, rem_to_deduct)
+            b.remaining_quantity -= deduct_from_batch
+            rem_to_deduct -= deduct_from_batch
+
+    unit_cost = target_batch.unit_cost if (target_batch and target_batch.unit_cost is not None) else (item.cost_per_unit or Decimal("0.00"))
+    loss_amount = waste_qty * unit_cost
+    reason_label = data.reason.replace("_", " ").title()
+
+    # Update item current stock
+    item.current_stock = max(Decimal("0.000"), item.current_stock - waste_qty)
+
+    ledger_entry = StockLedger(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        item_id=item.id,
+        change_type=StockChangeTypeEnum.MANUAL_ADJUSTMENT,
+        quantity_change=-waste_qty,
+        resulting_stock=item.current_stock,
+        reference_order_id=None,
+        intake_id=target_batch.id if target_batch else None,
+        created_by=user_id,
+        unit_cost_snapshot=unit_cost,
+    )
+    db.add(ledger_entry)
+    await db.flush()
+
+    # Reconcile from remaining batches to ensure perfect synchronization
+    await reconcile_item_stock_from_batches(db, item.id)
+    await db.refresh(item)
+
+    unit_val = item.unit.value if hasattr(item.unit, "value") else str(item.unit)
+    batch_msg = f" from batch #{target_batch.batch_number}" if target_batch else ""
+    return {
+        "success": True,
+        "message": f"Wrote off {waste_qty} {unit_val} of '{item.name}'{batch_msg} ({reason_label})",
+        "item_id": item.id,
+        "item_name": item.name,
+        "quantity_wasted": waste_qty,
+        "new_current_stock": item.current_stock,
+        "estimated_loss_amount": loss_amount,
+        "ledger_entry_id": ledger_entry.id,
+    }
+
+
+async def create_supplier(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    data: Any,
+):
+    """Create a new vendor/supplier record for an outlet."""
+    from app.models.supplier import Supplier
+
+    name_clean = data.name.strip()
+    # Check if supplier with same name exists
+    stmt = select(Supplier).where(
+        Supplier.outlet_id == outlet_id,
+        Supplier.name.ilike(name_clean),
+        Supplier.is_active == True,  # noqa: E712
+    )
+    res = await db.execute(stmt)
+    existing = res.scalar_one_or_none()
+    if existing:
+        return existing
+
+    supplier = Supplier(
+        id=uuid.uuid4(),
+        outlet_id=outlet_id,
+        name=name_clean,
+        phone=data.phone.strip() if data.phone else None,
+        email=data.email.strip() if data.email else None,
+        address=data.address.strip() if data.address else None,
+        gstin=data.gstin.strip() if data.gstin else None,
+        contact_person=data.contact_person.strip() if data.contact_person else None,
+        payment_terms=data.payment_terms.strip() if data.payment_terms else None,
+        notes=data.notes.strip() if data.notes else None,
+        is_active=True,
+    )
+    db.add(supplier)
+    await db.flush()
+    await db.refresh(supplier)
+    return supplier
+
+
+async def update_supplier(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    supplier_id: uuid.UUID,
+    data: Any,
+):
+    """Update an existing vendor/supplier record."""
+    from app.models.supplier import Supplier
+
+    stmt = select(Supplier).where(
+        Supplier.id == supplier_id,
+        Supplier.outlet_id == outlet_id,
+    )
+    res = await db.execute(stmt)
+    supplier = res.scalar_one_or_none()
+    if not supplier:
+        return None
+
+    update_data = data.model_dump(exclude_unset=True)
+    for field, value in update_data.items():
+        if isinstance(value, str):
+            value = value.strip() or None
+        setattr(supplier, field, value)
+
+    await db.flush()
+    await db.refresh(supplier)
+    return supplier
+
+
+async def list_suppliers(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+):
+    """List all active suppliers for an outlet."""
+    from app.models.supplier import Supplier
+
+    stmt = (
+        select(Supplier)
+        .where(
+            Supplier.outlet_id == outlet_id,
+            Supplier.is_active == True,  # noqa: E712
+        )
+        .order_by(Supplier.name)
+    )
+    res = await db.execute(stmt)
+    return res.scalars().all()
+
+
+async def update_batch_metadata(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    intake_id: uuid.UUID,
+    data: BatchUpdateMetadataRequest,
+) -> dict:
+    """
+    Update batch metadata (Tier A):
+    - batch_number: Correct typos or manual lot codes.
+    - expiry_date: Add, update, or clear expiration date.
+    - intake_date: Backdate/correct true physical arrival timestamp.
+    - supplier_id: Assign or change vendor.
+    - notes: Lot remarks, storage bin/rack, temperature.
+    - shelf_life_alert_hrs: Update shelf life alert hours on parent item.
+
+    Maintains total stock level stability, ledger integrity, and strictly anchors
+    shelf-life and FEFO calculations to the physical arrival timestamp (intake_date).
+    """
+    stmt = (
+        select(StockIntake)
+        .options(selectinload(StockIntake.item), selectinload(StockIntake.supplier))
+        .where(
+            StockIntake.id == intake_id,
+            StockIntake.outlet_id == outlet_id,
+        )
+    )
+    res = await db.execute(stmt)
+    batch = res.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Stock intake batch not found")
+
+    fields_set = data.model_dump(exclude_unset=True)
+
+    if "batch_number" in fields_set:
+        if data.batch_number and data.batch_number.strip():
+            batch.batch_number = data.batch_number.strip()
+
+    if "expiry_date" in fields_set:
+        batch.expiry_date = ensure_naive_utc(data.expiry_date)
+
+    if "intake_date" in fields_set:
+        intake_dt = ensure_naive_utc(data.intake_date)
+        if intake_dt is not None:
+            batch.intake_date = intake_dt
+
+    if "supplier_id" in fields_set:
+        batch.supplier_id = data.supplier_id
+
+    if "notes" in fields_set:
+        batch.notes = data.notes.strip() if data.notes else None
+
+    if "shelf_life_alert_hrs" in fields_set and batch.item:
+        batch.item.shelf_life_alert_hrs = data.shelf_life_alert_hrs
+
+    await db.commit()
+
+    # Reload batch with eagerly loaded relationships
+    reload_stmt = (
+        select(StockIntake)
+        .options(selectinload(StockIntake.item), selectinload(StockIntake.supplier))
+        .where(StockIntake.id == intake_id)
+    )
+    res_reloaded = await db.execute(reload_stmt)
+    batch = res_reloaded.scalar_one()
+
+    # Re-evaluate status
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    if batch.remaining_quantity <= Decimal("0.000"):
+        status_str = "DEPLETED"
+    elif batch.expiry_date and batch.expiry_date < now:
+        status_str = "EXPIRED"
+    elif batch.expiry_date and batch.expiry_date <= now + timedelta(days=7):
+        status_str = "EXPIRING_SOON"
+    else:
+        status_str = "ACTIVE"
+
+    init_q = float(batch.initial_quantity) if (batch.initial_quantity is not None and float(batch.initial_quantity) > 0) else float(batch.quantity)
+    usable_q = float(batch.quantity)
+    u_cost = float(batch.unit_cost)
+    total_billed = u_cost * usable_q
+    purchase_cost = round(total_billed / init_q, 2) if init_q > 0 else u_cost
+
+    return {
+        "status": "success",
+        "message": "Batch metadata updated successfully",
+        "batch": {
+            "id": batch.id,
+            "outlet_id": batch.outlet_id,
+            "item_id": batch.item_id,
+            "item_name": batch.item.name if batch.item else "Unknown Item",
+            "item_barcode": batch.item.barcode if batch.item else None,
+            "unit": batch.item.unit if batch.item else "piece",
+            "batch_number": batch.batch_number or f"BAT-{batch.id.hex[:6]}",
+            "quantity": batch.quantity,
+            "initial_quantity": batch.initial_quantity if batch.initial_quantity is not None else batch.quantity,
+            "remaining_quantity": batch.remaining_quantity,
+            "unit_cost": batch.unit_cost,
+            "purchase_unit_cost": purchase_cost,
+            "supplier_id": batch.supplier_id,
+            "supplier_name": batch.supplier.name if batch.supplier else None,
+            "intake_date": batch.intake_date.replace(tzinfo=timezone.utc) if batch.intake_date else None,
+            "expiry_date": batch.expiry_date.replace(tzinfo=timezone.utc) if batch.expiry_date else None,
+            "shelf_life_alert_hrs": batch.item.shelf_life_alert_hrs if batch.item else None,
+            "status": status_str,
+            "notes": batch.notes,
+            "item_cost_per_unit": batch.item.cost_per_unit if batch.item else None,
+            "item_retail_price": batch.item.retail_price if batch.item else None,
+            "item_mrp": batch.item.mrp if batch.item else None,
+            "margin_type": batch.item.margin_type if batch.item else None,
+            "retail_margin_pct": batch.item.retail_margin_pct if batch.item else None,
+            "mrp_margin_pct": batch.item.mrp_margin_pct if batch.item else None,
+        },
+    }
+
+
+async def adjust_batch_stock(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    intake_id: uuid.UUID,
+    staff_user: Any,
+    data: Any,
+):
+    """
+    Adjust batch stock:
+    - PURCHASE_RETURN: Deduct batch & item stock, record StockLedger, create PurchaseReturn bill entry.
+    - MANUAL_ADJUSTMENT: Deduct/adjust batch & item stock, record StockLedger.
+    - VOID_BATCH: Zero out batch remaining stock, deduct from item stock, record StockLedger.
+    """
+    from app.models.purchase_return import PurchaseReturn
+
+    # Fetch target batch
+    intake_res = await db.execute(
+        select(StockIntake)
+        .options(selectinload(StockIntake.supplier))
+        .where(
+            StockIntake.id == intake_id,
+            StockIntake.outlet_id == outlet_id,
+        )
+    )
+    batch = intake_res.scalar_one_or_none()
+    if not batch:
+        raise HTTPException(status_code=404, detail="Stock intake batch not found")
+
+    # Fetch parent item
+    item_res = await db.execute(
+        select(InventoryItem).where(
+            InventoryItem.id == batch.item_id,
+            InventoryItem.outlet_id == outlet_id,
+        )
+    )
+    item = item_res.scalar_one_or_none()
+    if not item:
+        raise HTTPException(status_code=404, detail="Parent inventory item not found")
+
+    adj_type = data.adjustment_type.upper()
+    qty_change = Decimal(str(data.quantity))
+    user_uuid = getattr(staff_user, "user_id", None) or getattr(staff_user, "id", None)
+
+    if adj_type != "INTAKE_CORRECTION" and batch.remaining_quantity <= Decimal("0.000"):
+        raise HTTPException(
+            status_code=400,
+            detail="Cannot adjust or return stock from a batch with 0 remaining stock."
+        )
+
+    if adj_type == "INTAKE_CORRECTION":
+        # Tier B: Inward stock correction, appending stock, and margin/pricing recalculation
+        if getattr(data, "quantity_delta", None) is not None:
+            delta = Decimal(str(data.quantity_delta))
+            new_total_qty = batch.quantity + delta
+        elif getattr(data, "new_total_quantity", None) is not None:
+            new_total_qty = Decimal(str(data.new_total_quantity))
+            delta = new_total_qty - batch.quantity
+        else:
+            delta = Decimal(str(data.quantity))
+            new_total_qty = batch.quantity + delta
+
+        if new_total_qty <= Decimal("0.000"):
+            raise HTTPException(
+                status_code=400,
+                detail="Total inward quantity must be greater than 0."
+            )
+
+        new_remaining = batch.remaining_quantity + delta
+        if new_remaining < Decimal("0.000"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot reduce inward quantity by {abs(delta):.2f} {item.unit}. Only {batch.remaining_quantity:.2f} {item.unit} remaining in batch ({batch.quantity - batch.remaining_quantity:.2f} {item.unit} already sold or consumed)."
+            )
+
+        batch.quantity = new_total_qty
+        batch.initial_quantity = new_total_qty
+        batch.remaining_quantity = new_remaining
+        item.current_stock = max(Decimal("0.000"), item.current_stock + delta)
+
+        if getattr(data, "new_unit_cost", None) is not None:
+            new_cost = Decimal(str(data.new_unit_cost))
+            batch.unit_cost = new_cost
+        elif getattr(data, "total_billed", None) is not None and new_total_qty > Decimal("0.000"):
+            new_cost = (Decimal(str(data.total_billed)) / new_total_qty).quantize(Decimal("0.01"))
+            batch.unit_cost = new_cost
+        else:
+            new_cost = batch.unit_cost
+
+        if getattr(data, "sync_catalog_price", True):
+            item.cost_per_unit = new_cost
+
+            def calc_price(margin_pct: Decimal | None) -> Decimal | None:
+                if margin_pct is None or new_cost == Decimal("0.00"):
+                    return None
+                if item.margin_type == MarginTypeEnum.MARKUP:
+                    return (new_cost + (new_cost * margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+                elif item.margin_type == MarginTypeEnum.MARGIN:
+                    if margin_pct >= Decimal("100"):
+                        return None
+                    return (new_cost / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+                return None
+
+            new_retail_price = calc_price(item.retail_margin_pct)
+            new_mrp = calc_price(item.mrp_margin_pct)
+            new_wholesale_price = calc_price(item.wholesale_margin_pct)
+
+            if new_retail_price is not None:
+                item.retail_price = new_retail_price
+            if new_mrp is not None:
+                item.mrp = new_mrp
+            if new_wholesale_price is not None:
+                item.wholesale_price = new_wholesale_price
+
+            from app.models.menu_item import MenuItem
+            menu_res = await db.execute(
+                select(MenuItem).where(MenuItem.inventory_item_id == item.id)
+            )
+            for menu_item in menu_res.scalars():
+                if new_retail_price is not None:
+                    menu_item.price = new_retail_price
+
+        ledger_entry = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            change_type=StockChangeTypeEnum.MANUAL_ADJUSTMENT,
+            quantity_change=delta,
+            resulting_stock=item.current_stock,
+            created_by=user_uuid,
+            unit_cost_snapshot=new_cost,
+        )
+        db.add(ledger_entry)
+        await db.flush()
+
+        return {
+            "status": "success",
+            "message": f"Inward batch corrected successfully. Qty adjusted by {delta:+.2f} {item.unit}.",
+            "batch_id": batch.id,
+            "return_id": None,
+            "new_quantity": batch.quantity,
+            "new_remaining_quantity": batch.remaining_quantity,
+            "new_unit_cost": batch.unit_cost,
+            "item_current_stock": item.current_stock,
+            "item_retail_price": item.retail_price,
+            "item_mrp": item.mrp,
+        }
+
+    elif adj_type == "VOID_BATCH":
+        # Zero out remaining stock for this batch
+        deduct_qty = batch.remaining_quantity
+        batch.remaining_quantity = Decimal("0.000")
+        item.current_stock = max(Decimal("0.000"), item.current_stock - deduct_qty)
+
+        change_enum = StockChangeTypeEnum.VOID_BATCH
+        ledger_change = -deduct_qty
+        notes_text = f"Batch #{batch.batch_number or batch.id} VOIDED. {data.notes or ''}".strip()
+
+        ledger_entry = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            change_type=change_enum,
+            quantity_change=ledger_change,
+            resulting_stock=item.current_stock,
+            created_by=user_uuid,
+            unit_cost_snapshot=batch.unit_cost,
+        )
+        db.add(ledger_entry)
+        await db.flush()
+        return {"status": "success", "message": "Batch voided successfully", "batch_id": batch.id, "return_id": None}
+
+    elif adj_type == "PURCHASE_RETURN":
+        # Validate quantity <= remaining_quantity
+        if qty_change > batch.remaining_quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot return {qty_change} units; only {batch.remaining_quantity} units remaining in batch."
+            )
+
+        batch.remaining_quantity = batch.remaining_quantity - qty_change
+        item.current_stock = max(Decimal("0.000"), item.current_stock - qty_change)
+
+        # Generate Return Bill Number (e.g. PR-YYYYMMDD-XXXX)
+        now_str = datetime.now(timezone.utc).strftime("%Y%m%d")
+        rand_str = uuid.uuid4().hex[:4].upper()
+        return_number = f"PR-{now_str}-{rand_str}"
+
+        supplier_name = data.supplier_name or (batch.supplier.name if batch.supplier else "General Supplier")
+        
+        # Calculate Purchase/Billed Unit Cost
+        init_q = float(batch.initial_quantity) if (batch.initial_quantity is not None and float(batch.initial_quantity) > 0) else float(batch.quantity)
+        usable_q = float(batch.quantity)
+        u_cost = float(batch.unit_cost)
+        calc_purchase_cost = Decimal(str(round((u_cost * usable_q) / init_q, 2))) if init_q > 0 else Decimal(str(u_cost))
+
+        if getattr(data, "return_rate", None) is not None:
+            unit_cost = Decimal(str(data.return_rate))
+        else:
+            unit_cost = calc_purchase_cost
+
+        total_refund = unit_cost * qty_change
+
+        purchase_return = PurchaseReturn(
+            id=uuid.uuid4(),
+            return_number=return_number,
+            outlet_id=outlet_id,
+            intake_id=batch.id,
+            item_id=item.id,
+            supplier_name=supplier_name,
+            batch_number=batch.batch_number,
+            quantity=qty_change,
+            unit_cost=unit_cost,
+            total_refund_amount=total_refund,
+            reason=data.reason,
+            notes=data.notes,
+            created_by=user_uuid,
+        )
+        db.add(purchase_return)
+
+        ledger_entry = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            change_type=StockChangeTypeEnum.PURCHASE_RETURN,
+            quantity_change=-qty_change,
+            resulting_stock=item.current_stock,
+            created_by=user_uuid,
+            unit_cost_snapshot=unit_cost,
+        )
+        db.add(ledger_entry)
+        await db.flush()
+        return {
+            "status": "success",
+            "message": "Purchase return processed and return bill generated",
+            "batch_id": batch.id,
+            "return_id": purchase_return.id,
+            "return_number": purchase_return.return_number,
+        }
+
+    else:
+        # MANUAL_ADJUSTMENT (Audit/Loss)
+        if qty_change > batch.remaining_quantity:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Cannot adjust {qty_change} units; only {batch.remaining_quantity} units remaining in batch."
+            )
+
+        batch.remaining_quantity = batch.remaining_quantity - qty_change
+        item.current_stock = max(Decimal("0.000"), item.current_stock - qty_change)
+
+        ledger_entry = StockLedger(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            item_id=item.id,
+            change_type=StockChangeTypeEnum.MANUAL_ADJUSTMENT,
+            quantity_change=-qty_change,
+            resulting_stock=item.current_stock,
+            created_by=user_uuid,
+            unit_cost_snapshot=batch.unit_cost,
+        )
+        db.add(ledger_entry)
+        await db.flush()
+        return {"status": "success", "message": "Manual adjustment completed", "batch_id": batch.id, "return_id": None}
+
+
+async def list_purchase_returns(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+):
+    """List all purchase returns / return bills for an outlet."""
+    from app.models.purchase_return import PurchaseReturn
+    from app.models.inventory_item import InventoryItem
+    from app.models.user import User
+
+    stmt = (
+        select(PurchaseReturn, InventoryItem.name.label("item_name"), User.email.label("created_by_name"))
+        .join(InventoryItem, PurchaseReturn.item_id == InventoryItem.id)
+        .outerjoin(User, PurchaseReturn.created_by == User.id)
+        .where(PurchaseReturn.outlet_id == outlet_id)
+        .order_by(PurchaseReturn.created_at.desc())
+    )
+    res = await db.execute(stmt)
+    results = []
+    for row in res.all():
+        pr, item_name, user_name = row[0], row[1], row[2]
+        d = {
+            "id": pr.id,
+            "return_number": pr.return_number,
+            "outlet_id": pr.outlet_id,
+            "intake_id": pr.intake_id,
+            "item_id": pr.item_id,
+            "item_name": item_name,
+            "supplier_name": pr.supplier_name,
+            "batch_number": pr.batch_number,
+            "quantity": pr.quantity,
+            "unit_cost": pr.unit_cost,
+            "total_refund_amount": pr.total_refund_amount,
+            "reason": pr.reason,
+            "notes": pr.notes,
+            "created_by": pr.created_by,
+            "created_by_name": user_name or "System Admin",
+            "created_at": pr.created_at,
+        }
+        results.append(d)
+    return results
+
+
+async def get_purchase_return_by_id(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    return_id: uuid.UUID,
+):
+    """Get single purchase return bill by ID."""
+    from app.models.purchase_return import PurchaseReturn
+    from app.models.inventory_item import InventoryItem
+    from app.models.user import User
+
+    stmt = (
+        select(PurchaseReturn, InventoryItem.name.label("item_name"), User.email.label("created_by_name"))
+        .join(InventoryItem, PurchaseReturn.item_id == InventoryItem.id)
+        .outerjoin(User, PurchaseReturn.created_by == User.id)
+        .where(
+            PurchaseReturn.id == return_id,
+            PurchaseReturn.outlet_id == outlet_id,
+        )
+    )
+    res = await db.execute(stmt)
+    row = res.first()
+    if not row:
+        raise HTTPException(status_code=404, detail="Purchase return bill not found")
+    pr, item_name, user_name = row[0], row[1], row[2]
+    return {
+        "id": pr.id,
+        "return_number": pr.return_number,
+        "outlet_id": pr.outlet_id,
+        "intake_id": pr.intake_id,
+        "item_id": pr.item_id,
+        "item_name": item_name,
+        "supplier_name": pr.supplier_name,
+        "batch_number": pr.batch_number,
+        "quantity": pr.quantity,
+        "unit_cost": pr.unit_cost,
+        "total_refund_amount": pr.total_refund_amount,
+        "reason": pr.reason,
+        "notes": pr.notes,
+        "created_by": pr.created_by,
+        "created_by_name": user_name or "System Admin",
+        "created_at": pr.created_at,
+    }
+
+
+async def reconcile_item_stock_from_batches(db: AsyncSession, item_id: uuid.UUID) -> Decimal:
+    """
+    Synchronizes an item's current_stock with the sum of its active batches' remaining_quantity.
+    For any product that tracks batches, the sum of remaining quantities is the single source of truth.
+    """
+    inv_item = await db.get(InventoryItem, item_id)
+    if not inv_item:
+        return Decimal("0.000")
+
+    batch_sum_stmt = select(
+        func.coalesce(func.sum(StockIntake.remaining_quantity), Decimal("0.000"))
+    ).where(
+        StockIntake.item_id == item_id,
+        StockIntake.remaining_quantity > Decimal("0.000"),
+    )
+    batch_sum_res = await db.execute(batch_sum_stmt)
+    total_batch_stock = batch_sum_res.scalar() or Decimal("0.000")
+
+    has_batches_stmt = select(func.count(StockIntake.id)).where(StockIntake.item_id == item_id)
+    has_batches_res = await db.execute(has_batches_stmt)
+    batch_count = has_batches_res.scalar() or 0
+
+    if batch_count > 0:
+        if inv_item.current_stock != total_batch_stock:
+            inv_item.current_stock = total_batch_stock
+            await db.flush()
+
+    return inv_item.current_stock
+
+
+async def restore_customer_return_to_batch(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    item_id: uuid.UUID,
+    return_qty: Decimal,
+    order_id: uuid.UUID | None = None,
+    user_id: uuid.UUID | None = None,
+) -> None:
+    """
+    Restores customer return stock back to its original intake batch (or recent active batch),
+    updating both StockIntake.remaining_quantity and InventoryItem.current_stock.
+    """
+    inv_item = await db.get(InventoryItem, item_id)
+    if not inv_item:
+        return
+
+    remaining_to_restore = return_qty
+
+    if order_id:
+        # Trace original batch intake IDs from order's StockLedger AUTO_DEDUCTION entries
+        stmt = (
+            select(StockLedger)
+            .where(
+                StockLedger.reference_order_id == order_id,
+                StockLedger.item_id == item_id,
+                StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+                StockLedger.intake_id.is_not(None),
+            )
+            .order_by(StockLedger.created_at.desc())
+        )
+        res = await db.execute(stmt)
+        ledger_entries = res.scalars().all()
+
+        for entry in ledger_entries:
+            if remaining_to_restore <= Decimal("0.000"):
+                break
+            if not entry.intake_id:
+                continue
+
+            batch = await db.get(StockIntake, entry.intake_id)
+            if batch:
+                # Cap restore to what was deducted from this batch AND headroom up to initial_quantity
+                restore_amount = min(remaining_to_restore, abs(entry.quantity_change))
+                max_intake = batch.initial_quantity if batch.initial_quantity is not None else batch.quantity
+                headroom = max(Decimal("0.000"), max_intake - batch.remaining_quantity)
+                restore_amount = min(restore_amount, headroom)
+
+                if restore_amount > Decimal("0.000"):
+                    batch.remaining_quantity += restore_amount
+                    remaining_to_restore -= restore_amount
+
+                    # Log RESTOCK ledger entry linked to original intake batch
+                    restock_entry = StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=outlet_id,
+                        item_id=item_id,
+                        intake_id=batch.id,
+                        change_type=StockChangeTypeEnum.RESTOCK,
+                        quantity_change=restore_amount,
+                        resulting_stock=inv_item.current_stock + (return_qty - remaining_to_restore),
+                        reference_order_id=order_id,
+                        unit_cost_snapshot=batch.unit_cost,
+                        created_by=user_id,
+                    )
+                    db.add(restock_entry)
+
+        # If remaining_to_restore > 0 after checking all batched deductions,
+        # that leftover was an unbatched/oversell deduction (intake_id = None).
+        # We record an unbatched RESTOCK for audit without creating phantom batch stock.
+        if remaining_to_restore > Decimal("0.000"):
+            unbatched_entry = StockLedger(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                item_id=item_id,
+                intake_id=None,
+                change_type=StockChangeTypeEnum.RESTOCK,
+                quantity_change=remaining_to_restore,
+                resulting_stock=inv_item.current_stock + return_qty,
+                reference_order_id=order_id,
+                unit_cost_snapshot=inv_item.cost_per_unit,
+                created_by=user_id,
+            )
+            db.add(unbatched_entry)
+            remaining_to_restore = Decimal("0.000")
+
+    else:
+        # No order_id provided: unreferenced manual return, restore to most recent batch if headroom exists
+        if remaining_to_restore > Decimal("0.000"):
+            recent_stmt = (
+                select(StockIntake)
+                .where(StockIntake.item_id == item_id, StockIntake.outlet_id == outlet_id)
+                .order_by(StockIntake.intake_date.desc())
+            )
+            recent_res = await db.execute(recent_stmt)
+            recent_batch = recent_res.scalars().first()
+
+            if recent_batch:
+                max_intake = recent_batch.initial_quantity if recent_batch.initial_quantity is not None else recent_batch.quantity
+                headroom = max(Decimal("0.000"), max_intake - recent_batch.remaining_quantity)
+                restore_amount = min(remaining_to_restore, headroom)
+                if restore_amount > Decimal("0.000"):
+                    recent_batch.remaining_quantity += restore_amount
+                    restock_entry = StockLedger(
+                        id=uuid.uuid4(),
+                        outlet_id=outlet_id,
+                        item_id=item_id,
+                        intake_id=recent_batch.id,
+                        change_type=StockChangeTypeEnum.RESTOCK,
+                        quantity_change=restore_amount,
+                        resulting_stock=inv_item.current_stock + return_qty,
+                        reference_order_id=order_id,
+                        unit_cost_snapshot=recent_batch.unit_cost,
+                        created_by=user_id,
+                    )
+                    db.add(restock_entry)
+
+    # Master stock update & automatic reconciliation
+    inv_item.current_stock += return_qty
+    await db.flush()
+    await reconcile_item_stock_from_batches(db, item_id)
+
+
+

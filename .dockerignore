@@ -1,0 +1,53 @@
+# Dependencies (reinstalled inside Docker)
+node_modules
+frontend/node_modules
+
+# Build outputs (rebuilt inside Docker)
+.next
+frontend/.next
+frontend/out
+frontend/build
+
+# Python backend (not needed for frontend)
+.venv
+venv
+__pycache__
+*.pyc
+*.egg-info
+*.db
+*.sqlite3
+
+# Git
+.git
+.gitignore
+
+# IDE
+.vscode
+.idea
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment files (secrets — never bake into images)
+.env
+.env.local
+.env.production
+frontend/.env*
+
+# Docker files
+Dockerfile*
+docker-compose*.yml
+
+# Turbo cache
+.turbo
+frontend/.turbo
+
+# Misc
+uploads
+.pytest_cache
+.mypy_cache
+.ruff_cache
+htmlcov
+*.log
+walkthrough.md
