@@ -363,7 +363,7 @@ export function useSuperadminData() {
       if (data.access_token) {
         localStorage.setItem(ACCESS_TOKEN_KEY, data.access_token);
         localStorage.setItem(REFRESH_TOKEN_KEY, data.refresh_token);
-        window.open("/admin", "_blank");
+        window.open("/", "_blank");
       } else {
         throw new Error("Invalid token received from server.");
       }

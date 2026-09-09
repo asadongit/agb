@@ -28,9 +28,9 @@ Open [http://localhost:3000](http://localhost:3000) with your browser to see the
 
 ## Route Map
 
-- `/` — marketing website for chain owners and ops managers
-- `/menu` — diner ordering experience (menu, cart, checkout)
-- `/admin` — owner/admin dashboard using backend admin APIs
+- `/` — owner/admin operational dashboard (billing, inventory, catalog, analytics, orders)
+- `/menu` — customer ordering experience (menu, cart, checkout)
+- `/superadmin` — chain & multi-outlet superadmin management console
 
 ## Backend Dependency
 

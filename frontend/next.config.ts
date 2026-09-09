@@ -29,12 +29,22 @@ const nextConfig: NextConfig = {
       },
       {
         source: "/admin",
-        destination: "/login",
+        destination: "/",
         permanent: true,
       },
       {
         source: "/admin/:path*",
-        destination: "/login/:path*",
+        destination: "/",
+        permanent: true,
+      },
+      {
+        source: "/login",
+        destination: "/",
+        permanent: true,
+      },
+      {
+        source: "/login/:path*",
+        destination: "/",
         permanent: true,
       },
     ];
