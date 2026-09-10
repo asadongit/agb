@@ -265,9 +265,14 @@ export interface ProfitMarginAnalytics {
 
 // ── Billing & POS types ────────────────────────────────────────────────
 
-export type ManualBillItem = components["schemas"]["BillItemResponse"];
+export type ManualBillItem = components["schemas"]["BillItemResponse"] & {
+  selected_batch_id?: string | null;
+  selected_batch_number?: string | null;
+  cost_price?: number | null;
+};
 
-export type ManualBill = components["schemas"]["BillResponse"] & {
+export type ManualBill = Omit<components["schemas"]["BillResponse"], "items"> & {
+  items: ManualBillItem[];
   credit_applied?: number;
   debit_applied?: number;
 };

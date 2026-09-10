@@ -19,6 +19,10 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    if bind and bind.dialect.name == "postgresql":
+        op.execute(sa.text("ALTER TYPE stockchangetypeenum ADD VALUE IF NOT EXISTS 'OVERSOLD'"))
+
     with op.batch_alter_table('inventory_items', schema=None) as batch_op:
         batch_op.add_column(sa.Column('allow_oversell', sa.Boolean(), server_default='true', nullable=False))
 

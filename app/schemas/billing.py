@@ -123,6 +123,7 @@ class BillItemResponse(StrictSchema):
     selected_unit: str | None = None
     returned_quantity: float = 0.0
     unit_price: float
+    cost_price: float | None = None
     mrp: float | None = None
     tax_rate: float | None = None
     is_complimentary: bool

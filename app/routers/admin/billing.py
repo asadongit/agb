@@ -22,6 +22,7 @@ from app.dependencies import (
 from app.models.bill_discount_approval import BillDiscountApproval
 from app.models.cash_drawer_ledger import CashDrawerLedger
 from app.models.enums import RoleEnum, OrderStatusEnum
+from app.models.menu_item import MenuItem
 from app.models.order import Order
 from app.models.order_item import OrderItem
 from app.models.user import User
@@ -61,31 +62,35 @@ def _format_bill_response(order: Order) -> BillResponse:
         l_total = float(item.line_total) if item.line_total is not None else (qty * price)
 
         name_val = item.item_name
-        if not name_val:
-            try:
-                name_val = item.menu_item.name if getattr(item, "menu_item", None) else None
-            except Exception:
-                name_val = None
+        mi_dict = item.__dict__.get("menu_item")
+        if not name_val and mi_dict:
+            name_val = getattr(mi_dict, "name", None)
         if not name_val:
             name_val = "Item"
 
         unit_val = getattr(item, "selected_unit", None)
-        if not unit_val:
-            try:
-                mi = getattr(item, "menu_item", None)
-                if mi:
-                    inv = getattr(mi, "inventory_item", None)
-                    if inv and getattr(inv, "unit", None):
-                        unit_val = str(inv.unit)
-                    elif getattr(mi, "unit_label", None):
-                        unit_val = str(mi.unit_label)
-            except Exception:
-                unit_val = None
+        if not unit_val and mi_dict:
+            inv_dict = mi_dict.__dict__.get("inventory_item") if hasattr(mi_dict, "__dict__") else None
+            if inv_dict and getattr(inv_dict, "unit", None):
+                unit_val = str(inv_dict.unit)
+            elif getattr(mi_dict, "unit_label", None):
+                unit_val = str(mi_dict.unit_label)
 
         batch_id_str = str(item.selected_batch_id) if getattr(item, "selected_batch_id", None) else None
         batch_num_str = None
-        if "selected_batch" in item.__dict__ and item.__dict__["selected_batch"] and hasattr(item.__dict__["selected_batch"], "batch_number"):
-            batch_num_str = item.__dict__["selected_batch"].batch_number
+        cost_val = None
+
+        sb = item.__dict__.get("selected_batch")
+        if sb:
+            if hasattr(sb, "batch_number"):
+                batch_num_str = sb.batch_number
+            if getattr(sb, "unit_cost", None) is not None:
+                cost_val = float(sb.unit_cost)
+
+        if cost_val is None and mi_dict:
+            inv_dict = mi_dict.__dict__.get("inventory_item") if hasattr(mi_dict, "__dict__") else None
+            if inv_dict and getattr(inv_dict, "cost_per_unit", None) is not None:
+                cost_val = float(inv_dict.cost_per_unit)
 
         items_out.append(
             {
@@ -96,6 +101,7 @@ def _format_bill_response(order: Order) -> BillResponse:
                 "quantity": qty,
                 "selected_unit": unit_val,
                 "unit_price": price,
+                "cost_price": cost_val,
                 "mrp": mrp_val,
                 "tax_rate": tax_rate_val,
                 "is_complimentary": getattr(item, "is_complimentary", False),
@@ -326,7 +332,7 @@ async def list_bills_endpoint(
     stmt = (
         select(Order)
         .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.items).selectinload(OrderItem.menu_item).selectinload(MenuItem.inventory_item),
             selectinload(Order.items).selectinload(OrderItem.selected_batch),
         )
         .where(Order.outlet_id == current_user.outlet_id)
@@ -403,7 +409,7 @@ async def get_bill_endpoint(
     res = await db.execute(
         select(Order)
         .options(
-            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.items).selectinload(OrderItem.menu_item).selectinload(MenuItem.inventory_item),
             selectinload(Order.items).selectinload(OrderItem.selected_batch),
         )
         .where(

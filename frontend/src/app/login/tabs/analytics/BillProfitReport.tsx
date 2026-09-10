@@ -351,6 +351,7 @@ export function BillProfitReport({ data, isLoading, restaurant }: Props) {
                           <th className="px-4 py-2">Item Description</th>
                           <th className="px-4 py-2 text-right">Qty</th>
                           <th className="px-4 py-2 text-right">Rate</th>
+                          <th className="px-4 py-2 text-right">Cost Price</th>
                           <th className="px-4 py-2 text-right">MRP</th>
                           <th className="px-4 py-2 text-right">Total</th>
                         </tr>
@@ -361,9 +362,9 @@ export function BillProfitReport({ data, isLoading, restaurant }: Props) {
                             <td className="px-4 py-2.5 text-center text-[var(--text-muted)] font-mono">{idx + 1}</td>
                             <td className="px-4 py-2.5 font-medium">
                               <p className="text-[var(--text-primary)] font-semibold">{it.item_name}</p>
-                              {(it as any).selected_batch_number && (
+                              {it.selected_batch_number && (
                                 <span className="inline-flex items-center gap-1 font-mono text-[10px] text-sky-400 bg-sky-500/10 border border-sky-500/20 px-1.5 py-0.5 rounded mt-0.5">
-                                  Lot #{(it as any).selected_batch_number}
+                                  Lot #{it.selected_batch_number}
                                 </span>
                               )}
                             </td>
@@ -371,6 +372,9 @@ export function BillProfitReport({ data, isLoading, restaurant }: Props) {
                               {Number(it.quantity).toFixed(2)} {it.selected_unit || "pcs"}
                             </td>
                             <td className="px-4 py-2.5 text-right font-mono">₹{Number(it.unit_price).toFixed(2)}</td>
+                            <td className="px-4 py-2.5 text-right font-mono text-rose-400 font-semibold" title="Unit Cost Price used for COGS">
+                              {it.cost_price != null ? `₹${Number(it.cost_price).toFixed(2)}` : "—"}
+                            </td>
                             <td className="px-4 py-2.5 text-right font-mono text-purple-400">
                               {it.mrp ? `₹${Number(it.mrp).toFixed(2)}` : "—"}
                             </td>
