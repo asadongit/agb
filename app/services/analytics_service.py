@@ -1937,7 +1937,12 @@ async def get_day_book(
     entries = []
     
     stmt_ord = select(
-        Order.created_at, Order.basket_number, Order.total_amount, Order.payment_method
+        Order.created_at,
+        Order.basket_number,
+        Order.total_amount,
+        Order.payment_method,
+        Order.customer_name,
+        Order.customer_phone,
     ).where(
         Order.outlet_id == outlet_id, Order.created_at >= start_utc, Order.created_at <= end_utc,
         Order.status.in_(SETTLED_STATUSES)
@@ -1948,17 +1953,26 @@ async def get_day_book(
         amt = float(r.total_amount or 0)
         pm = r.payment_method.value if hasattr(r.payment_method, "value") else str(r.payment_method)
         tot_sales += amt
+        cust_name = (r.customer_name or "").strip() or "Walk-in"
+        cust_phone = (r.customer_phone or "").strip() or None
         entries.append({
             "ts": r.created_at,
             "type": "SALE",
             "ref": r.basket_number or "",
             "desc": f"Bill via {pm}",
             "dr": 0.0,
-            "cr": amt
+            "cr": amt,
+            "entity_name": cust_name,
+            "entity_phone": cust_phone,
+            "entity_type": "CUSTOMER",
         })
         
     stmt_ret = select(
-        CustomerReturn.created_at, CustomerReturn.return_number, CustomerReturn.total_refund_amount
+        CustomerReturn.created_at,
+        CustomerReturn.return_number,
+        CustomerReturn.total_refund_amount,
+        CustomerReturn.customer_name,
+        CustomerReturn.customer_phone,
     ).where(
         CustomerReturn.outlet_id == outlet_id, CustomerReturn.created_at >= start_utc, CustomerReturn.created_at <= end_utc
     )
@@ -1967,20 +1981,37 @@ async def get_day_book(
     for r in res_ret.all():
         amt = float(r.total_refund_amount or 0)
         tot_ret += amt
+        cust_name = (r.customer_name or "").strip() or "Walk-in"
+        cust_phone = (r.customer_phone or "").strip() or None
         entries.append({
             "ts": r.created_at,
             "type": "CUSTOMER_RETURN",
             "ref": r.return_number or "",
             "desc": "Customer Refund",
             "dr": amt,
-            "cr": 0.0
+            "cr": 0.0,
+            "entity_name": cust_name,
+            "entity_phone": cust_phone,
+            "entity_type": "CUSTOMER",
         })
         
-    stmt_cdl = select(
-        CashDrawerLedger.created_at, CashDrawerLedger.transaction_type, CashDrawerLedger.denominations, CashDrawerLedger.notes
-    ).where(
-        CashDrawerLedger.outlet_id == outlet_id, CashDrawerLedger.created_at >= start_utc, CashDrawerLedger.created_at <= end_utc,
-        CashDrawerLedger.transaction_type.in_(["MANUAL_DEPOSIT", "MANUAL_WITHDRAWAL"])
+    stmt_cdl = (
+        select(
+            CashDrawerLedger.created_at,
+            CashDrawerLedger.transaction_type,
+            CashDrawerLedger.denominations,
+            CashDrawerLedger.notes,
+            User.name.label("user_name"),
+            User.phone.label("user_phone"),
+            User.email.label("user_email"),
+        )
+        .outerjoin(User, CashDrawerLedger.created_by == User.id)
+        .where(
+            CashDrawerLedger.outlet_id == outlet_id,
+            CashDrawerLedger.created_at >= start_utc,
+            CashDrawerLedger.created_at <= end_utc,
+            CashDrawerLedger.transaction_type.in_(["MANUAL_DEPOSIT", "MANUAL_WITHDRAWAL"]),
+        )
     )
     res_cdl = await db.execute(stmt_cdl)
     tot_in, tot_out = 0.0, 0.0
@@ -1998,19 +2029,38 @@ async def get_day_book(
             tot_in += amt
         else:
             tot_out += amt
+        staff_name = (r.user_name or "").strip() or (r.user_email or "").strip() or "Staff Member"
+        staff_phone = (r.user_phone or "").strip() or None
         entries.append({
             "ts": r.created_at,
             "type": "CASH_DEPOSIT" if is_dep else "CASH_WITHDRAWAL",
             "ref": "-",
             "desc": r.notes or ttype,
             "dr": 0.0 if is_dep else amt,
-            "cr": amt if is_dep else 0.0
+            "cr": amt if is_dep else 0.0,
+            "entity_name": staff_name,
+            "entity_phone": staff_phone,
+            "entity_type": "STAFF",
         })
         
-    stmt_si = select(
-        StockIntake.intake_date, InventoryItem.name, StockIntake.quantity, StockIntake.unit_cost
-    ).select_from(StockIntake).join(InventoryItem, StockIntake.item_id == InventoryItem.id).where(
-        StockIntake.outlet_id == outlet_id, StockIntake.intake_date >= start_utc, StockIntake.intake_date <= end_utc
+    stmt_si = (
+        select(
+            StockIntake.intake_date,
+            InventoryItem.name,
+            StockIntake.quantity,
+            StockIntake.unit_cost,
+            StockIntake.batch_number,
+            Supplier.name.label("supplier_name"),
+            Supplier.phone.label("supplier_phone"),
+        )
+        .select_from(StockIntake)
+        .join(InventoryItem, StockIntake.item_id == InventoryItem.id)
+        .outerjoin(Supplier, StockIntake.supplier_id == Supplier.id)
+        .where(
+            StockIntake.outlet_id == outlet_id,
+            StockIntake.intake_date >= start_utc,
+            StockIntake.intake_date <= end_utc,
+        )
     )
     res_si = await db.execute(stmt_si)
     tot_si = 0.0
@@ -2024,13 +2074,18 @@ async def get_day_book(
         else:
             entry_time = datetime.combine(r.intake_date, datetime.min.time())
             
+        supp_name = (r.supplier_name or "").strip() or "Direct Supplier"
+        supp_phone = (r.supplier_phone or "").strip() or None
         entries.append({
             "ts": entry_time,
             "type": "STOCK_INTAKE",
-            "ref": "-",
+            "ref": r.batch_number or "-",
             "desc": f"Purchase: {r.name}",
             "dr": amt,
-            "cr": 0.0
+            "cr": 0.0,
+            "entity_name": supp_name,
+            "entity_phone": supp_phone,
+            "entity_type": "SUPPLIER",
         })
         
     entries.sort(key=lambda x: x["ts"])
@@ -2047,7 +2102,10 @@ async def get_day_book(
                 description=e["desc"],
                 debit=round(e["dr"], 2),
                 credit=round(e["cr"], 2),
-                running_balance=round(bal, 2)
+                running_balance=round(bal, 2),
+                entity_name=e.get("entity_name"),
+                entity_phone=e.get("entity_phone"),
+                entity_type=e.get("entity_type"),
             )
         )
         

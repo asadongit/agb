@@ -4161,6 +4161,12 @@ export interface components {
             credit: number;
             /** Running Balance */
             running_balance: number;
+            /** Entity Name */
+            entity_name?: string | null;
+            /** Entity Phone */
+            entity_phone?: string | null;
+            /** Entity Type */
+            entity_type?: string | null;
         };
         /** DayBookResponse */
         DayBookResponse: {

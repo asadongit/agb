@@ -475,6 +475,9 @@ class DayBookEntry(StrictSchema):
     debit: float
     credit: float
     running_balance: float
+    entity_name: str | None = None
+    entity_phone: str | None = None
+    entity_type: str | None = None
 
 
 class DayBookResponse(BaseResponse):
@@ -661,27 +664,6 @@ class DiscountReportResponse(BaseResponse):
     total_complimentary_items: int
     total_complimentary_value: float
 
-
-class DayBookEntry(StrictSchema):
-    timestamp: str
-    entry_type: str
-    reference_number: str
-    description: str
-    debit: float
-    credit: float
-    running_balance: float
-
-
-class DayBookResponse(BaseResponse):
-    date: str
-    opening_cash: float
-    total_sales: float
-    total_returns: float
-    total_cash_in: float
-    total_cash_out: float
-    total_stock_intake_cost: float
-    closing_balance: float
-    entries: list[DayBookEntry]
 
 
 class AbandonedCartStatsResponse(BaseResponse):

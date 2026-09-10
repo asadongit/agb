@@ -1827,10 +1827,16 @@ export function generateDayBookPdfReport(
     if (dayBookData.entries) {
       (autoTable as any)(doc, {
         startY: y,
-        head: [["Time", "Type", "Ref", "Description", "Debit (Out)", "Credit (In)", "Balance"]],
+        head: [["Time", "Type", "Ref", "Party / Contact", "Description", "Debit (Out)", "Credit (In)", "Balance"]],
         body: dayBookData.entries.map((e: any) => [
-          new Date(e.timestamp).toLocaleTimeString(), e.entry_type.replace(/_/g, " "), e.reference_number || "-", e.description, 
-          e.debit > 0 ? e.debit : "", e.credit > 0 ? e.credit : "", e.running_balance
+          new Date(e.timestamp).toLocaleTimeString(),
+          e.entry_type.replace(/_/g, " "),
+          e.reference_number || "-",
+          e.entity_name ? `${e.entity_name}${e.entity_phone ? ` (${e.entity_phone})` : ""}` : "-",
+          e.description, 
+          e.debit > 0 ? e.debit : "",
+          e.credit > 0 ? e.credit : "",
+          e.running_balance
         ]),
         theme: "grid", headStyles: { fillColor: [51, 65, 85] }, styles: { fontSize: 8 }
       });

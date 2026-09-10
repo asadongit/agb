@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from "react";
 import type { DayBookResponse } from "@/types";
 import { parseUTCDate } from "@/lib/api";
-import { ArrowDown, ArrowUp } from "lucide-react";
+import { ArrowDown, ArrowUp, Building2, Phone, User, UserCheck } from "lucide-react";
 
 export function DayBookReport({ data }: { data: DayBookResponse | null }) {
   const [sortOrder, setSortOrder] = useState<"desc" | "asc">("desc");
@@ -69,7 +69,7 @@ export function DayBookReport({ data }: { data: DayBookResponse | null }) {
           <table className="w-full text-left text-sm">
             <thead>
               <tr className="border-b border-[var(--border-subtle)] text-[var(--text-muted)] uppercase text-xs">
-                <th className="py-2.5 px-2">
+                <th className="py-2.5 px-3">
                   <button
                     type="button"
                     onClick={() => setSortOrder((prev) => (prev === "desc" ? "asc" : "desc"))}
@@ -84,23 +84,24 @@ export function DayBookReport({ data }: { data: DayBookResponse | null }) {
                     )}
                   </button>
                 </th>
-                <th className="py-2.5 px-2">Description</th>
-                <th className="py-2.5 px-2 text-right">In (₹)</th>
-                <th className="py-2.5 px-2 text-right">Out (₹)</th>
-                <th className="py-2.5 px-2 text-right">Balance</th>
+                <th className="py-2.5 px-3">Description</th>
+                <th className="py-2.5 px-3">Party / Contact</th>
+                <th className="py-2.5 px-3 text-right">In (₹)</th>
+                <th className="py-2.5 px-3 text-right">Out (₹)</th>
+                <th className="py-2.5 px-3 text-right">Balance</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-subtle)]">
               {sortedEntries.length === 0 ? (
                 <tr>
-                  <td colSpan={5} className="py-8 text-center text-xs text-[var(--text-muted)]">
+                  <td colSpan={6} className="py-8 text-center text-xs text-[var(--text-muted)]">
                     No transactions recorded for this day.
                   </td>
                 </tr>
               ) : (
                 sortedEntries.map((e, idx) => (
                   <tr key={idx} className="hover:bg-[var(--bg-surface-elevated)]/40 transition">
-                    <td className="py-2.5 px-2 text-[var(--text-muted)] font-mono text-xs whitespace-nowrap">
+                    <td className="py-2.5 px-3 text-[var(--text-muted)] font-mono text-xs whitespace-nowrap align-top">
                       {parseUTCDate(e.timestamp).toLocaleTimeString("en-IN", {
                         hour: "2-digit",
                         minute: "2-digit",
@@ -108,18 +109,58 @@ export function DayBookReport({ data }: { data: DayBookResponse | null }) {
                         hour12: true,
                       })}
                     </td>
-                    <td className="py-2.5 px-2">
+                    <td className="py-2.5 px-3 align-top">
                       <span className="font-semibold text-[var(--text-primary)]">{e.description}</span>
-                      <br/>
-                      <span className="text-[10px] uppercase font-bold text-[var(--text-muted)]">{e.entry_type}</span>
+                      <div className="flex items-center gap-1.5 mt-0.5">
+                        <span className="text-[10px] uppercase font-bold tracking-wider px-1.5 py-0.5 rounded bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-subtle)]">
+                          {e.entry_type.replace(/_/g, " ")}
+                        </span>
+                        {e.reference_number && e.reference_number !== "-" && (
+                          <span className="text-[10px] font-mono text-[var(--text-muted)]">
+                            Ref: {e.reference_number}
+                          </span>
+                        )}
+                      </div>
                     </td>
-                    <td className="py-2.5 px-2 text-right font-mono font-bold text-emerald-500">
+                    <td className="py-2.5 px-3 align-top">
+                      {e.entity_name ? (
+                        <div className="flex flex-col gap-0.5">
+                          <div className="inline-flex items-center gap-1.5">
+                            {e.entity_type === "CUSTOMER" ? (
+                              <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-sky-500/10 text-sky-400 shrink-0" title="Customer">
+                                <User className="h-3 w-3" />
+                              </span>
+                            ) : e.entity_type === "SUPPLIER" ? (
+                              <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-amber-500/10 text-amber-400 shrink-0" title="Supplier">
+                                <Building2 className="h-3 w-3" />
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center justify-center h-5 w-5 rounded-md bg-purple-500/10 text-purple-400 shrink-0" title="Staff">
+                                <UserCheck className="h-3 w-3" />
+                              </span>
+                            )}
+                            <span className="font-semibold text-xs text-[var(--text-primary)]">
+                              {e.entity_name}
+                            </span>
+                          </div>
+                          {e.entity_phone ? (
+                            <div className="inline-flex items-center gap-1 text-[11px] text-[var(--text-muted)] font-mono pl-6.5">
+                              <Phone className="h-2.5 w-2.5 opacity-70" />
+                              <span>{e.entity_phone}</span>
+                            </div>
+                          ) : null}
+                        </div>
+                      ) : (
+                        <span className="text-xs text-[var(--text-muted)] font-mono">—</span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-emerald-500 align-top">
                       {e.credit > 0 ? e.credit.toFixed(2) : "—"}
                     </td>
-                    <td className="py-2.5 px-2 text-right font-mono font-bold text-rose-500">
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-rose-500 align-top">
                       {e.debit > 0 ? e.debit.toFixed(2) : "—"}
                     </td>
-                    <td className="py-2.5 px-2 text-right font-mono font-bold text-[var(--text-primary)]">
+                    <td className="py-2.5 px-3 text-right font-mono font-bold text-[var(--text-primary)] align-top">
                       ₹{e.running_balance.toFixed(2)}
                     </td>
                   </tr>
