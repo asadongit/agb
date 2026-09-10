@@ -22,9 +22,8 @@ def upgrade() -> None:
     bind = op.get_bind()
     if bind and bind.dialect.name == "postgresql":
         # PostgreSQL doesn't allow ALTER TYPE inside a transaction block
-        op.execute("COMMIT")
-        op.execute(sa.text("ALTER TYPE stockchangetypeenum ADD VALUE IF NOT EXISTS 'OVERSOLD'"))
-        op.execute("BEGIN")
+        with op.get_context().autocommit_block():
+            op.execute(sa.text("ALTER TYPE stockchangetypeenum ADD VALUE IF NOT EXISTS 'OVERSOLD'"))
 
     with op.batch_alter_table('inventory_items', schema=None) as batch_op:
         batch_op.add_column(sa.Column('allow_oversell', sa.Boolean(), server_default='true', nullable=False))
