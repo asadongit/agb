@@ -332,6 +332,7 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     outlet_id=outlet_id,
                     item_id=inv_item.id,
                     intake_id=batch.id,
+                    batch_balance=batch.remaining_quantity,
                     change_type=StockChangeTypeEnum.INTAKE,
                     quantity_change=intake_qty,
                     resulting_stock=inv_item.current_stock,

@@ -4,7 +4,7 @@ import type {
   ManualBill,
 } from "@/types";
 import type { DraftCartItem } from "../modals/CreateBillDrawer";
-import { isAuthError } from "../adminUtils";
+import { isAuthError, formatLocalDate } from "../adminUtils";
 
 type UseBillingManagementProps = {
   accessToken: string | null;
@@ -30,8 +30,8 @@ export function useBillingManagement({
   >("ALL");
   const [billingSearchQuery, setBillingSearchQuery] = useState<string>("");
   const [dateRangeMode, setDateRangeMode] = useState<"today" | "yesterday" | "last2days" | "week" | "custom">("today");
-  const [customStartDate, setCustomStartDate] = useState<string>(new Date().toISOString().split("T")[0]);
-  const [customEndDate, setCustomEndDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [customStartDate, setCustomStartDate] = useState<string>(formatLocalDate());
+  const [customEndDate, setCustomEndDate] = useState<string>(formatLocalDate());
 
   const { computedStartDate, computedEndDate } = useMemo(() => {
     const today = new Date();
@@ -52,8 +52,8 @@ export function useBillingManagement({
     }
     
     return {
-      computedStartDate: start.toISOString().split("T")[0],
-      computedEndDate: end.toISOString().split("T")[0]
+      computedStartDate: formatLocalDate(start),
+      computedEndDate: formatLocalDate(end)
     };
   }, [dateRangeMode, customStartDate, customEndDate]);
 
@@ -150,6 +150,8 @@ export function useBillingManagement({
         items: draftCartItems.map((item) => ({
           menu_item_id: item.menu_item_id || null,
           variant_id: item.variant_id || null,
+          selected_batch_id: item.selected_batch_id || null,
+          allow_oversell: !!item.allow_oversell,
           item_name: item.item_name,
           quantity: item.quantity,
           unit_price: item.unit_price,
@@ -209,6 +211,8 @@ export function useBillingManagement({
         return {
           menu_item_id: it.menu_item_id || "",
           variant_id: it.variant_id || null,
+          selected_batch_id: it.selected_batch_id || null,
+          selected_batch_number: it.selected_batch_number || null,
           item_name: it.item_name || it.menu_item?.name || "Item",
           unit_price: uPrice,
           mrp: uMrp,
@@ -242,6 +246,8 @@ export function useBillingManagement({
         return {
           menu_item_id: it.menu_item_id || "",
           variant_id: it.variant_id || null,
+          selected_batch_id: it.selected_batch_id || null,
+          selected_batch_number: it.selected_batch_number || null,
           item_name: it.item_name || it.menu_item?.name || "Item",
           unit_price: uPrice,
           mrp: uMrp,

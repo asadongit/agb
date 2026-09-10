@@ -93,6 +93,9 @@ class MenuItem(Base, TimestampMixin):
     tax_rate: Mapped[Decimal | None] = mapped_column(
         Numeric(5, 2), nullable=True, default=Decimal("0.00")
     )
+    allow_oversell: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     @property
     def is_offer_active(self) -> bool:

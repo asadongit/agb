@@ -17,6 +17,8 @@ class BillItemInput(StrictSchema):
     item_name: str | None = None
     quantity: Decimal = Field(..., gt=0)
     selected_unit: str | None = Field(None, max_length=50)
+    selected_batch_id: str | None = None
+    allow_oversell: bool = False
     unit_price: Decimal | None = Field(None, ge=0)
     mrp: Decimal | None = Field(None, ge=0)
     tax_rate: Decimal | None = Field(None, ge=0)
@@ -114,6 +116,8 @@ class BillItemResponse(StrictSchema):
     id: str
     menu_item_id: str | None = None
     variant_id: str | None = None
+    selected_batch_id: str | None = None
+    selected_batch_number: str | None = None
     item_name: str
     quantity: float
     selected_unit: str | None = None

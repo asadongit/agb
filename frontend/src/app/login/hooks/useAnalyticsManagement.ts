@@ -35,6 +35,7 @@ import type {
   FinancialSubTab,
   DatePreset
 } from "@/types";
+import { formatLocalDate } from "@/lib/api";
 
 type UseAnalyticsManagementProps = {
   accessToken: string | null;
@@ -64,7 +65,7 @@ export function useAnalyticsManagement({
   const [topItemsSortBy, setTopItemsSortBy] = useState<"quantity" | "revenue">("revenue");
   const [itemSalesCategoryId, setItemSalesCategoryId] = useState<string>("");
   const [billProfitPage, setBillProfitPage] = useState<number>(1);
-  const [dayBookDate, setDayBookDate] = useState<string>(new Date().toISOString().split("T")[0]);
+  const [dayBookDate, setDayBookDate] = useState<string>(formatLocalDate());
 
   // Loading States
   const [isLoading, setIsLoading] = useState(false);

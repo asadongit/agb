@@ -2,8 +2,8 @@
  * Admin dashboard utility functions — extracted from page.tsx
  */
 
-import { parseUTCDate } from "@/lib/api";
-export { parseUTCDate };
+import { parseUTCDate, formatLocalDate } from "@/lib/api";
+export { parseUTCDate, formatLocalDate };
 
 // ── Currency formatting ─────────────────────────────────────────────────
 

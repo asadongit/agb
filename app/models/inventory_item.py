@@ -97,6 +97,9 @@ class InventoryItem(Base, TimestampMixin):
     is_active: Mapped[bool] = mapped_column(
         Boolean, default=True, nullable=False
     )
+    allow_oversell: Mapped[bool] = mapped_column(
+        Boolean, default=True, server_default="true", nullable=False
+    )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship("Outlet")

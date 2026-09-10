@@ -27,6 +27,73 @@ from app.services.menu_service import invalidate_outlet_menu
 router = APIRouter(prefix="/api/admin/menu-items", tags=["admin-menu-items"])
 
 
+async def _populate_active_batches(db: DBSession, items: list[MenuItem]) -> None:
+    inv_ids = [it.inventory_item_id for it in items if it.inventory_item_id]
+    if not inv_ids:
+        for it in items:
+            it.active_batches = []
+            it.current_stock = None
+            it.is_out_of_stock = False
+        return
+
+    from app.models.stock_intake import StockIntake
+    from app.models.inventory_item import InventoryItem
+    from app.schemas.inventory import ItemBatchSummary
+
+    inv_res = await db.execute(
+        select(InventoryItem).where(InventoryItem.id.in_(inv_ids))
+    )
+    inv_map = {inv.id: inv for inv in inv_res.scalars().all()}
+
+    batches_res = await db.execute(
+        select(StockIntake)
+        .where(
+            StockIntake.item_id.in_(inv_ids),
+            StockIntake.remaining_quantity > Decimal("0.000"),
+        )
+        .order_by(
+            StockIntake.expiry_date.asc().nulls_last(),
+            StockIntake.intake_date.asc(),
+            StockIntake.created_at.asc(),
+        )
+    )
+    all_batches = batches_res.scalars().all()
+
+    batches_by_inv: dict[uuid.UUID, list[StockIntake]] = {}
+    for b in all_batches:
+        batches_by_inv.setdefault(b.item_id, []).append(b)
+
+    for it in items:
+        inv_item = inv_map.get(it.inventory_item_id) if it.inventory_item_id else None
+        if inv_item:
+            it.current_stock = inv_item.current_stock
+            it.allow_oversell = inv_item.allow_oversell if inv_item.allow_oversell is not None else it.allow_oversell
+            it.is_out_of_stock = (inv_item.current_stock <= Decimal("0.000"))
+        else:
+            it.current_stock = None
+            it.is_out_of_stock = False
+
+        if it.inventory_item_id and it.inventory_item_id in batches_by_inv:
+            inv_batches = batches_by_inv[it.inventory_item_id]
+            it.active_batches = [
+                ItemBatchSummary(
+                    id=b.id,
+                    batch_number=b.batch_number or "N/A",
+                    remaining_quantity=b.remaining_quantity,
+                    unit_cost=b.unit_cost,
+                    retail_price=b.retail_price,
+                    mrp=b.mrp,
+                    wholesale_price=b.wholesale_price,
+                    expiry_date=b.expiry_date,
+                    intake_date=b.intake_date,
+                    is_oldest=(idx == 0),
+                )
+                for idx, b in enumerate(inv_batches)
+            ]
+        else:
+            it.active_batches = []
+
+
 @router.get("", response_model=list[MenuItemResponse])
 @router.get("/", response_model=list[MenuItemResponse])
 async def list_menu_items(
@@ -56,7 +123,9 @@ async def list_menu_items(
 
     stmt = stmt.order_by(MenuItem.total_sold.desc(), MenuItem.name.asc())
     res = await db.execute(stmt)
-    return res.scalars().all()
+    items = res.scalars().all()
+    await _populate_active_batches(db, items)
+    return items
 
 
 @router.get("/barcode/{barcode}", response_model=MenuItemResponse)
@@ -80,6 +149,7 @@ async def get_menu_item_by_barcode(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Product with barcode '{barcode}' not found",
         )
+    await _populate_active_batches(db, [item])
     return item
 
 
@@ -132,6 +202,7 @@ async def create_menu_item(
         tax_rate=data.tax_rate,
         pricing_mode=data.pricing_mode,
         unit_label=data.unit_label,
+        allow_oversell=data.allow_oversell if data.allow_oversell is not None else True,
     )
     db.add(item)
     await db.flush()
@@ -169,6 +240,7 @@ async def create_menu_item(
     )
     
     await invalidate_outlet_menu(db, current_user.outlet_id)
+    await _populate_active_batches(db, [item_loaded])
     return item_loaded
 
 
@@ -193,6 +265,7 @@ async def get_menu_item(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Menu item not found",
         )
+    await _populate_active_batches(db, [item])
     return item
 
 
@@ -271,6 +344,15 @@ async def update_menu_item(
         item.pricing_mode = data.pricing_mode
     if "unit_label" in fields_set and data.unit_label is not None:
         item.unit_label = data.unit_label
+    if "allow_oversell" in fields_set and data.allow_oversell is not None:
+        item.allow_oversell = data.allow_oversell
+        if item.inventory_item_id:
+            inv_res = await db.execute(
+                select(InventoryItem).where(InventoryItem.id == item.inventory_item_id)
+            )
+            inv_obj = inv_res.scalar_one_or_none()
+            if inv_obj:
+                inv_obj.allow_oversell = data.allow_oversell
 
     effective_mrp = data.mrp if "mrp" in fields_set else item.mrp
     effective_price = item.effective_price
@@ -281,7 +363,12 @@ async def update_menu_item(
         )
 
     await db.flush()
-    await db.refresh(item)
+    res = await db.execute(
+        select(MenuItem)
+        .options(selectinload(MenuItem.variants))
+        .where(MenuItem.id == item.id)
+    )
+    item_loaded = res.scalar_one()
 
     await log_action(
         db,
@@ -289,12 +376,13 @@ async def update_menu_item(
         current_user.user_id,
         "UPDATE_MENU_ITEM",
         "MenuItem",
-        str(item.id),
-        details={"name": item.name},
+        str(item_loaded.id),
+        details={"name": item_loaded.name},
     )
     
     await invalidate_outlet_menu(db, current_user.outlet_id)
-    return item
+    await _populate_active_batches(db, [item_loaded])
+    return item_loaded
 
 
 @router.delete("/{item_id}", status_code=status.HTTP_204_NO_CONTENT)

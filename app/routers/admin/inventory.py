@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select
+from sqlalchemy import func, select, literal_column
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
@@ -103,7 +103,7 @@ async def create_item(
     await log_action(
         db, current_user.outlet_id, current_user.user_id,
         "INVENTORY UPDATED", "InventoryItem", str(item.id),
-        details={"name": item.name, "unit": item.unit.value},
+        details={"name": item.name, "unit": item.unit.value if hasattr(item.unit, "value") else str(item.unit)},
     )
 
     return item
@@ -237,7 +237,7 @@ async def list_stock_ledger(
     """Get paginated stock movement audit ledger for current outlet."""
     stmt = (
         select(StockLedger)
-        .options(selectinload(StockLedger.item))
+        .options(selectinload(StockLedger.item), selectinload(StockLedger.intake))
         .where(StockLedger.outlet_id == current_user.outlet_id)
     )
 
@@ -252,14 +252,19 @@ async def list_stock_ledger(
     total_res = await db.execute(count_stmt)
     total = total_res.scalar_one() or 0
 
-    # Paginate
+    # Paginate (latest timestamps first; tie-break identical timestamps by rowid DESC so the latest sub-action is always on top)
     offset = (page - 1) * page_size
-    stmt = stmt.order_by(StockLedger.created_at.desc()).offset(offset).limit(page_size)
+    if db.bind and getattr(db.bind.dialect, "name", "") == "sqlite":
+        stmt = stmt.order_by(StockLedger.created_at.desc(), literal_column("rowid").desc()).offset(offset).limit(page_size)
+    else:
+        stmt = stmt.order_by(StockLedger.created_at.desc()).offset(offset).limit(page_size)
     result = await db.execute(stmt)
     ledger_rows = result.scalars().all()
 
     items_payload: list[StockLedgerResponse] = []
     for row in ledger_rows:
+        batch_num = row.intake.batch_number if row.intake else None
+        b_bal = row.batch_balance if row.batch_balance is not None else (row.intake.remaining_quantity if row.intake else None)
         items_payload.append(
             StockLedgerResponse(
                 id=row.id,
@@ -270,6 +275,8 @@ async def list_stock_ledger(
                 change_type=row.change_type,
                 quantity_change=row.quantity_change,
                 resulting_stock=row.resulting_stock,
+                batch_balance=b_bal,
+                batch_number=batch_num,
                 reference_order_id=row.reference_order_id,
                 intake_id=row.intake_id,
                 unit_cost_snapshot=row.unit_cost_snapshot,

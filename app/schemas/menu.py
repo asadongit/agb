@@ -15,6 +15,7 @@ from pydantic import Field, computed_field, field_validator, model_validator
 
 from app.models.enums import PricingModeEnum
 from app.schemas.common import BaseResponse, StrictSchema
+from app.schemas.inventory import ItemBatchSummary
 
 
 # ── MenuItem (Product) ───────────────────────────────────────────────────
@@ -42,6 +43,7 @@ class MenuItemCreate(StrictSchema):
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = Field(default="piece", min_length=1, max_length=50)
     alternate_units: list[dict] = Field(default_factory=list)
+    allow_oversell: bool = True
 
     @field_validator("offer_price", "mrp", "wholesale_price", "evening_price", mode="before")
     @classmethod
@@ -80,6 +82,7 @@ class MenuItemUpdate(StrictSchema):
     pricing_mode: PricingModeEnum | None = None
     unit_label: str | None = Field(None, min_length=1, max_length=50)
     alternate_units: list[dict] | None = None
+    allow_oversell: bool | None = None
 
     @field_validator("offer_price", "mrp", "wholesale_price", "evening_price", mode="before")
     @classmethod
@@ -122,6 +125,10 @@ class MenuItemResponse(BaseResponse):
     alternate_units: list[dict] = Field(default_factory=list)
     total_sold: int = 0
     variants: list[VariantResponse] = Field(default_factory=list)
+    active_batches: list[ItemBatchSummary] = Field(default_factory=list)
+    current_stock: Decimal | None = None
+    allow_oversell: bool = True
+    is_out_of_stock: bool = False
     created_at: datetime
     updated_at: datetime
 

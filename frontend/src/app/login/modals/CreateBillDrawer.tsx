@@ -1,17 +1,22 @@
 "use client";
 
 import React, { useState, useMemo, useRef, useCallback, useEffect } from "react";
-import { Barcode, CreditCard, Minus, Moon, Plus, Receipt, ScanLine, Search, Trash2, X, Flame, Edit3, CheckCircle2 } from "lucide-react";
+import { Barcode, CreditCard, Minus, Moon, Plus, Receipt, ScanLine, Search, Trash2, X, Flame, Edit3, CheckCircle2, Sparkles } from "lucide-react";
 import type { AdminMenuItem, AdminVariant } from "../adminTypes";
 import { useAdminAuth } from "../hooks/useAdminAuth";
 import { useBarcodeScanner } from "@/hooks/useBarcodeScanner";
 
 import { apiRequest } from "../adminUtils";
 import { CustomerInsightsModal, CustomerAnalytics } from "./CustomerInsightsModal";
+import { OversellBatchModal, type BatchAllocation } from "./OversellBatchModal";
+import type { ItemBatchSummary } from "@/types";
 
 export type DraftCartItem = {
   menu_item_id: string;
   variant_id?: string | null;
+  selected_batch_id?: string | null;
+  selected_batch_number?: string | null;
+  allow_oversell?: boolean;
   item_name: string;
   unit_price: number;
   mrp?: number | null;
@@ -23,6 +28,19 @@ export type DraftCartItem = {
   selected_unit?: string | null;
   base_unit_price?: number;
   base_mrp?: number | null;
+};
+
+export const getUnallocatedBatchStock = (
+  batchId: string | null | undefined,
+  nominalStock: number,
+  cart: DraftCartItem[],
+  excludeCartIndex?: number
+): number => {
+  if (!batchId) return nominalStock;
+  const alreadyAllocated = cart
+    .filter((item, i) => i !== excludeCartIndex && item.selected_batch_id === batchId)
+    .reduce((sum, item) => sum + (Number(item.quantity) || 0), 0);
+  return Math.max(0, nominalStock - alreadyAllocated);
 };
 
 type CreateBillDrawerProps = {
@@ -209,6 +227,369 @@ export function CreateBillDrawer({
   const [inlineOfferSaving, setInlineOfferSaving] = useState(false);
   const inlineInputRef = useRef<HTMLInputElement>(null);
 
+  // Oversell state for batch exhaustion & difference splitting
+  const [oversellState, setOversellState] = useState<{
+    cartItemIndex: number;
+    itemName: string;
+    selectedBatchId?: string | null;
+    selectedBatchNumber: string;
+    availableQty: number;
+    requestedQty: number;
+    activeBatches: ItemBatchSummary[];
+  } | null>(null);
+
+  // Inline notification notice for instant batch splitting
+  const [inlineNotice, setInlineNotice] = useState<string | null>(null);
+
+  // Auto-dismiss inlineNotice after 4.5 seconds
+  useEffect(() => {
+    if (!inlineNotice) return;
+    const timer = setTimeout(() => {
+      setInlineNotice(null);
+    }, 4500);
+    return () => clearTimeout(timer);
+  }, [inlineNotice]);
+
+  const unallocatedBatchStockMap = useMemo(() => {
+    if (!oversellState) return {};
+    const map: Record<string, number> = {};
+    for (const b of oversellState.activeBatches) {
+      map[b.id] = getUnallocatedBatchStock(
+        b.id,
+        Number(b.remaining_quantity),
+        draftCartItems,
+        oversellState.cartItemIndex
+      );
+    }
+    return map;
+  }, [oversellState, draftCartItems]);
+
+  const handleApplyBatchAllocations = (
+    cartItemIndex: number,
+    allocations: BatchAllocation[]
+  ) => {
+    setDraftCartItems((prev) => {
+      const baseItem = prev[cartItemIndex];
+      if (!baseItem || allocations.length === 0) return prev;
+
+      const newItems: DraftCartItem[] = allocations.map((alloc) => {
+        const b = alloc.batch;
+        const altPrice = !baseItem.is_custom_price && b.retail_price ? Number(b.retail_price) : baseItem.unit_price;
+        const altMrp = !baseItem.is_custom_price && b.mrp ? Number(b.mrp) : baseItem.mrp;
+        return {
+          ...baseItem,
+          quantity: alloc.quantity,
+          selected_batch_id: b.id,
+          selected_batch_number: b.batch_number,
+          unit_price: altPrice,
+          base_unit_price: altPrice,
+          mrp: altMrp,
+          base_mrp: altMrp,
+          is_custom_price: baseItem.is_custom_price,
+          allow_oversell: alloc.allowOversell,
+        };
+      });
+
+      const newCart = [...prev];
+      newCart.splice(cartItemIndex, 1, ...newItems);
+      return newCart;
+    });
+  };
+
+  /**
+   * Option A (Instant Inline Split):
+   * If quantity for an older batch exceeds its available stock, cap the older batch
+   * and automatically roll excess into the next positive batch(es) as explicit line items.
+   * Only the latest batch is ever allowed to prompt or carry an oversold deficit.
+   */
+  const handleCartItemQuantityChange = (cartIdx: number, newQty: number) => {
+    if (newQty <= 0) {
+      setDraftCartItems((prev) => prev.filter((_, i) => i !== cartIdx));
+      return;
+    }
+
+    const ci = draftCartItems[cartIdx];
+    if (!ci) return;
+    const orig = menuItems.find((m) => m.id === ci.menu_item_id);
+    const activeBatches = orig?.active_batches || [];
+
+    // If item doesn't track inventory batches or has no active batches
+    if (!orig?.inventory_item_id || activeBatches.length === 0) {
+      if (orig?.inventory_item_id && activeBatches.length === 0) {
+        if (orig.allow_oversell === false) {
+          setInlineNotice(`Item '${orig.name}' is Out of Stock and overselling is disabled.`);
+          return;
+        }
+        const cleanName = ci.item_name.replace(/\[Oversold Backorder\]/gi, "").trim();
+        setDraftCartItems((prev) =>
+          prev.map((item, i) =>
+            i === cartIdx
+              ? {
+                  ...item,
+                  item_name: `${cleanName} [Oversold Backorder]`,
+                  quantity: newQty,
+                  allow_oversell: true,
+                  selected_batch_id: null,
+                  selected_batch_number: null,
+                }
+              : item
+          )
+        );
+        return;
+      }
+      setDraftCartItems((prev) =>
+        prev.map((item, i) => (i === cartIdx ? { ...item, quantity: newQty } : item))
+      );
+      return;
+    }
+
+    // Find the selected batch in active_batches
+    const batchIdx = activeBatches.findIndex(
+      (b) => b.id === (ci.selected_batch_id || activeBatches[0]?.id)
+    );
+    const curBatch = batchIdx >= 0 ? activeBatches[batchIdx] : activeBatches[0];
+    const isLatestBatch = batchIdx === activeBatches.length - 1;
+
+    // Calculate unallocated stock for curBatch (excluding this cartIdx)
+    const availableQty = getUnallocatedBatchStock(
+      curBatch.id,
+      Number(curBatch.remaining_quantity),
+      draftCartItems,
+      cartIdx
+    );
+
+    // If within available stock or already marked allow_oversell
+    if (newQty <= availableQty || ci.allow_oversell) {
+      setDraftCartItems((prev) =>
+        prev.map((item, i) => (i === cartIdx ? { ...item, quantity: newQty } : item))
+      );
+      return;
+    }
+
+    // If this IS the latest batch (no newer batches exist to roll into)
+    if (isLatestBatch) {
+      if (orig?.allow_oversell === false) {
+        const cappedQty = Math.max(0, availableQty);
+        setDraftCartItems((prev) =>
+          prev
+            .map((item, i) => (i === cartIdx ? { ...item, quantity: cappedQty } : item))
+            .filter((it) => it.quantity > 0)
+        );
+        setInlineNotice(
+          `Lot #${curBatch.batch_number} has only ${availableQty} in stock. Overselling is disabled for ${ci.item_name}.`
+        );
+        return;
+      }
+
+      // Allow oversell: Instant inline split
+      const cleanName = ci.item_name.replace(/\[Oversold Backorder\]/gi, "").trim();
+      const latestPrice = !ci.is_custom_price && curBatch?.retail_price ? Number(curBatch.retail_price) : ci.unit_price;
+      const latestMrp = !ci.is_custom_price && curBatch?.mrp ? Number(curBatch.mrp) : ci.mrp;
+
+      if (availableQty > 0) {
+        const excess = newQty - availableQty;
+        const line1 = {
+          ...ci,
+          item_name: cleanName,
+          quantity: availableQty,
+          selected_batch_id: curBatch.id,
+          selected_batch_number: curBatch.batch_number,
+          unit_price: latestPrice,
+          base_unit_price: latestPrice,
+          mrp: latestMrp,
+          base_mrp: latestMrp,
+          allow_oversell: false,
+        };
+        const line2 = {
+          ...ci,
+          item_name: `${cleanName} [Oversold Backorder]`,
+          quantity: excess,
+          selected_batch_id: null,
+          selected_batch_number: curBatch?.batch_number ?? null,
+          unit_price: latestPrice,
+          base_unit_price: latestPrice,
+          mrp: latestMrp,
+          base_mrp: latestMrp,
+          allow_oversell: true,
+        };
+        setDraftCartItems((prev) => {
+          const next = [...prev];
+          next.splice(cartIdx, 1, line1, line2);
+          return next;
+        });
+        setInlineNotice(
+          `Lot #${curBatch.batch_number} stock reached (${availableQty}). Added ${excess} as [Oversold Backorder].`
+        );
+        return;
+      } else {
+        setDraftCartItems((prev) =>
+          prev.map((item, i) =>
+            i === cartIdx
+              ? {
+                  ...item,
+                  item_name: `${cleanName} [Oversold Backorder]`,
+                  quantity: newQty,
+                  selected_batch_id: null,
+                  selected_batch_number: curBatch?.batch_number ?? null,
+                  unit_price: latestPrice,
+                  base_unit_price: latestPrice,
+                  mrp: latestMrp,
+                  base_mrp: latestMrp,
+                  allow_oversell: true,
+                }
+              : item
+          )
+        );
+        setInlineNotice(
+          `Lot #${curBatch.batch_number} is out of stock. Marked ${newQty} as [Oversold Backorder].`
+        );
+        return;
+      }
+    }
+
+    // IT IS AN OLDER BATCH:
+    // Option A (Instant Inline Split into newer batches)
+    const currentItem = draftCartItems[cartIdx];
+    if (!currentItem) return;
+
+    const updatedCart = [...draftCartItems];
+    const targetOlderQty = availableQty > 0 ? availableQty : 0;
+    const updatedOlderQty = Math.max(0, targetOlderQty);
+    const actualExcess = newQty - updatedOlderQty;
+
+    if (actualExcess <= 0) {
+      return;
+    }
+
+    let excessToDistribute = actualExcess;
+    const newerBatches = activeBatches.slice(batchIdx + 1);
+    const splitSummaryMessages: string[] = [];
+
+    updatedCart[cartIdx] = {
+      ...currentItem,
+      quantity: updatedOlderQty,
+    };
+
+    for (let k = 0; k < newerBatches.length; k++) {
+      if (excessToDistribute <= 0) break;
+      const nb = newerBatches[k];
+      const isLast = k === newerBatches.length - 1;
+
+      // Check if nb is already in the cart
+      const existingNbIdx = updatedCart.findIndex(
+        (it) => it.menu_item_id === currentItem.menu_item_id && it.selected_batch_id === nb.id
+      );
+
+      const nbAvail = getUnallocatedBatchStock(
+        nb.id,
+        Number(nb.remaining_quantity),
+        updatedCart,
+        existingNbIdx >= 0 ? existingNbIdx : -1
+      );
+
+      const batchPrice = !currentItem.is_custom_price && nb.retail_price ? Number(nb.retail_price) : currentItem.unit_price;
+      const batchMrp = !currentItem.is_custom_price && nb.mrp ? Number(nb.mrp) : currentItem.mrp;
+
+      if (isLast && excessToDistribute > nbAvail) {
+        // Latest batch takes up to nbAvail, remaining is oversold backorder
+        const normalTake = Math.max(0, nbAvail);
+        if (normalTake > 0) {
+          if (existingNbIdx >= 0) {
+            updatedCart[existingNbIdx] = {
+              ...updatedCart[existingNbIdx],
+              quantity: updatedCart[existingNbIdx].quantity + normalTake,
+            };
+          } else {
+            updatedCart.splice(cartIdx + 1, 0, {
+              ...currentItem,
+              selected_batch_id: nb.id,
+              selected_batch_number: nb.batch_number,
+              unit_price: batchPrice,
+              base_unit_price: batchPrice,
+              mrp: batchMrp,
+              base_mrp: batchMrp,
+              quantity: normalTake,
+              allow_oversell: false,
+            });
+          }
+          splitSummaryMessages.push(`+${normalTake} on Lot #${nb.batch_number} (₹${batchPrice.toFixed(2)})`);
+        }
+
+        const storewideDeficit = excessToDistribute - normalTake;
+        if (orig?.allow_oversell === false) {
+          splitSummaryMessages.push(`${storewideDeficit} excess blocked (overselling disabled)`);
+        } else {
+          const cleanName = currentItem.item_name.replace(/\[Oversold Backorder\]/gi, "").trim();
+          updatedCart.push({
+            ...currentItem,
+            item_name: `${cleanName} [Oversold Backorder]`,
+            quantity: storewideDeficit,
+            selected_batch_id: null,
+            selected_batch_number: nb.batch_number,
+            unit_price: batchPrice,
+            base_unit_price: batchPrice,
+            mrp: batchMrp,
+            base_mrp: batchMrp,
+            allow_oversell: true,
+          });
+          splitSummaryMessages.push(`+${storewideDeficit} as [Oversold Backorder] (₹${batchPrice.toFixed(2)})`);
+        }
+
+        excessToDistribute = 0;
+        break;
+      }
+
+      const takeQty = Math.min(nbAvail, excessToDistribute);
+      if (takeQty <= 0) continue;
+
+      if (existingNbIdx >= 0) {
+        updatedCart[existingNbIdx] = {
+          ...updatedCart[existingNbIdx],
+          quantity: updatedCart[existingNbIdx].quantity + takeQty,
+        };
+      } else {
+        updatedCart.splice(cartIdx + 1, 0, {
+          ...currentItem,
+          selected_batch_id: nb.id,
+          selected_batch_number: nb.batch_number,
+          unit_price: batchPrice,
+          base_unit_price: batchPrice,
+          mrp: batchMrp,
+          base_mrp: batchMrp,
+          quantity: takeQty,
+          allow_oversell: false,
+        });
+      }
+
+      splitSummaryMessages.push(`+${takeQty} on Lot #${nb.batch_number} (₹${batchPrice.toFixed(2)})`);
+      excessToDistribute -= takeQty;
+    }
+
+    setDraftCartItems(updatedCart.filter((it) => it.quantity > 0));
+
+    if (splitSummaryMessages.length > 0) {
+      setInlineNotice(
+        `Lot #${curBatch.batch_number} stock reached (${updatedOlderQty}). Added ${splitSummaryMessages.join(", ")}.`
+      );
+    }
+  };
+
+  const validateBeforeCreateBill = (proceedToPayment: boolean) => {
+    for (let i = 0; i < draftCartItems.length; i++) {
+      const ci = draftCartItems[i];
+      const orig = menuItems.find((m) => m.id === ci.menu_item_id);
+      const curBatch = orig?.active_batches?.find((b) => b.id === ci.selected_batch_id) || orig?.active_batches?.[0];
+      if (orig?.inventory_item_id && curBatch && !ci.allow_oversell) {
+        const avail = getUnallocatedBatchStock(curBatch.id, Number(curBatch.remaining_quantity), draftCartItems, i);
+        if (ci.quantity > avail) {
+          handleCartItemQuantityChange(i, ci.quantity);
+          return;
+        }
+      }
+    }
+    void handleCreateBill(proceedToPayment);
+  };
+
   useEffect(() => {
     if (!isOpen) {
       setCustomerAnalytics(null);
@@ -248,7 +629,7 @@ export function CreateBillDrawer({
         
         e.preventDefault();
         if (draftCartItems.length > 0) {
-          void handleCreateBill(true);
+          validateBeforeCreateBill(true);
         }
       }
     };
@@ -404,9 +785,20 @@ export function CreateBillDrawer({
         const rawMrpNum = match.mrp ? parseFloat(String(match.mrp)) : itemPriceNum;
         const mrpNum = Math.max(rawMrpNum, itemPriceNum);
         const taxRateNum = match.tax_rate ? parseFloat(String(match.tax_rate)) : 0;
+        const oldestBatch = match.active_batches?.[0];
+
+        const isOos = match.is_out_of_stock || (match.inventory_item_id && match.current_stock !== undefined && Number(match.current_stock) <= 0);
+        if (match.inventory_item_id && isOos && match.allow_oversell === false) {
+          setInlineNotice(`'${match.name}' is Out of Stock. Overselling is disabled for this product.`);
+          return;
+        }
+
+        const isBackorder = Boolean(match.inventory_item_id && isOos && match.allow_oversell !== false);
+        const finalDishName = isBackorder ? `${match.name} [Oversold Backorder]` : match.name;
+
         setDraftCartItems((prev) => {
           const existingIdx = prev.findIndex(
-            (ci) => ci.menu_item_id === match!.id && !ci.variant_id
+            (ci) => ci.menu_item_id === match!.id && !ci.variant_id && ci.allow_oversell === isBackorder
           );
           if (existingIdx >= 0) {
             return prev.map((ci, i) =>
@@ -417,7 +809,10 @@ export function CreateBillDrawer({
             ...prev,
             {
               menu_item_id: match!.id,
-              item_name: match!.name,
+              selected_batch_id: isBackorder ? null : (oldestBatch?.id || null),
+              selected_batch_number: isBackorder ? null : (oldestBatch?.batch_number || null),
+              allow_oversell: isBackorder,
+              item_name: finalDishName,
               unit_price: itemPriceNum,
               mrp: mrpNum,
               tax_rate: taxRateNum,
@@ -449,6 +844,12 @@ export function CreateBillDrawer({
   }, [menuItems, searchQuery]);
 
   const addItemToCart = useCallback((item: AdminMenuItem, v?: AdminVariant, qty: number = 1) => {
+    const isOos = item.is_out_of_stock || (item.inventory_item_id && item.current_stock !== undefined && Number(item.current_stock) <= 0);
+    if (item.inventory_item_id && isOos && item.allow_oversell === false) {
+      setInlineNotice(`'${item.name}' is Out of Stock. Overselling is disabled for this product.`);
+      return;
+    }
+
     const rawPriceNum = parseFloat(item.price) || 0;
     const eveningPriceNum = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
     const retailPriceNum = (eveningPriceActive && eveningPriceNum > 0) ? eveningPriceNum : rawPriceNum;
@@ -468,11 +869,15 @@ export function CreateBillDrawer({
     const rawMrp = item.mrp ? parseFloat(String(item.mrp)) + (v ? parseFloat(v.price_delta) || 0 : 0) : baseRetailFallback;
     const itemMrpNum = Math.max(rawMrp, variantPriceNum);
     const itemTaxRateNum = taxRate;
-    const itemName = v ? `${item.name} (${v.name})` : item.name;
+    const baseDishName = v ? `${item.name} (${v.name})` : item.name;
 
+    const isBackorder = Boolean(item.inventory_item_id && isOos && item.allow_oversell !== false);
+    const finalItemName = isBackorder ? `${baseDishName} [Oversold Backorder]` : baseDishName;
+
+    const oldestBatch = item.active_batches?.[0];
     setDraftCartItems((prev) => {
       const existingIdx = prev.findIndex(
-        (ci) => ci.menu_item_id === item.id && ci.variant_id === (v ? v.id : null)
+        (ci) => ci.menu_item_id === item.id && ci.variant_id === (v ? v.id : null) && ci.allow_oversell === isBackorder
       );
       if (existingIdx >= 0) {
         return prev.map((ci, i) =>
@@ -484,7 +889,10 @@ export function CreateBillDrawer({
         {
           menu_item_id: item.id,
           variant_id: v ? v.id : null,
-          item_name: itemName,
+          selected_batch_id: isBackorder ? null : (oldestBatch?.id || null),
+          selected_batch_number: isBackorder ? null : (oldestBatch?.batch_number || null),
+          allow_oversell: isBackorder,
+          item_name: finalItemName,
           unit_price: variantPriceNum,
           mrp: itemMrpNum,
           tax_rate: itemTaxRateNum,
@@ -497,6 +905,9 @@ export function CreateBillDrawer({
         },
       ];
     });
+    if (isBackorder) {
+      setInlineNotice(`'${item.name}' is out of stock. Added as [Oversold Backorder].`);
+    }
   }, [eveningPriceActive, pricingMode, setDraftCartItems]);
 
   // Sync draft cart prices if menu items are updated (e.g. quick edit offer)
@@ -674,26 +1085,45 @@ export function CreateBillDrawer({
                 const discountPercent = hasDiscount ? Math.round(((mrpVal - activePriceNum) / mrpVal) * 100) : 0;
                 const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
                 const cartQtyForItem = draftCartItems.filter((ci) => ci.menu_item_id === item.id).reduce((sum, ci) => sum + ci.quantity, 0);
+                const isOos = Boolean(item.is_out_of_stock || (item.inventory_item_id && item.current_stock !== undefined && Number(item.current_stock) <= 0));
+                const stockNum = item.current_stock !== undefined ? Number(item.current_stock) : null;
+                const isBlocked = Boolean(item.inventory_item_id && isOos && item.allow_oversell === false);
 
                 return (
                   <div
                     key={item.id}
                     onClick={() => {
+                      if (isBlocked) {
+                        setInlineNotice(`'${item.name}' is Out of Stock. Overselling is disabled for this product.`);
+                        return;
+                      }
                       if (itemVariants.length === 0) {
                         addItemToCart(item);
                       } else if (itemVariants.length === 1) {
                         addItemToCart(item, itemVariants[0]);
                       }
                     }}
-                    className={`group relative rounded-md border p-4 min-h-[140px] h-auto flex flex-col justify-between transition-all duration-150 cursor-pointer select-none ${
-                      pricingMode === "WHOLESALE" && wholesalePriceNum !== null
-                        ? "border-purple-500/40 bg-purple-500/5 hover:border-purple-500 shadow-xs"
-                        : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] hover:border-sky-500 hover:shadow-md"
+                    className={`group relative rounded-md border p-4 min-h-[140px] h-auto flex flex-col justify-between transition-all duration-150 select-none ${
+                      isBlocked
+                        ? "cursor-not-allowed opacity-65 border-rose-500/40 bg-rose-500/5 hover:border-rose-500/60"
+                        : pricingMode === "WHOLESALE" && wholesalePriceNum !== null
+                        ? "cursor-pointer border-purple-500/40 bg-purple-500/5 hover:border-purple-500 shadow-xs"
+                        : "cursor-pointer border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] hover:border-sky-500 hover:shadow-md"
                     }`}
                   >
                     {/* Top Badges Row (Text only for OFF & GST, White text on In Cart) */}
                     <div className="flex items-center justify-between gap-1 text-[10px]">
                       <div className="flex items-center gap-2 font-semibold">
+                        {isOos && (
+                          <span className={`rounded px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider ${
+                            item.allow_oversell === false
+                              ? "bg-rose-500/20 text-rose-400 border border-rose-500/40"
+                              : "bg-amber-500/20 text-amber-400 border border-amber-500/40"
+                          }`}>
+                            {item.allow_oversell === false ? "OUT OF STOCK" : "OUT OF STOCK"}
+                            {stockNum !== null && stockNum < 0 ? ` (${stockNum})` : ""}
+                          </span>
+                        )}
                         {hasDiscount && (
                           <span className="text-[var(--text-muted)] text-[10px]">
                             {discountPercent}% OFF
@@ -1021,6 +1451,21 @@ export function CreateBillDrawer({
 
             {/* Middle: Billed Line Items List (Scrollable Middle) */}
             <div className="flex-1 min-h-0 overflow-y-auto p-4 space-y-2">
+              {inlineNotice && (
+                <div className="flex items-center justify-between gap-2 px-3 py-2 rounded-xl bg-sky-500/10 border border-sky-500/25 text-sky-400 text-xs font-medium animate-in fade-in slide-in-from-top-1 duration-200">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <Sparkles className="h-4 w-4 shrink-0 text-sky-400" />
+                    <span className="truncate">{inlineNotice}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setInlineNotice(null)}
+                    className="text-sky-400/60 hover:text-sky-400 p-0.5 rounded transition"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              )}
               {draftCartItems.length === 0 ? (
                 <div className="h-full flex items-center justify-center text-xs text-[var(--text-muted)] py-12">
                   No items in bill yet. Scan a barcode or click products on the left.
@@ -1059,6 +1504,72 @@ export function CreateBillDrawer({
                         >
                           {ci.item_name}
                         </span>
+
+                        {/* Minimal lot selector pill if item has multiple positive lots */}
+                        {originalItem?.active_batches && originalItem.active_batches.length > 1 && (
+                          <div className="flex items-center gap-1">
+                            {ci.allow_oversell ? (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-mono rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-rose-400 font-semibold"
+                                title={`Oversold Backorder priced at latest lot rate (${ci.selected_batch_number ? `Lot #${ci.selected_batch_number}` : "Latest Rate"})`}
+                              >
+                                Backorder · {ci.selected_batch_number ? `Lot #${ci.selected_batch_number}` : "Latest Lot"}
+                              </span>
+                            ) : (
+                              <select
+                                value={ci.selected_batch_id || (originalItem.active_batches[0]?.id ?? "")}
+                                onChange={(e) => {
+                                  const chosenBatch = originalItem.active_batches?.find((b) => b.id === e.target.value);
+                                  if (!chosenBatch) return;
+                                  const newPrice = !ci.is_custom_price && chosenBatch.retail_price ? Number(chosenBatch.retail_price) : ci.unit_price;
+                                  const newMrp = !ci.is_custom_price && chosenBatch.mrp ? Number(chosenBatch.mrp) : ci.mrp;
+                                  setDraftCartItems((prev) =>
+                                    prev.map((item, i) => {
+                                      if (i !== idx) return item;
+                                      return {
+                                        ...item,
+                                        selected_batch_id: chosenBatch.id,
+                                        selected_batch_number: chosenBatch.batch_number,
+                                        unit_price: newPrice,
+                                        base_unit_price: newPrice,
+                                        mrp: newMrp,
+                                        base_mrp: newMrp,
+                                        allow_oversell: false,
+                                      };
+                                    })
+                                  );
+                                  const avail = getUnallocatedBatchStock(chosenBatch.id, Number(chosenBatch.remaining_quantity), draftCartItems, idx);
+                                  if (ci.quantity > avail) {
+                                    setTimeout(() => {
+                                      handleCartItemQuantityChange(idx, ci.quantity);
+                                    }, 0);
+                                  }
+                                }}
+                                className="text-[11px] font-mono rounded-md border border-[var(--border-strong)] bg-[var(--bg-surface)] px-1.5 py-0.5 text-[var(--text-secondary)] hover:border-sky-500 focus:outline-none cursor-pointer"
+                                title="Select Inventory Lot"
+                              >
+                                {originalItem.active_batches.map((b) => {
+                                  const unallocated = getUnallocatedBatchStock(b.id, Number(b.remaining_quantity), draftCartItems, idx);
+                                  return (
+                                    <option key={b.id} value={b.id}>
+                                      Lot: {b.batch_number} · ₹{Number(b.retail_price ?? originalItem.price).toFixed(2)} ({unallocated} left){b.is_oldest ? " (oldest)" : ""}
+                                    </option>
+                                  );
+                                })}
+                              </select>
+                            )}
+                            {ci.allow_oversell && (
+                              <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
+                                Oversell
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {(!originalItem?.active_batches || originalItem.active_batches.length <= 1) && ci.allow_oversell && (
+                          <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
+                            Oversell
+                          </span>
+                        )}
                         <div className="flex items-center gap-2 font-mono text-[16px] pt-0.5">
                           <CartItemPriceInput
                             initialPrice={ci.unit_price}
@@ -1120,30 +1631,15 @@ export function CreateBillDrawer({
                         
                         <CartItemQuantityInput
                           initialQuantity={ci.quantity}
-                          onQuantityChange={(q) => {
-                            setDraftCartItems((prev) => {
-                              if (q <= 0) {
-                                return prev.filter((_, i) => i !== idx);
-                              }
-                              return prev.map((item, i) =>
-                                i === idx ? { ...item, quantity: q } : item
-                              );
-                            });
-                          }}
+                          onQuantityChange={(q) => handleCartItemQuantityChange(idx, q)}
                         />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          setDraftCartItems((prev) =>
-                            prev.map((item, i) =>
-                              i === idx ? { ...item, quantity: item.quantity + 1 } : item
-                            )
-                          );
-                        }}
-                        className="p-1 rounded-lg border border-[var(--border-strong)] hover:bg-[var(--bg-surface)]"
-                      >
-                        <Plus className="h-3 w-3" />
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => handleCartItemQuantityChange(idx, ci.quantity + 1)}
+                          className="p-1 rounded-lg border border-[var(--border-strong)] hover:bg-[var(--bg-surface)]"
+                        >
+                          <Plus className="h-3 w-3" />
+                        </button>
                       {originalItem && originalItem.alternate_units && (originalItem.alternate_units as any[]).length > 0 ? (
                         <select
                           value={ci.selected_unit || originalItem.unit_label || "piece"}
@@ -1225,7 +1721,7 @@ export function CreateBillDrawer({
                 <button
                   type="button"
                   disabled={draftCartItems.length === 0}
-                  onClick={() => handleCreateBill(false)}
+                  onClick={() => validateBeforeCreateBill(false)}
                   className="rounded-xl border border-[var(--border-strong)] py-3 text-base font-bold text-[var(--text-primary)] hover:bg-[var(--bg-surface-elevated)] transition disabled:opacity-50"
                 >
                   Save as Draft
@@ -1233,7 +1729,7 @@ export function CreateBillDrawer({
                 <button
                   type="button"
                   disabled={draftCartItems.length === 0}
-                  onClick={() => handleCreateBill(true)}
+                  onClick={() => validateBeforeCreateBill(true)}
                   className="inline-flex items-center justify-center gap-1.5 rounded-xl bg-[var(--accent-brand)] py-3 text-base font-bold text-[var(--text-on-accent)] shadow-md hover:opacity-90 transition disabled:opacity-50"
                 >
                   <CreditCard className="h-5 w-5" />
@@ -1262,6 +1758,23 @@ export function CreateBillDrawer({
           }
         }}
       />
+      {/* Oversell Deficit & Batch Splitting Modal */}
+      {oversellState && (
+        <OversellBatchModal
+          isOpen={Boolean(oversellState)}
+          onClose={() => setOversellState(null)}
+          itemName={oversellState.itemName}
+          selectedBatchId={oversellState.selectedBatchId}
+          selectedBatchNumber={oversellState.selectedBatchNumber}
+          availableQty={oversellState.availableQty}
+          requestedQty={oversellState.requestedQty}
+          activeBatches={oversellState.activeBatches}
+          unallocatedBatchStockMap={unallocatedBatchStockMap}
+          onApplyAllocations={(allocations) => {
+            handleApplyBatchAllocations(oversellState.cartItemIndex, allocations);
+          }}
+        />
+      )}
     </div>
   );
 }

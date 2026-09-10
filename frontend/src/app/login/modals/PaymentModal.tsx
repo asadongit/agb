@@ -7,7 +7,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
-import { ArrowLeft, Bookmark, CheckCircle2, CreditCard, DollarSign, Percent, QrCode, X } from "lucide-react";
+import { ArrowLeft, Bookmark, CheckCircle2, CreditCard, DollarSign, Loader2, Percent, QrCode, X } from "lucide-react";
 import { apiRequest } from "../adminUtils";
 import React from "react";
 import type { ManualBill } from "@/types";
@@ -99,6 +99,7 @@ export function PaymentModal({
 
   const [paymentEditMode, setPaymentEditMode] = useState<"ADJUST" | "FULL">("ADJUST");
   const [activeTappingMode, setActiveTappingMode] = useState<"INTAKE" | "RETURN">("INTAKE");
+  const [isSubmitting, setIsSubmitting] = useState<boolean>(false);
 
   const [error, setError] = useState<string | null>(null);
 
@@ -140,7 +141,10 @@ export function PaymentModal({
       setSettleDebit(false);
       setPaymentEditMode("ADJUST");
       setActiveTappingMode("INTAKE");
+      setIsSubmitting(false);
       setError(null);
+    } else {
+      setIsSubmitting(false);
     }
   }, [isOpen, paymentTargetBill]);
 
@@ -500,10 +504,41 @@ export function PaymentModal({
         return;
     }
 
-    await handleMarkPaid(finalCash, finalChange, redeemPoints, deliveryCharge, handlingCharge, applyCredit, recordDebit, recordCredit, debtSettled, finalCreditCashedOut);
-    // Requirement 4: Once marked paid & settled, clear note denomination selection
-    handleResetNotes();
-    setCashTendered("");
+    if (isSubmitting) return;
+
+    // Sanitize denominations: do not send zero-count dictionaries that pollute the cash ledger
+    const cleanFinalCash: Record<string, number> = {};
+    Object.entries(finalCash).forEach(([d, c]) => {
+      if (c > 0) cleanFinalCash[d] = c;
+    });
+
+    const cleanFinalChange: Record<string, number> = {};
+    Object.entries(finalChange).forEach(([d, c]) => {
+      if (c > 0) cleanFinalChange[d] = c;
+    });
+
+    setIsSubmitting(true);
+    try {
+      await handleMarkPaid(
+        Object.keys(cleanFinalCash).length > 0 ? cleanFinalCash : undefined,
+        Object.keys(cleanFinalChange).length > 0 ? cleanFinalChange : undefined,
+        redeemPoints,
+        deliveryCharge,
+        handlingCharge,
+        applyCredit,
+        recordDebit,
+        recordCredit,
+        debtSettled,
+        finalCreditCashedOut
+      );
+      // Requirement 4: Once marked paid & settled, clear note denomination selection
+      handleResetNotes();
+      setCashTendered("");
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to settle bill.");
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   const activeNotesList = Object.entries(denomCounts).filter(([_, count]) => count > 0);
@@ -517,6 +552,7 @@ export function PaymentModal({
     activeTappingMode,
     setActiveTappingMode,
     isPaymentValid,
+    isSubmitting,
     onSettlePayment,
     handleResetNotes,
     handleRemoveNote,
@@ -532,6 +568,7 @@ export function PaymentModal({
       activeTappingMode,
       setActiveTappingMode,
       isPaymentValid,
+      isSubmitting,
       onSettlePayment,
       handleResetNotes,
       handleRemoveNote,
@@ -562,7 +599,7 @@ export function PaymentModal({
 
       if (e.key === "Enter") {
         e.preventDefault();
-        if (h.isPaymentValid) {
+        if (h.isPaymentValid && !h.isSubmitting) {
           void h.onSettlePayment();
         }
         return;
@@ -1530,13 +1567,17 @@ export function PaymentModal({
                 </button>
                 <button
                   type="button"
-                  disabled={!isPaymentValid}
+                  disabled={!isPaymentValid || isSubmitting}
                   onClick={() => void onSettlePayment()}
-                  className="flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-6 py-3 font-bold text-[var(--text-on-accent)] shadow-md hover:opacity-90 disabled:opacity-50 transition"
+                  className="flex items-center gap-2 rounded-xl bg-[var(--accent-brand)] px-6 py-3 font-bold text-[var(--text-on-accent)] shadow-md hover:opacity-90 disabled:opacity-50 transition cursor-pointer disabled:cursor-not-allowed"
                 >
-                  <CheckCircle2 className="h-5 w-5" />
-                  <span>Mark Paid &amp; Settle</span>
-                  {isPaymentValid && <span className="ml-1 opacity-70 font-mono text-[10px] bg-black/20 px-1.5 rounded">↵</span>}
+                  {isSubmitting ? (
+                    <Loader2 className="h-5 w-5 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="h-5 w-5" />
+                  )}
+                  <span>{isSubmitting ? "Settling..." : "Mark Paid & Settle"}</span>
+                  {isPaymentValid && !isSubmitting && <span className="ml-1 opacity-70 font-mono text-[10px] bg-black/20 px-1.5 rounded">↵</span>}
                 </button>
               </div>
             </div>

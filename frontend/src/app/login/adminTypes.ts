@@ -169,6 +169,7 @@ export interface MenuItemFormState {
   pricing_mode: PricingMode;
   unit_label: string;
   alternate_units: Array<{unit_label: string; conversion_factor: number}>;
+  allow_oversell?: boolean;
 }
 
 export interface VariantFormState {

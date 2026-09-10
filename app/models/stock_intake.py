@@ -55,6 +55,15 @@ class StockIntake(Base):
     unit_cost: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False
     )
+    retail_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    mrp: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
+    wholesale_price: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 2), nullable=True
+    )
     supplier_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("suppliers.id", ondelete="SET NULL"),

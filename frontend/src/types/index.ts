@@ -14,9 +14,25 @@ export type OrderStatus =
 
 export type Variant = components["schemas"]["VariantResponse"];
 
-export type PricingMode = "WEIGHT_BASED" | "FIXED_UNIT";
+export interface ItemBatchSummary {
+  id: string;
+  batch_number: string;
+  remaining_quantity: number | string;
+  unit_cost: number | string;
+  retail_price?: number | string | null;
+  mrp?: number | string | null;
+  wholesale_price?: number | string | null;
+  expiry_date?: string | null;
+  intake_date: string;
+  is_oldest: boolean;
+}
 
-export type MenuItem = components["schemas"]["MenuItemResponse"];
+export type MenuItem = components["schemas"]["MenuItemResponse"] & {
+  active_batches?: ItemBatchSummary[];
+  current_stock?: number | string | null;
+  allow_oversell?: boolean;
+  is_out_of_stock?: boolean;
+};
 
 export type Category = components["schemas"]["CategoryResponse"] & {
   items?: MenuItem[];
@@ -25,6 +41,7 @@ export type Category = components["schemas"]["CategoryResponse"] & {
 export type OutletInfoResponse = components["schemas"]["OutletInfoResponse"];
 
 export type Outlet = OutletInfoResponse;
+export type PricingMode = components["schemas"]["PricingModeEnum"];
 
 export interface PublicMenuResponse {
   outlet_name: string;
@@ -98,12 +115,14 @@ export type StockChangeType =
   | "RESTOCK"
   | "PURCHASE_RETURN"
   | "VOID_BATCH"
+  | "OVERSOLD"
   | "intake"
   | "auto_deduction"
   | "manual_adjustment"
   | "restock"
   | "purchase_return"
-  | "void_batch";
+  | "void_batch"
+  | "oversold";
 
 export type WastageReason =
   | "SPOILED_EXPIRED"
@@ -114,6 +133,7 @@ export type WastageReason =
 
 export type InventoryItem = components["schemas"]["InventoryItemResponse"] & {
   alternate_units?: Array<{ unit_label: string; conversion_factor: number }>;
+  allow_oversell?: boolean;
 };
 
 export type Customer = components["schemas"]["CustomerResponse"] & {
@@ -132,6 +152,10 @@ export type BatchDetail = components["schemas"]["BatchDetailResponse"] & {
   margin_type?: "MARKUP" | "MARGIN" | null;
   retail_margin_pct?: number | string | null;
   mrp_margin_pct?: number | string | null;
+  retail_price?: number | string | null;
+  mrp?: number | string | null;
+  wholesale_price?: number | string | null;
+  is_oldest?: boolean;
 };
 
 export interface PurchaseReturn {
@@ -391,9 +415,26 @@ export interface CreditDebitSummary {
   total_transactions: number;
 }
 
+export interface CreditDebitTransactionRow {
+  id: string;
+  created_at: string;
+  customer_id: string;
+  customer_name: string;
+  customer_phone: string;
+  entry_type: string;
+  amount: number;
+  balance_after: number;
+  note?: string | null;
+  order_id?: string | null;
+  order_basket_number?: string | null;
+  staff_name?: string | null;
+}
+
 export interface CreditDebitReportResponse {
   summary: CreditDebitSummary;
   customers: CreditDebitCustomerRow[];
+  transactions?: CreditDebitTransactionRow[];
   from_date: string;
   to_date: string;
 }
+

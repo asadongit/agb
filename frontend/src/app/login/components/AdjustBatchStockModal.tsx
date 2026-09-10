@@ -88,7 +88,17 @@ export function AdjustBatchStockModal({
       setOriginalBilled(initBilled);
       setUnitCost(bPurchaseCost.toFixed(2));
       setSyncCatalogPrice(true);
-      setCorrectionReason("INWARD_CORRECTION");
+      if (parseFloat(String(batch.remaining_quantity || 0)) < 0) {
+        setMode("INTAKE_CORRECTION");
+        setQtyMode("APPEND");
+        setAppendQty("");
+        setTotalBilled("");
+        setOriginalBilled("");
+        setUnitCost(bPurchaseCost > 0 ? bPurchaseCost.toFixed(2) : "");
+        setCorrectionReason("INWARD_CORRECTION");
+      } else {
+        setCorrectionReason("INWARD_CORRECTION");
+      }
     }
   }, [batch, suppliers]);
 
@@ -110,13 +120,19 @@ export function AdjustBatchStockModal({
   const sortedUnitCostRounded = Math.round(sortedUnitCost * 100) / 100;
   const activeReturnRate = returnRateMode === "PURCHASE_COST" ? purchaseUnitCost : sortedUnitCostRounded;
 
+  const isOversoldBatch = remainingQty < 0 || (Boolean(batch.batch_number) && batch.batch_number.includes("-OV-"));
+
   // Tier B derived calculations
-  const effectiveNewTotalQty =
-    qtyMode === "APPEND"
+  const effectiveNewTotalQty = isOversoldBatch
+    ? (parseFloat(appendQty) || 0)
+    : qtyMode === "APPEND"
       ? sortedQty + (parseFloat(appendQty) || 0)
       : parseFloat(correctedTotalQty) || 0;
 
-  const deltaQty = effectiveNewTotalQty - sortedQty;
+  const deltaQty = isOversoldBatch
+    ? (parseFloat(appendQty) || 0)
+    : (effectiveNewTotalQty - sortedQty);
+
   const effectiveNewRemaining = remainingQty + deltaQty;
   const effectiveCost = parseFloat(unitCost) || purchaseUnitCost || sortedUnitCost;
 
@@ -416,11 +432,23 @@ export function AdjustBatchStockModal({
           {/* Tier B: Inward Stock Correction & Margin Recalculation */}
           {mode === "INTAKE_CORRECTION" && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
+              {isOversoldBatch && (
+                <div className="rounded-xl bg-amber-500/10 border border-amber-500/25 p-3 text-amber-300 text-xs flex items-start gap-2.5">
+                  <AlertTriangle className="h-4 w-4 shrink-0 mt-0.5 text-amber-400" />
+                  <div>
+                    <p className="font-bold">Oversold Deficit Lot: {Math.abs(remainingQty)} {batch.unit} owed</p>
+                    <p className="text-[11px] text-amber-300/80 mt-0.5">
+                      Enter the actual physical quantity arriving from your supplier. This batch will retain your full incoming quantity as its inward record, clear the {Math.abs(remainingQty)} {batch.unit} deficit, and put the balance into active store stock.
+                    </p>
+                  </div>
+                </div>
+              )}
+
               {/* Step 1: Quantity Adjustment Mode */}
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <label className="text-[11px] font-semibold text-[var(--text-primary)]">
-                    Inward Quantity Adjustment
+                    {isOversoldBatch ? "Inward Stock Arrival" : "Inward Quantity Adjustment"}
                   </label>
                   <div className="flex rounded-lg bg-[var(--bg-surface-elevated)] p-0.5 border border-[var(--border-subtle)] text-[10px]">
                     <button
@@ -503,9 +531,13 @@ export function AdjustBatchStockModal({
                 {/* Stock Live Delta Badge */}
                 <div className="rounded-xl bg-indigo-500/10 border border-indigo-500/20 p-2.5 grid grid-cols-3 gap-2 text-center text-xs">
                   <div>
-                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] block font-semibold">Inward Total</span>
+                    <span className="text-[9px] uppercase tracking-wider text-[var(--text-muted)] block font-semibold">
+                      {isOversoldBatch ? "Inward Arrived" : "Inward Total"}
+                    </span>
                     <span className="font-mono font-bold text-indigo-300">
-                      {sortedQty.toFixed(2)} → {effectiveNewTotalQty.toFixed(2)}
+                      {isOversoldBatch
+                        ? `+${effectiveNewTotalQty.toFixed(2)}`
+                        : `${sortedQty.toFixed(2)} → ${effectiveNewTotalQty.toFixed(2)}`}
                     </span>
                     <span className={`text-[9px] font-mono block ${deltaQty >= 0 ? "text-emerald-400" : "text-amber-400"}`}>
                       {deltaQty >= 0 ? `+${deltaQty.toFixed(2)}` : deltaQty.toFixed(2)} {batch.unit}

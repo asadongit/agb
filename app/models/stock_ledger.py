@@ -51,6 +51,9 @@ class StockLedger(Base):
     resulting_stock: Mapped[Decimal] = mapped_column(
         Numeric(12, 3), nullable=False
     )
+    batch_balance: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 3), nullable=True
+    )
     reference_order_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("orders.id", ondelete="SET NULL"),

@@ -32,7 +32,8 @@ async def test_notification_engine_and_threshold(db_session: AsyncSession):
         slug=f"test-notif-{uuid.uuid4().hex[:6]}",
         payment_mode=PaymentModeEnum.PAY_AT_COUNTER,
         near_expiry_threshold_days=10,
-        notification_email="testadmin@apnagreenbasket.com",
+        notification_emails=["testadmin@apnagreenbasket.com"],
+        notification_phones=["9876543210"],
         phone="9876543210",
     )
     db.add(outlet)
@@ -58,6 +59,7 @@ async def test_notification_engine_and_threshold(db_session: AsyncSession):
         barcode="8901234567890",
         cost_per_unit=50.0,
         mrp=60.0,
+        shelf_life_alert_hrs=24,
     )
     db.add(item)
     await db.commit()
@@ -69,40 +71,45 @@ async def test_notification_engine_and_threshold(db_session: AsyncSession):
         outlet_id=outlet_id,
         item_id=item_id,
         batch_number="BAT-EXP-001",
-        supplier_name="Amul Dairy Supplier",
         quantity=100,
         initial_quantity=100,
         remaining_quantity=45,
         unit_cost=50.0,
         expiry_date=now + timedelta(days=4),
+        intake_date=now - timedelta(hours=30),
     )
     db.add(intake)
     await db.commit()
 
-    # 5. Test syncing notifications
+    # 5. Test syncing notifications (both near expiry and shelf life)
     await sync_near_expiry_notifications(db, outlet_id)
 
     # 6. Fetch notifications
     result = await get_outlet_notifications(db, outlet_id)
-    assert result["unread_count"] == 1
     assert result["threshold_days"] == 10
-    assert len(result["notifications"]) == 1
+    # Both near_expiry and shelf_life should be synced
+    assert result["unread_count"] >= 1
+    assert len(result["notifications"]) >= 1
 
-    notif = result["notifications"][0]
-    assert notif.type == NotificationTypeEnum.NEAR_EXPIRY
-    assert "Test Expiring Dairy Milk" in notif.title
-    assert notif.details["batch_number"] == "BAT-EXP-001"
-    assert notif.details["supplier_name"] == "Amul Dairy Supplier"
-    assert notif.details["days_until_expiry"] == 4
+    near_notif = next((n for n in result["notifications"] if n.type == NotificationTypeEnum.NEAR_EXPIRY), None)
+    assert near_notif is not None
+    assert "Test Expiring Dairy Milk" in near_notif.title
+    assert near_notif.details["batch_number"] == "BAT-EXP-001"
+    assert near_notif.details["days_until_expiry"] == 4
+
+    shelf_notif = next((n for n in result["notifications"] if n.type == NotificationTypeEnum.SHELF_LIFE_ALERT), None)
+    assert shelf_notif is not None
+    assert "Shelf Life Reached" in shelf_notif.title
+    assert shelf_notif.details["batch_id"] == str(intake.id)
 
     # 7. Mark as read
-    read_notif = await mark_notification_as_read(db, notif.id, outlet_id)
+    read_notif = await mark_notification_as_read(db, near_notif.id, outlet_id)
     assert read_notif is not None
     assert read_notif.is_read is True
 
     # 8. Test Channel Dispatch
-    dispatch_res = await dispatch_notification_channels(db, notif.id, outlet_id)
+    dispatch_res = await dispatch_notification_channels(db, near_notif.id, outlet_id)
     assert dispatch_res["status"] == "SUCCESS"
     assert "EMAIL" in dispatch_res["dispatched_channels"]
     assert "WHATSAPP" in dispatch_res["dispatched_channels"]
-    assert dispatch_res["recipient_email"] == "testadmin@apnagreenbasket.com"
+    assert "testadmin@apnagreenbasket.com" in dispatch_res["recipient_emails"]

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { Barcode, CheckCircle2, Package, Sparkles, X, Building2, Plus, Search, Percent, Trash2 } from "lucide-react";
 import type { InventoryUnit, InventoryItem, Supplier } from "@/types";
+import { formatLocalDate } from "@/lib/api";
 
 interface BarcodeRegisterModalProps {
   isOpen: boolean;
@@ -205,7 +206,7 @@ export function BarcodeRegisterModal({
       setSortedQuantity("");
       setTotalBilledAmount("");
       setCustomTaxRate("");
-      setBatchNumber(`BAT-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
+      setBatchNumber(`BAT-${formatLocalDate().replace(/-/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
       setExpiryDate("");
       setShelfLifeAlertHrs("");
       setError(null);

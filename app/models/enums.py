@@ -46,6 +46,8 @@ class StockChangeTypeEnum(str, enum.Enum):
     RESTOCK = "RESTOCK"
     PURCHASE_RETURN = "PURCHASE_RETURN"
     VOID_BATCH = "VOID_BATCH"
+    OVERSOLD = "OVERSOLD"
+
 
 
 class PricingModeEnum(str, enum.Enum):

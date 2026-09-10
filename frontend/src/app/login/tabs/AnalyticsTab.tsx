@@ -338,14 +338,14 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
                 <div className="space-y-8">
                   <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />
                   <ProfitMarginReport data={props.profitData} />
-                  <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} />
+                  <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} restaurant={props.restaurant} />
                   <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />
                   <CashDenominationReport data={props.cashDenomData} isLoading={props.isLoading} />
                 </div>
               )}
               {props.activeFinancialSubTab === "outlet_earnings" && <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />}
               {props.activeFinancialSubTab === "profit_margin" && <ProfitMarginReport data={props.profitData} />}
-              {props.activeFinancialSubTab === "bill_profit" && <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} />}
+              {props.activeFinancialSubTab === "bill_profit" && <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} restaurant={props.restaurant} />}
               {props.activeFinancialSubTab === "tax_summary" && <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />}
               {props.activeFinancialSubTab === "cash_denominations" && <CashDenominationReport data={props.cashDenomData} isLoading={props.isLoading} />}
             </div>

@@ -35,6 +35,7 @@ class InventoryItemCreate(StrictSchema):
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
     alternate_units: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
+    allow_oversell: bool = True
 
 
 class InventoryItemUpdate(StrictSchema):
@@ -57,6 +58,7 @@ class InventoryItemUpdate(StrictSchema):
     is_active: bool | None = None
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
     alternate_units: Optional[List[Dict[str, Any]]] = None
+    allow_oversell: bool | None = None
 
 
 class InventoryItemResponse(BaseResponse):
@@ -81,6 +83,7 @@ class InventoryItemResponse(BaseResponse):
     tax_rate: Decimal | None = Decimal("0.00")
     is_active: bool
     shelf_life_alert_hrs: int | None = None
+    allow_oversell: bool = True
     created_at: datetime
     updated_at: datetime
 
@@ -90,6 +93,9 @@ class StockIntakeCreate(StrictSchema):
     batch_number: str | None = Field(None, max_length=100)
     quantity: Decimal = Field(gt=0)
     unit_cost: Decimal = Field(ge=0)
+    retail_price: Decimal | None = Field(None, ge=0)
+    mrp: Decimal | None = Field(None, ge=0)
+    wholesale_price: Decimal | None = Field(None, ge=0)
     supplier_id: uuid.UUID | None = None
     supplier_name: str | None = None
     intake_date: datetime = Field(default_factory=datetime.utcnow)
@@ -109,6 +115,9 @@ class StockIntakeResponse(BaseResponse):
     quantity: Decimal
     remaining_quantity: Decimal = Decimal("0.000")
     unit_cost: Decimal
+    retail_price: Decimal | None = None
+    mrp: Decimal | None = None
+    wholesale_price: Decimal | None = None
     supplier_id: uuid.UUID | None = None
     supplier_name: str | None = None
     intake_date: datetime
@@ -226,14 +235,30 @@ class BatchDetailResponse(BaseResponse):
     intake_date: datetime
     expiry_date: datetime | None = None
     shelf_life_alert_hrs: int | None = None
-    status: str  # "ACTIVE", "EXPIRING_SOON", "EXPIRED", "DEPLETED"
+    status: str  # "ACTIVE", "EXPIRING_SOON", "EXPIRED", "DEPLETED", "OVERSOLD"
     notes: str | None = None
+    retail_price: Decimal | None = None
+    mrp: Decimal | None = None
+    wholesale_price: Decimal | None = None
     item_cost_per_unit: Decimal | None = None
     item_retail_price: Decimal | None = None
     item_mrp: Decimal | None = None
     margin_type: MarginTypeEnum | None = None
     retail_margin_pct: Decimal | None = None
     mrp_margin_pct: Decimal | None = None
+
+
+class ItemBatchSummary(StrictSchema):
+    id: uuid.UUID
+    batch_number: str
+    remaining_quantity: Decimal
+    unit_cost: Decimal
+    retail_price: Decimal | None = None
+    mrp: Decimal | None = None
+    wholesale_price: Decimal | None = None
+    expiry_date: datetime | None = None
+    intake_date: datetime | None = None
+    is_oldest: bool = False
 
 
 class BatchUpdateMetadataRequest(StrictSchema):
@@ -277,6 +302,8 @@ class StockLedgerResponse(BaseResponse):
     change_type: StockChangeTypeEnum
     quantity_change: Decimal
     resulting_stock: Decimal
+    batch_balance: Decimal | None = None
+    batch_number: str | None = None
     reference_order_id: uuid.UUID | None
     intake_id: uuid.UUID | None = None
     unit_cost_snapshot: Decimal | None = None

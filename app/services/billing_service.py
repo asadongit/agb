@@ -47,8 +47,6 @@ async def _resolve_item_unit(db: AsyncSession, item_in_unit: str | None, menu_it
     if item_in_unit and item_in_unit.strip():
         return item_in_unit.strip()
     if menu_item:
-        if getattr(menu_item, "inventory_item", None) and getattr(menu_item.inventory_item, "unit", None):
-            return str(menu_item.inventory_item.unit)
         if menu_item.inventory_item_id:
             inv_item = await db.get(InventoryItem, menu_item.inventory_item_id)
             if inv_item and inv_item.unit:
@@ -143,6 +141,32 @@ async def create_manual_bill(
             from app.services.inventory_service import get_unit_conversion_multiplier
             unit_multiplier = get_unit_conversion_multiplier(item_in.selected_unit, menu_item=menu_item)
 
+        # Enforce allow_oversell: If overselling is disabled on MenuItem or linked InventoryItem, block when stock is insufficient
+        target_inv = None
+        if menu_item and menu_item.inventory_item_id:
+            target_inv = await db.get(InventoryItem, menu_item.inventory_item_id)
+        elif menu_item and menu_item.barcode:
+            inv_res = await db.execute(
+                select(InventoryItem).where(
+                    InventoryItem.outlet_id == outlet_id,
+                    InventoryItem.barcode == menu_item.barcode,
+                )
+            )
+            target_inv = inv_res.scalar_one_or_none()
+
+        item_allows_oversell = getattr(menu_item, "allow_oversell", True)
+        if target_inv and not getattr(target_inv, "allow_oversell", True):
+            item_allows_oversell = False
+
+        if not item_allows_oversell:
+            needed_inv_qty = Decimal(str(item_in.quantity)) * unit_multiplier
+            current_avail = target_inv.current_stock if target_inv else Decimal("0.000")
+            if current_avail < needed_inv_qty:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Item '{menu_item.name}' does not allow overselling and has only {max(Decimal('0'), current_avail)} in stock."
+                )
+
         # Determine price based on custom unit_price, WHOLESALE pricing_type, or standard RETAIL price
         if item_in.unit_price is not None:
             price = Decimal(str(item_in.unit_price))
@@ -185,11 +209,20 @@ async def create_manual_bill(
 
         final_item_name = item_in.item_name or (menu_item.name if menu_item else "Item")
         resolved_unit = await _resolve_item_unit(db, item_in.selected_unit, menu_item)
+
+        batch_uuid = None
+        if getattr(item_in, "selected_batch_id", None):
+            try:
+                batch_uuid = uuid.UUID(str(item_in.selected_batch_id))
+            except Exception:
+                batch_uuid = None
+
         order_item = OrderItem(
             id=uuid.uuid4(),
             order_id=order.id,
             menu_item_id=menu_item.id if menu_item else None,
             variant_id=variant_uuid,
+            selected_batch_id=batch_uuid,
             item_name=final_item_name,
             quantity=item_in.quantity,
             selected_unit=resolved_unit,
@@ -231,7 +264,7 @@ async def create_manual_bill(
 
     await db.flush()
     res_final = await db.execute(
-        select(Order).where(Order.id == order.id).options(selectinload(Order.items))
+        select(Order).where(Order.id == order.id).options(selectinload(Order.items).selectinload(OrderItem.selected_batch))
     )
     final_order = res_final.scalar_one()
 
@@ -316,6 +349,32 @@ async def update_manual_bill(
                 from app.services.inventory_service import get_unit_conversion_multiplier
                 unit_multiplier = get_unit_conversion_multiplier(item_in.selected_unit, menu_item=menu_item)
 
+            # Enforce allow_oversell: If overselling is disabled on MenuItem or linked InventoryItem, block when stock is insufficient
+            target_inv = None
+            if menu_item and menu_item.inventory_item_id:
+                target_inv = await db.get(InventoryItem, menu_item.inventory_item_id)
+            elif menu_item and menu_item.barcode:
+                inv_res = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.outlet_id == outlet_id,
+                        InventoryItem.barcode == menu_item.barcode,
+                    )
+                )
+                target_inv = inv_res.scalar_one_or_none()
+
+            item_allows_oversell = getattr(menu_item, "allow_oversell", True)
+            if target_inv and not getattr(target_inv, "allow_oversell", True):
+                item_allows_oversell = False
+
+            if not item_allows_oversell:
+                needed_inv_qty = Decimal(str(item_in.quantity)) * unit_multiplier
+                current_avail = target_inv.current_stock if target_inv else Decimal("0.000")
+                if current_avail < needed_inv_qty:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"Item '{menu_item.name}' does not allow overselling and has only {max(Decimal('0'), current_avail)} in stock."
+                    )
+
             if item_in.unit_price is not None:
                 price = Decimal(str(item_in.unit_price))
             elif menu_item:
@@ -360,11 +419,20 @@ async def update_manual_bill(
 
             final_item_name = item_in.item_name or (menu_item.name if menu_item else "Item")
             resolved_unit = await _resolve_item_unit(db, item_in.selected_unit, menu_item)
+
+            batch_uuid = None
+            if getattr(item_in, "selected_batch_id", None):
+                try:
+                    batch_uuid = uuid.UUID(str(item_in.selected_batch_id))
+                except Exception:
+                    batch_uuid = None
+
             order_item = OrderItem(
                 id=uuid.uuid4(),
                 order_id=order.id,
                 menu_item_id=menu_item.id if menu_item else None,
                 variant_id=variant_uuid,
+                selected_batch_id=batch_uuid,
                 item_name=final_item_name,
                 quantity=item_in.quantity,
                 selected_unit=resolved_unit,
@@ -403,7 +471,7 @@ async def update_manual_bill(
 
     await db.flush()
     res = await db.execute(
-        select(Order).options(selectinload(Order.items)).where(Order.id == order.id)
+        select(Order).options(selectinload(Order.items).selectinload(OrderItem.selected_batch)).where(Order.id == order.id)
     )
     return res.scalar_one()
 
@@ -669,7 +737,7 @@ async def mark_bill_paid(
     """Record cash/UPI payment method, set order status to COMPLETED for POS bills, and trigger inventory auto-deduction."""
     res = await db.execute(
         select(Order)
-        .options(selectinload(Order.items))
+        .options(selectinload(Order.items).selectinload(OrderItem.selected_batch))
         .where(
             Order.id == order_id,
             Order.outlet_id == outlet_id,
@@ -679,6 +747,12 @@ async def mark_bill_paid(
     if not order:
         raise HTTPException(status_code=404, detail="Bill not found.")
 
+    if order.status in (OrderStatusEnum.COMPLETED, OrderStatusEnum.PAID, OrderStatusEnum.REFUNDED, OrderStatusEnum.CANCELLED):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Bill #{order.basket_number or str(order.id)[:8]} is already {order.status.value}."
+        )
+
     if not order.customer_id and (apply_credit > 0 or record_debit > 0 or record_credit > 0 or debt_settled > 0 or credit_cashed_out > 0):
         raise HTTPException(status_code=400, detail="Cannot process Udhaar or Store Credit without linking a customer first.")
 
@@ -686,31 +760,30 @@ async def mark_bill_paid(
     if payment_method == "CASH":
         from app.models.cash_drawer_ledger import CashDrawerLedger
 
-        order.cash_denominations = cash_denominations
-        order.change_denominations = change_denominations
+        # Sanitize denominations: keep only entries with strictly positive count
+        clean_cash_denoms = {str(k): int(v) for k, v in (cash_denominations or {}).items() if int(v) > 0}
+        clean_change_denoms = {str(k): int(v) for k, v in (change_denominations or {}).items() if int(v) > 0}
 
-        denom_strs = []
-        if cash_denominations:
-            denom_strs = [f"₹{k}x{v}" for k, v in cash_denominations.items() if v > 0]
-            # Write received cash to ledger
+        order.cash_denominations = clean_cash_denoms if clean_cash_denoms else None
+        order.change_denominations = clean_change_denoms if clean_change_denoms else None
+
+        denom_strs = [f"₹{k}x{v}" for k, v in clean_cash_denoms.items()]
+        if clean_cash_denoms:
+            # Write received cash to ledger only when actual notes are present
             ledger_in = CashDrawerLedger(
                 outlet_id=outlet_id,
                 transaction_type="CUSTOMER_PAYMENT",
-                denominations=cash_denominations,
+                denominations=clean_cash_denoms,
                 reference_order_id=order_id,
             )
             db.add(ledger_in)
 
-        change_strs = []
-        if change_denominations:
-            change_strs = [f"₹{k}x{v}" for k, v in change_denominations.items() if v > 0]
-            # Write change given to ledger (we store absolute counts, but logic will subtract them)
-            # We can store them as positive counts representing what was withdrawn, or negative. 
-            # To be clear, let's store exactly the count the user tapped (positive) and we will subtract it when summing up.
+        change_strs = [f"₹{k}x{v}" for k, v in clean_change_denoms.items()]
+        if clean_change_denoms:
             ledger_out = CashDrawerLedger(
                 outlet_id=outlet_id,
                 transaction_type="CUSTOMER_CHANGE",
-                denominations=change_denominations,
+                denominations=clean_change_denoms,
                 reference_order_id=order_id,
             )
             db.add(ledger_out)
@@ -983,15 +1056,20 @@ async def get_daily_cash_denominations(
     Get aggregated cash currency denominations collected for a specific date (defaults to today).
     Optimized with SQL date filtering.
     """
-    from datetime import datetime, time
-    try:
-        target_date = datetime.strptime(date_str, "%Y-%m-%d").date() if date_str else datetime.now(timezone.utc).date()
-    except Exception:
-        target_date = datetime.now(timezone.utc).date()
+    from datetime import datetime, time, timedelta
+    from app.core.shift_utils import IST
+    if date_str:
+        try:
+            target_date = datetime.strptime(date_str, "%Y-%m-%d").date()
+        except Exception:
+            target_date = datetime.now(IST).date()
+    else:
+        target_date = datetime.now(IST).date()
 
     target_date_str = target_date.strftime("%Y-%m-%d")
-    start_dt = datetime.combine(target_date, time.min)
-    end_dt = datetime.combine(target_date, time.max)
+    # DB stores naive UTC. 00:00 IST = 18:30 UTC (previous day)
+    start_dt = datetime.combine(target_date, time.min) - timedelta(hours=5, minutes=30)
+    end_dt = datetime.combine(target_date, time.max) - timedelta(hours=5, minutes=30)
 
     stmt = (
         select(Order.cash_denominations, Order.total_amount)

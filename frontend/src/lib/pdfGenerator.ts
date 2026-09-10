@@ -278,22 +278,76 @@ export async function generateReceiptPDF(
   y += 2.5;
   drawSolidLine(y);
 
-  // 3. ITEMIZED TABLE GRID (Courier Monospaced Column Alignment)
-  const tableData = ((order as any).items || []).map((item: any, idx: number) => {
-    const dishName =
-      item.item_name ||
-      menuItemsMap?.[item.menu_item_id]?.name ||
-      item.name ||
-      `Item #${idx + 1}`;
-    const qtyVal = parseFloat(String(item.quantity || "0"));
+  // 3. ITEMIZED TABLE GRID (Consolidates identical items for single-line customer presentation)
+  const rawItems = ((order as any).items || []);
+  const consolidatedItems: any[] = [];
+  const itemConsolidationMap = new Map<string, any>();
+
+  for (const it of rawItems) {
+    const rawDishName =
+      it.item_name ||
+      menuItemsMap?.[it.menu_item_id]?.name ||
+      it.name ||
+      "Item";
+    // Strip internal cashier POS tags such as [Oversold Backorder] or Lot # from customer receipt
+    const cleanDishName = rawDishName
+      .replace(/\[Oversold Backorder\]/gi, "")
+      .replace(/\(Oversold\)/gi, "")
+      .replace(/Lot\s*#[A-Za-z0-9_-]+/gi, "")
+      .trim();
+
+    const price = parseFloat(String(it.unit_price || "0"));
     const rawUnit =
-      item.selected_unit ||
-      item.unit ||
-      item.unit_label ||
-      menuItemsMap?.[item.menu_item_id]?.unit_label ||
-      menuItemsMap?.[item.menu_item_id]?.unit ||
+      it.selected_unit ||
+      it.unit ||
+      it.unit_label ||
+      menuItemsMap?.[it.menu_item_id]?.unit_label ||
+      menuItemsMap?.[it.menu_item_id]?.unit ||
       "";
     const cleanUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
+    const isComp = Boolean(it.is_complimentary);
+    const taxRate = parseFloat(String(it.tax_rate ?? it.item_tax_rate ?? menuItemsMap?.[it.menu_item_id]?.tax_rate ?? 0));
+    const mrpVal = it.mrp ? parseFloat(String(it.mrp)) : price;
+
+    // Merge key: identity of item + price + unit + complimentary + tax rate
+    const key = `${it.menu_item_id || cleanDishName}|${price.toFixed(2)}|${cleanUnit}|${isComp}|${taxRate.toFixed(2)}`;
+
+    if (itemConsolidationMap.has(key)) {
+      const existing = itemConsolidationMap.get(key);
+      const existingQty = parseFloat(String(existing.quantity || "0"));
+      const newQty = parseFloat(String(it.quantity || "0"));
+      existing.quantity = existingQty + newQty;
+      const itLineTotal = (it.line_total !== undefined && it.line_total !== null)
+        ? parseFloat(String(it.line_total))
+        : newQty * price;
+      existing.line_total = parseFloat(String(existing.line_total || "0")) + itLineTotal;
+      if (mrpVal > (existing.mrp || 0)) {
+        existing.mrp = mrpVal;
+      }
+    } else {
+      const itLineTotal = (it.line_total !== undefined && it.line_total !== null)
+        ? parseFloat(String(it.line_total))
+        : parseFloat(String(it.quantity || "0")) * price;
+      const copy = {
+        ...it,
+        item_name: cleanDishName,
+        quantity: parseFloat(String(it.quantity || "0")),
+        unit_price: price,
+        mrp: mrpVal,
+        selected_unit: cleanUnit,
+        line_total: itLineTotal,
+        tax_rate: taxRate,
+        is_complimentary: isComp,
+      };
+      itemConsolidationMap.set(key, copy);
+      consolidatedItems.push(copy);
+    }
+  }
+
+  const tableData = consolidatedItems.map((item: any, idx: number) => {
+    const dishName = item.item_name || `Item #${idx + 1}`;
+    const qtyVal = parseFloat(String(item.quantity || "0"));
+    const cleanUnit = item.selected_unit || "";
     const qtyFormatted = qtyVal % 1 === 0 ? qtyVal.toFixed(0) : String(qtyVal);
     const qtyStr = cleanUnit ? `${qtyFormatted} ${cleanUnit}` : qtyFormatted;
     const price = parseFloat(String(item.unit_price || "0"));

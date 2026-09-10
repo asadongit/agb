@@ -5,7 +5,7 @@ Analytics Service — SQL aggregation queries for revenue, peak hours, top dishe
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 
 from sqlalchemy import Float, Integer, String, cast, func, select, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -157,7 +157,7 @@ async def get_kpi_summary(
         StockLedger.outlet_id == outlet_id,
         StockLedger.created_at >= from_dt,
         StockLedger.created_at <= to_dt,
-        StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+        StockLedger.change_type.in_([StockChangeTypeEnum.AUTO_DEDUCTION, StockChangeTypeEnum.OVERSOLD]),
     )
     res_cogs = await db.execute(stmt_cogs)
     curr_cogs = float(res_cogs.scalar() or 0.0)
@@ -212,7 +212,7 @@ async def get_kpi_summary(
         StockLedger.outlet_id == outlet_id,
         StockLedger.created_at >= prev_from_dt,
         StockLedger.created_at <= prev_to_dt,
-        StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+        StockLedger.change_type.in_([StockChangeTypeEnum.AUTO_DEDUCTION, StockChangeTypeEnum.OVERSOLD]),
     )
     res_prev_cogs = await db.execute(stmt_prev_cogs)
     prev_cogs = float(res_prev_cogs.scalar() or 0.0)
@@ -535,20 +535,22 @@ async def get_profit_margin_analytics(
         for r in res_rev.all()
     }
 
-    # COGS deduction query
+    # COGS deduction query (nets out restocks/settlements)
     cogs_stmt = (
         select(
             cogs_b_expr,
             func.sum(
-                func.abs(StockLedger.quantity_change)
-                * func.coalesce(StockLedger.unit_cost_snapshot, 0)
+                case(
+                    (StockLedger.change_type == StockChangeTypeEnum.RESTOCK, -func.abs(StockLedger.quantity_change) * func.coalesce(StockLedger.unit_cost_snapshot, 0)),
+                    else_=func.abs(StockLedger.quantity_change) * func.coalesce(StockLedger.unit_cost_snapshot, 0),
+                )
             ).label("cogs_val"),
         )
         .where(
             StockLedger.outlet_id == outlet_id,
             StockLedger.created_at >= from_dt,
             StockLedger.created_at <= to_dt,
-            StockLedger.change_type == StockChangeTypeEnum.AUTO_DEDUCTION,
+            StockLedger.change_type.in_([StockChangeTypeEnum.AUTO_DEDUCTION, StockChangeTypeEnum.OVERSOLD, StockChangeTypeEnum.RESTOCK]),
         )
         .group_by(cogs_b_expr)
     )
@@ -755,10 +757,11 @@ async def get_bill_profit(
             Order.discount_value,
             Order.total_amount,
             func.count(OrderItem.id).label("items_count"),
-            func.sum(OrderItem.quantity * func.coalesce(InventoryItem.cost_per_unit, 0)).label("estimated_cogs")
+            func.sum(OrderItem.quantity * func.coalesce(StockIntake.unit_cost, InventoryItem.cost_per_unit, 0)).label("estimated_cogs")
         )
         .select_from(Order)
         .outerjoin(OrderItem, Order.id == OrderItem.order_id)
+        .outerjoin(StockIntake, OrderItem.selected_batch_id == StockIntake.id)
         .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
         .outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id)
         .where(
@@ -788,8 +791,8 @@ async def get_bill_profit(
 
     # Also need global COGS
     stmt_global_cogs = select(
-        func.sum(OrderItem.quantity * func.coalesce(InventoryItem.cost_per_unit, 0))
-    ).select_from(Order).outerjoin(OrderItem, Order.id == OrderItem.order_id).outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id).outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id).where(
+        func.sum(OrderItem.quantity * func.coalesce(StockIntake.unit_cost, InventoryItem.cost_per_unit, 0))
+    ).select_from(Order).outerjoin(OrderItem, Order.id == OrderItem.order_id).outerjoin(StockIntake, OrderItem.selected_batch_id == StockIntake.id).outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id).outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id).where(
         Order.outlet_id == outlet_id,
         Order.created_at >= from_dt,
         Order.created_at <= to_dt,
@@ -1844,6 +1847,52 @@ async def get_credit_debit_report(
             "last_transaction_date": row.last_tx.isoformat() if row.last_tx else None
         })
 
+    # Fetch detailed transaction entries for the period
+    tx_list_stmt = (
+        select(
+            CustomerLedger.id,
+            CustomerLedger.created_at,
+            CustomerLedger.customer_id,
+            Customer.name.label("customer_name"),
+            Customer.phone.label("customer_phone"),
+            CustomerLedger.entry_type,
+            CustomerLedger.amount,
+            CustomerLedger.balance_after,
+            CustomerLedger.note,
+            CustomerLedger.order_id,
+            Order.basket_number.label("order_basket_number"),
+            User.name.label("staff_name"),
+        )
+        .join(Customer, CustomerLedger.customer_id == Customer.id)
+        .outerjoin(Order, CustomerLedger.order_id == Order.id)
+        .outerjoin(User, CustomerLedger.created_by_staff_id == User.id)
+        .where(
+            CustomerLedger.outlet_id == outlet_id,
+            CustomerLedger.created_at >= from_dt,
+            CustomerLedger.created_at <= to_dt,
+        )
+        .order_by(CustomerLedger.created_at.desc())
+        .limit(300)
+    )
+    tx_list_res = await db.execute(tx_list_stmt)
+    transactions = [
+        {
+            "id": str(r.id),
+            "created_at": r.created_at.isoformat() if r.created_at else "",
+            "customer_id": str(r.customer_id),
+            "customer_name": r.customer_name or "Unknown",
+            "customer_phone": r.customer_phone or "",
+            "entry_type": r.entry_type,
+            "amount": float(r.amount),
+            "balance_after": float(r.balance_after),
+            "note": r.note,
+            "order_id": str(r.order_id) if r.order_id else None,
+            "order_basket_number": r.order_basket_number,
+            "staff_name": r.staff_name,
+        }
+        for r in tx_list_res.all()
+    ]
+
     return {
         "summary": {
             "total_outstanding_credit": float(s_row.total_outstanding_credit or 0),
@@ -1853,6 +1902,7 @@ async def get_credit_debit_report(
             "total_transactions": total_tx
         },
         "customers": customers,
+        "transactions": transactions,
         "from_date": from_dt.isoformat(),
         "to_date": to_dt.isoformat()
     }
@@ -1863,14 +1913,16 @@ async def get_day_book(
     outlet_id: uuid.UUID,
     date_str: str,
 ) -> DayBookResponse:
-    target_dt = datetime.strptime(date_str, "%Y-%m-%d")
-    end_dt = target_dt + timedelta(days=1)
+    dt_target = datetime.strptime(date_str, "%Y-%m-%d").date()
+    # DB stores naive UTC. 00:00 IST = 18:30 UTC (previous day)
+    start_utc = datetime.combine(dt_target, time.min) - timedelta(hours=5, minutes=30)
+    end_utc = datetime.combine(dt_target, time.max) - timedelta(hours=5, minutes=30)
     
     stmt_open = select(
         CashDrawerLedger.transaction_type, CashDrawerLedger.denominations
     ).where(
         CashDrawerLedger.outlet_id == outlet_id,
-        CashDrawerLedger.created_at < target_dt
+        CashDrawerLedger.created_at < start_utc
     )
     res_open = await db.execute(stmt_open)
     opening_cash = 0.0
@@ -1887,7 +1939,7 @@ async def get_day_book(
     stmt_ord = select(
         Order.created_at, Order.basket_number, Order.total_amount, Order.payment_method
     ).where(
-        Order.outlet_id == outlet_id, Order.created_at >= target_dt, Order.created_at < end_dt,
+        Order.outlet_id == outlet_id, Order.created_at >= start_utc, Order.created_at <= end_utc,
         Order.status.in_(SETTLED_STATUSES)
     )
     res_ord = await db.execute(stmt_ord)
@@ -1908,7 +1960,7 @@ async def get_day_book(
     stmt_ret = select(
         CustomerReturn.created_at, CustomerReturn.return_number, CustomerReturn.total_refund_amount
     ).where(
-        CustomerReturn.outlet_id == outlet_id, CustomerReturn.created_at >= target_dt, CustomerReturn.created_at < end_dt
+        CustomerReturn.outlet_id == outlet_id, CustomerReturn.created_at >= start_utc, CustomerReturn.created_at <= end_utc
     )
     res_ret = await db.execute(stmt_ret)
     tot_ret = 0.0
@@ -1927,7 +1979,7 @@ async def get_day_book(
     stmt_cdl = select(
         CashDrawerLedger.created_at, CashDrawerLedger.transaction_type, CashDrawerLedger.denominations, CashDrawerLedger.notes
     ).where(
-        CashDrawerLedger.outlet_id == outlet_id, CashDrawerLedger.created_at >= target_dt, CashDrawerLedger.created_at < end_dt,
+        CashDrawerLedger.outlet_id == outlet_id, CashDrawerLedger.created_at >= start_utc, CashDrawerLedger.created_at <= end_utc,
         CashDrawerLedger.transaction_type.in_(["MANUAL_DEPOSIT", "MANUAL_WITHDRAWAL"])
     )
     res_cdl = await db.execute(stmt_cdl)
@@ -1958,7 +2010,7 @@ async def get_day_book(
     stmt_si = select(
         StockIntake.intake_date, InventoryItem.name, StockIntake.quantity, StockIntake.unit_cost
     ).select_from(StockIntake).join(InventoryItem, StockIntake.item_id == InventoryItem.id).where(
-        StockIntake.outlet_id == outlet_id, StockIntake.intake_date >= target_dt.date(), StockIntake.intake_date <= end_dt.date()
+        StockIntake.outlet_id == outlet_id, StockIntake.intake_date >= start_utc, StockIntake.intake_date <= end_utc
     )
     res_si = await db.execute(stmt_si)
     tot_si = 0.0
@@ -1966,7 +2018,7 @@ async def get_day_book(
         amt = float((r.quantity or 0) * (r.unit_cost or 0))
         tot_si += amt
         
-        entry_time = target_dt
+        entry_time = start_utc
         if hasattr(r.intake_date, "hour"):
             entry_time = r.intake_date
         else:

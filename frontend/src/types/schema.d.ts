@@ -6473,7 +6473,7 @@ export interface components {
          * StockChangeTypeEnum
          * @enum {string}
          */
-        StockChangeTypeEnum: "INTAKE" | "AUTO_DEDUCTION" | "MANUAL_ADJUSTMENT" | "RESTOCK" | "PURCHASE_RETURN" | "VOID_BATCH";
+        StockChangeTypeEnum: "INTAKE" | "AUTO_DEDUCTION" | "MANUAL_ADJUSTMENT" | "RESTOCK" | "PURCHASE_RETURN" | "VOID_BATCH" | "OVERSOLD";
         /** StockIntakeCreate */
         StockIntakeCreate: {
             /**
@@ -6667,6 +6667,10 @@ export interface components {
             quantity_change: string;
             /** Resulting Stock */
             resulting_stock: string;
+            /** Batch Balance */
+            batch_balance?: string | number | null;
+            /** Batch Number */
+            batch_number?: string | null;
             /** Reference Order Id */
             reference_order_id: string | null;
             /** Created By */

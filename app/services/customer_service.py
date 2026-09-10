@@ -5,7 +5,9 @@ Customer Service — listing, searching, creating, and compiling order history s
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone, timedelta
 from typing import Any, Sequence
+from app.core.shift_utils import IST
 
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
@@ -215,27 +217,29 @@ async def get_customer_analytics(
     else:
         order_stmt = order_stmt.where(Order.customer_phone == clean_phone)
 
-    now = datetime.now(timezone.utc).replace(tzinfo=None)
+    now_ist = datetime.now(IST)
     if period == "this_week":
-        # Monday of current week
-        start = now - timedelta(days=now.weekday())
-        start = start.replace(hour=0, minute=0, second=0, microsecond=0)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        # Monday of current week in IST
+        start_ist = now_ist - timedelta(days=now_ist.weekday())
+        start_ist = start_ist.replace(hour=0, minute=0, second=0, microsecond=0)
+        start_utc = start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "this_month":
-        start = now.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        start_ist = now_ist.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+        start_utc = start_ist.astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "last_1_week":
-        start = now - timedelta(days=7)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        start_utc = (now_ist - timedelta(days=7)).astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "last_month":
-        start = now - timedelta(days=30)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        start_utc = (now_ist - timedelta(days=30)).astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "last_6_months":
-        start = now - timedelta(days=180)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        start_utc = (now_ist - timedelta(days=180)).astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "last_year":
-        start = now - timedelta(days=365)
-        order_stmt = order_stmt.where(Order.created_at >= start)
+        start_utc = (now_ist - timedelta(days=365)).astimezone(timezone.utc).replace(tzinfo=None)
+        order_stmt = order_stmt.where(Order.created_at >= start_utc)
     elif period == "custom" and start_date:
         try:
             s_dt = datetime.fromisoformat(start_date)

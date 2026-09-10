@@ -102,7 +102,7 @@ async def sync_near_expiry_notifications(
             existing_stmt = select(Notification).where(
                 Notification.outlet_id == outlet_id,
                 Notification.type == NotificationTypeEnum.NEAR_EXPIRY,
-                func.json_extract(Notification.details, "$.batch_id") == str(intake.id),
+                Notification.details["batch_id"].as_string() == str(intake.id),
             )
             existing_res = await db.execute(existing_stmt)
             existing_notif = existing_res.scalar_one_or_none()
@@ -171,7 +171,7 @@ async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) 
             existing_stmt = select(Notification).where(
                 Notification.outlet_id == outlet_id,
                 Notification.type == NotificationTypeEnum.SHELF_LIFE_ALERT,
-                func.json_extract(Notification.details, "$.batch_id") == str(intake.id),
+                Notification.details["batch_id"].as_string() == str(intake.id),
             )
             existing_res = await db.execute(existing_stmt)
             existing_notif = existing_res.scalar_one_or_none()

@@ -82,6 +82,11 @@ def _format_bill_response(order: Order) -> BillResponse:
             except Exception:
                 unit_val = None
 
+        batch_id_str = str(item.selected_batch_id) if getattr(item, "selected_batch_id", None) else None
+        batch_num_str = None
+        if "selected_batch" in item.__dict__ and item.__dict__["selected_batch"] and hasattr(item.__dict__["selected_batch"], "batch_number"):
+            batch_num_str = item.__dict__["selected_batch"].batch_number
+
         items_out.append(
             {
                 "id": str(item.id),
@@ -96,6 +101,8 @@ def _format_bill_response(order: Order) -> BillResponse:
                 "is_complimentary": getattr(item, "is_complimentary", False),
                 "returned_quantity": float(getattr(item, "returned_quantity", 0.0)),
                 "line_total": l_total,
+                "selected_batch_id": batch_id_str,
+                "selected_batch_number": batch_num_str,
             }
         )
 
@@ -318,7 +325,10 @@ async def list_bills_endpoint(
 
     stmt = (
         select(Order)
-        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.items).selectinload(OrderItem.selected_batch),
+        )
         .where(Order.outlet_id == current_user.outlet_id)
     )
 
@@ -392,7 +402,10 @@ async def get_bill_endpoint(
 
     res = await db.execute(
         select(Order)
-        .options(selectinload(Order.items).selectinload(OrderItem.menu_item))
+        .options(
+            selectinload(Order.items).selectinload(OrderItem.menu_item),
+            selectinload(Order.items).selectinload(OrderItem.selected_batch),
+        )
         .where(
             Order.id == bill_id,
             Order.outlet_id == current_user.outlet_id,

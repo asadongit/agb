@@ -18,6 +18,7 @@ if TYPE_CHECKING:
     from app.models.menu_item import MenuItem
     from app.models.menu_item_variant import MenuItemVariant
     from app.models.order import Order
+    from app.models.stock_intake import StockIntake
     from app.models.user import User
 
 
@@ -42,6 +43,12 @@ class OrderItem(Base):
         UUID(as_uuid=True),
         ForeignKey("menu_item_variants.id", ondelete="SET NULL"),
         nullable=True,
+    )
+    selected_batch_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("stock_intakes.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
     )
     added_by_staff_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -72,4 +79,5 @@ class OrderItem(Base):
     order: Mapped[Order] = relationship("Order", back_populates="items")
     menu_item: Mapped[MenuItem] = relationship("MenuItem")
     variant: Mapped[MenuItemVariant | None] = relationship("MenuItemVariant")
+    selected_batch: Mapped[StockIntake | None] = relationship("StockIntake")
     added_by_staff: Mapped[User | None] = relationship("User")

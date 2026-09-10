@@ -119,6 +119,20 @@ class CreditDebitCustomerRow(StrictSchema):
     total_debit_recorded: float
     last_transaction_date: str | None = None
 
+class CreditDebitTransactionRow(StrictSchema):
+    id: str
+    created_at: str
+    customer_id: str
+    customer_name: str
+    customer_phone: str
+    entry_type: str
+    amount: float
+    balance_after: float
+    note: str | None = None
+    order_id: str | None = None
+    order_basket_number: str | None = None
+    staff_name: str | None = None
+
 class CreditDebitSummary(StrictSchema):
     total_outstanding_credit: float
     total_outstanding_debit: float
@@ -129,6 +143,7 @@ class CreditDebitSummary(StrictSchema):
 class CreditDebitReportResponse(BaseResponse):
     summary: CreditDebitSummary
     customers: list[CreditDebitCustomerRow]
+    transactions: list[CreditDebitTransactionRow] = Field(default_factory=list)
     from_date: str
     to_date: str
 

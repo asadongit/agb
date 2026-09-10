@@ -346,14 +346,15 @@ export function InventoryTab({
   const [batchSortOption, setBatchSortOption] = useState<BatchSortOption>("recent");
 
   const batchCounts = useMemo(() => {
-    let active = 0, expiring = 0, expired = 0, depleted = 0;
+    let active = 0, expiring = 0, expired = 0, depleted = 0, oversold = 0;
     batches.forEach((b) => {
-      if (b.status === "ACTIVE") active++;
+      if (b.status === "OVERSOLD" || Number(b.remaining_quantity) < 0) oversold++;
+      else if (b.status === "ACTIVE") active++;
       else if (b.status === "EXPIRING_SOON") expiring++;
       else if (b.status === "EXPIRED") expired++;
       else if (b.status === "DEPLETED") depleted++;
     });
-    return { all: batches.length, active, expiring, expired, depleted };
+    return { all: batches.length, active, expiring, expired, depleted, oversold };
   }, [batches]);
 
   const filteredAndSortedBatches = useMemo(() => {
@@ -361,7 +362,11 @@ export function InventoryTab({
 
     // 1. Status Filter
     if (batchStatusFilter !== "ALL") {
-      result = result.filter((b) => b.status === batchStatusFilter);
+      if (batchStatusFilter === "OVERSOLD") {
+        result = result.filter((b) => b.status === "OVERSOLD" || Number(b.remaining_quantity) < 0);
+      } else {
+        result = result.filter((b) => b.status === batchStatusFilter);
+      }
     }
 
     // 2. Search Filter (batch number, product name, barcode)
@@ -1085,6 +1090,19 @@ export function InventoryTab({
                 >
                   Depleted ({batchCounts.depleted})
                 </button>
+                {batchCounts.oversold > 0 && (
+                  <button
+                    type="button"
+                    onClick={() => setBatchStatusFilter("OVERSOLD")}
+                    className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition whitespace-nowrap ${
+                      batchStatusFilter === "OVERSOLD"
+                        ? "bg-rose-600 text-white shadow-xs"
+                        : "bg-rose-500/15 text-rose-400 hover:text-rose-300"
+                    }`}
+                  >
+                    Oversold ({batchCounts.oversold})
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1220,8 +1238,16 @@ export function InventoryTab({
                           <td className="py-3 px-4 font-mono font-bold text-cyan-400">
                             {Number(b.quantity).toFixed(2)} {b.unit}
                           </td>
-                          <td className="py-3 px-4 font-mono font-bold text-emerald-400">
-                            {b.remaining_quantity} {b.unit}
+                          <td className="py-3 px-4 font-mono font-bold">
+                            {Number(b.remaining_quantity) < 0 ? (
+                              <span className="text-rose-400 font-bold bg-rose-500/10 px-1.5 py-0.5 rounded border border-rose-500/20">
+                                {b.remaining_quantity} {b.unit}
+                              </span>
+                            ) : (
+                              <span className="text-emerald-400">
+                                {b.remaining_quantity} {b.unit}
+                              </span>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-[var(--text-secondary)]">
                             {b.expiry_date ? (
@@ -1251,7 +1277,9 @@ export function InventoryTab({
                           <td className="py-3 px-4">
                             <span
                               className={`rounded-full px-2 py-0.5 text-[10px] font-bold ${
-                                b.status === "ACTIVE"
+                                b.status === "OVERSOLD" || Number(b.remaining_quantity) < 0
+                                  ? "bg-rose-500/20 text-rose-400 border border-rose-500/30 font-bold"
+                                  : b.status === "ACTIVE"
                                   ? "bg-emerald-500/10 text-emerald-400"
                                   : b.status === "EXPIRING_SOON"
                                   ? "bg-amber-500/10 text-amber-400"
@@ -1260,7 +1288,7 @@ export function InventoryTab({
                                   : "bg-gray-500/10 text-[var(--text-muted)]"
                               }`}
                             >
-                              {b.status}
+                              {b.status === "OVERSOLD" || Number(b.remaining_quantity) < 0 ? "OVERSOLD" : b.status}
                             </span>
                           </td>
                           <td className="py-3 px-4 text-right">
@@ -1284,11 +1312,15 @@ export function InventoryTab({
                                   setSelectedAdjustBatch(b);
                                   setIsAdjustModalOpen(true);
                                 }}
-                                className="inline-flex items-center gap-1 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2 py-1 text-[11px] font-bold text-emerald-400 hover:bg-emerald-500/20 transition cursor-pointer"
-                                title="Adjust stock, return to supplier (issue bill), or void batch"
+                                className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] font-bold transition cursor-pointer ${
+                                  Number(b.remaining_quantity) < 0
+                                    ? "border-rose-500/40 bg-rose-500/15 text-rose-300 hover:bg-rose-500/25"
+                                    : "border-emerald-500/30 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20"
+                                }`}
+                                title={Number(b.remaining_quantity) < 0 ? "Reconcile oversold deficit stock" : "Adjust stock, return to supplier (issue bill), or void batch"}
                               >
                                 <RotateCcw className="h-3.5 w-3.5" />
-                                Adjust / Return
+                                {Number(b.remaining_quantity) < 0 ? "Reconcile Stock" : "Adjust / Return"}
                               </button>
 
                               {matchedItem && (
@@ -1491,8 +1523,9 @@ export function InventoryTab({
                   <option value="">All Change Types</option>
                   <option value="INTAKE">Stock Intake / Inwarding</option>
                   <option value="AUTO_DEDUCTION">POS Auto-Deduction</option>
+                  <option value="OVERSOLD">POS Oversold Deficit</option>
                   <option value="MANUAL_ADJUSTMENT">Manual / Wastage Adjustment</option>
-                  <option value="RESTOCK">Customer Return Restock</option>
+                  <option value="RESTOCK">Customer Return / Deficit Restock</option>
                   <option value="PURCHASE_RETURN">Supplier Purchase Return</option>
                   <option value="VOID_BATCH">Void / Discarded Batch</option>
                 </select>
@@ -1505,15 +1538,17 @@ export function InventoryTab({
                   <tr>
                     <th className="py-3 px-4">Date & Time</th>
                     <th className="py-3 px-4">Product Name</th>
+                    <th className="py-3 px-4">Batch No.</th>
                     <th className="py-3 px-4">Change Type</th>
                     <th className="py-3 px-4">Quantity Delta</th>
-                    <th className="py-3 px-4">Resulting Stock</th>
+                    <th className="py-3 px-4">Batch Balance</th>
+                    <th className="py-3 px-4">Total Store Stock</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-subtle)]">
                   {ledgerEntries.length === 0 ? (
                     <tr>
-                      <td colSpan={5} className="py-8 text-center text-[var(--text-muted)]">
+                      <td colSpan={7} className="py-8 text-center text-[var(--text-muted)]">
                         No movement ledger entries found.
                       </td>
                     </tr>
@@ -1521,6 +1556,7 @@ export function InventoryTab({
                     ledgerEntries.map((row) => {
                       const deltaNum = parseFloat(row.quantity_change) || 0;
                       const isPositive = deltaNum > 0;
+                      const bBalNum = row.batch_balance != null ? parseFloat(String(row.batch_balance)) : null;
 
                       return (
                         <tr
@@ -1533,15 +1569,26 @@ export function InventoryTab({
                           <td className="py-3 px-4 font-semibold text-[var(--text-primary)]">
                             {row.item_name || "—"}
                           </td>
+                          <td className="py-3 px-4 font-mono text-[11px]">
+                            {row.batch_number ? (
+                              <span className={row.batch_number.includes("-OV-") ? "text-amber-400 font-semibold" : "text-[var(--text-secondary)]"}>
+                                #{row.batch_number}
+                              </span>
+                            ) : (
+                              <span className="text-[var(--text-muted)]">—</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4">
                             <span
                               className={`inline-flex items-center rounded-full px-2 py-0.5 text-[9px] font-bold tracking-wide uppercase ${
-                                String(row.change_type).toUpperCase().includes("INTAKE")
+                                String(row.change_type).toUpperCase().includes("OVERSOLD")
+                                  ? "bg-amber-500/15 text-amber-400 border border-amber-500/30"
+                                  : String(row.change_type).toUpperCase().includes("INTAKE")
                                   ? "bg-emerald-500/10 text-emerald-500"
                                   : String(row.change_type).toUpperCase().includes("RESTOCK")
                                   ? "bg-sky-500/10 text-sky-500"
                                   : String(row.change_type).toUpperCase().includes("DEDUCTION")
-                                  ? "bg-amber-500/10 text-amber-500"
+                                  ? "bg-orange-500/10 text-orange-400"
                                   : String(row.change_type).toUpperCase().includes("PURCHASE_RETURN")
                                   ? "bg-rose-500/10 text-rose-500"
                                   : String(row.change_type).toUpperCase().includes("VOID")
@@ -1551,13 +1598,28 @@ export function InventoryTab({
                                   : "bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border border-[var(--border-strong)]"
                               }`}
                             >
-                              {row.change_type === "MANUAL_ADJUSTMENT" ? "WASTAGE / ADJ." : row.change_type}
+                              {row.change_type === "MANUAL_ADJUSTMENT"
+                                ? "WASTAGE / ADJ."
+                                : row.change_type === "OVERSOLD"
+                                ? "OVERSOLD"
+                                : row.change_type === "RESTOCK"
+                                ? "RESTOCK"
+                                : row.change_type}
                             </span>
                           </td>
                           <td className="py-3 px-4 font-mono font-bold">
                             <span className={isPositive ? "text-emerald-400" : "text-red-400"}>
                               {isPositive ? `+${deltaNum}` : deltaNum} {row.unit || ""}
                             </span>
+                          </td>
+                          <td className="py-3 px-4 font-mono font-bold">
+                            {bBalNum != null ? (
+                              <span className={bBalNum < 0 ? "text-amber-400" : "text-[var(--text-primary)]"}>
+                                {bBalNum} {row.unit || ""}
+                              </span>
+                            ) : (
+                              <span className="text-[var(--text-muted)]">—</span>
+                            )}
                           </td>
                           <td className="py-3 px-4 font-mono font-bold text-[var(--text-secondary)]">
                             {row.resulting_stock} {row.unit || ""}

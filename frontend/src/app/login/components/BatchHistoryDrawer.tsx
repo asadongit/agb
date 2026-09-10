@@ -151,7 +151,7 @@ export function BatchHistoryDrawer({
   return (
     <div className="fixed inset-0 z-50 overflow-hidden bg-black/60 backdrop-blur-xs" onClick={onClose}>
       <div className="absolute inset-y-0 right-0 flex max-w-full pl-6" onClick={(e) => e.stopPropagation()}>
-        <div className="w-screen max-w-4xl border-l border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] shadow-2xl flex flex-col">
+        <div className="w-screen max-w-5xl border-l border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] shadow-2xl flex flex-col">
           {/* Header */}
           <div className="flex items-center justify-between border-b border-[var(--border-subtle)] p-5 bg-[var(--bg-surface)]">
             <div className="flex items-center gap-3">
@@ -182,29 +182,36 @@ export function BatchHistoryDrawer({
           </div>
 
           {/* Quick Summary Bar */}
-          <div className="grid grid-cols-4 gap-3 p-4 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] text-xs">
+          <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 p-4 bg-[var(--bg-surface)] border-b border-[var(--border-subtle)] text-xs">
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
               <p className="text-[11px] text-[var(--text-muted)] font-medium">Total Current Stock</p>
-              <p className="text-sm font-bold text-emerald-500 mt-0.5">
+              <p className={`text-sm font-bold mt-0.5 ${Number(item.current_stock) < 0 ? "text-rose-400 font-mono" : "text-emerald-500"}`}>
                 {Number(item.current_stock).toFixed(2)} {item.unit}
               </p>
             </div>
 
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
               <p className="text-[11px] text-[var(--text-muted)] font-medium">Cost / Unit</p>
-              <p className="text-sm font-bold text-[var(--text-primary)] mt-0.5">
+              <p className="text-sm font-bold text-[var(--text-primary)] font-mono mt-0.5">
                 ₹{Number(item.cost_per_unit).toFixed(2)}
               </p>
             </div>
 
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
-              <p className="text-[11px] text-[var(--text-muted)] font-medium">MRP</p>
-              <p className="text-sm font-bold text-purple-400 mt-0.5">
-                {item.mrp ? `₹${Number(item.mrp).toFixed(2)}` : "—"}
+              <p className="text-[11px] text-[var(--text-muted)] font-medium">Retail Price</p>
+              <p className="text-sm font-bold text-sky-400 font-mono mt-0.5">
+                {item.retail_price ? `₹${Number(item.retail_price).toFixed(2)}` : "—"}
               </p>
             </div>
 
             <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3">
+              <p className="text-[11px] text-[var(--text-muted)] font-medium">MRP</p>
+              <p className="text-sm font-bold text-purple-400 font-mono mt-0.5">
+                {item.mrp ? `₹${Number(item.mrp).toFixed(2)}` : "—"}
+              </p>
+            </div>
+
+            <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 col-span-2 sm:col-span-1">
               <p className="text-[11px] text-[var(--text-muted)] font-medium">Tax Rate</p>
               <p className="text-sm font-bold text-amber-500 mt-0.5">
                 {item.tax_category || "GST 0%"} ({item.tax_rate ? `${item.tax_rate}%` : "0%"})
@@ -287,6 +294,8 @@ export function BatchHistoryDrawer({
                       <th className="px-3 py-2.5 text-right">Sorted Usable Qty</th>
                       <th className="px-3 py-2.5 text-right">Remaining Qty</th>
                       <th className="px-3 py-2.5 text-right">Unit Cost</th>
+                      <th className="px-3 py-2.5 text-right">Retail</th>
+                      <th className="px-3 py-2.5 text-right">MRP</th>
                       <th className="px-3 py-2.5">Expiry Date</th>
                       <th className="px-3 py-2.5 text-center">Status</th>
                       <th className="px-3 py-2.5 text-right">Actions</th>
@@ -334,6 +343,14 @@ export function BatchHistoryDrawer({
 
                         <td className="px-3 py-3 text-right font-mono font-semibold">
                           ₹{Number(b.unit_cost).toFixed(2)}
+                        </td>
+
+                        <td className="px-3 py-3 text-right font-mono font-semibold text-sky-400">
+                          {b.retail_price ? `₹${Number(b.retail_price).toFixed(2)}` : (item.retail_price ? `₹${Number(item.retail_price).toFixed(2)}` : "—")}
+                        </td>
+
+                        <td className="px-3 py-3 text-right font-mono font-medium text-purple-400">
+                          {b.mrp ? `₹${Number(b.mrp).toFixed(2)}` : (item.mrp ? `₹${Number(item.mrp).toFixed(2)}` : "—")}
                         </td>
 
                         <td className="px-3 py-3">

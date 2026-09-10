@@ -37,3 +37,15 @@ export function parseUTCDate(dateStr: string | Date | null | undefined): Date {
   }
   return new Date(str);
 }
+
+/**
+ * Format a Date object as 'YYYY-MM-DD' in local timezone (never UTC).
+ * Prevents the midnight-to-5:30 AM IST rollback caused by .toISOString().split('T')[0].
+ */
+export function formatLocalDate(date: Date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, "0");
+  const day = String(date.getDate()).padStart(2, "0");
+  return `${year}-${month}-${day}`;
+}
+

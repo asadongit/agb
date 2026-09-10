@@ -129,6 +129,7 @@ export function MenuTab({
     pricing_mode: "FIXED_UNIT",
     unit_label: "piece",
     alternate_units: [],
+    allow_oversell: true,
   });
 
   const [modalError, setModalError] = useState<string | null>(null);
@@ -199,6 +200,7 @@ export function MenuTab({
       pricing_mode: "FIXED_UNIT",
       unit_label: "piece",
       alternate_units: [],
+      allow_oversell: true,
     });
     setIsItemModalOpen(true);
   };
@@ -231,6 +233,7 @@ export function MenuTab({
       pricing_mode: item.pricing_mode || "FIXED_UNIT",
       unit_label: item.unit_label || "piece",
       alternate_units: (item.alternate_units as any) || [],
+      allow_oversell: item.allow_oversell ?? true,
     });
     setIsItemModalOpen(true);
   };
@@ -1166,6 +1169,17 @@ export function MenuTab({
                     className="rounded border-[var(--border-strong)]"
                   />
                   <span>Anti-Theft Verified</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={formData.allow_oversell ?? true}
+                    onChange={(e) =>
+                      setFormData({ ...formData, allow_oversell: e.target.checked })
+                    }
+                    className="rounded border-[var(--border-strong)] text-emerald-500"
+                  />
+                  <span title="Allow POS overselling when physical stock is 0">Allow Oversell</span>
                 </label>
               </div>
 
