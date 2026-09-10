@@ -92,6 +92,46 @@ engine = create_async_engine(
 
 from app.core.datetime_utils import strip_tz
 
+# ── Systemic fix: strip timezone from ALL datetime results coming from asyncpg ──
+# asyncpg on some Python versions / PostgreSQL configurations may return
+# timezone-aware datetimes from TIMESTAMP WITH TIME ZONE columns (or even
+# TIMESTAMP WITHOUT TIME ZONE via implicit casts).  Our schema exclusively
+# uses naive-UTC timestamps, so normalise at the connection level to
+# prevent "can't compare offset-naive and offset-aware datetimes" everywhere.
+if parsed_url.startswith("postgresql"):
+    @event.listens_for(engine.sync_engine, "connect")
+    def _register_naive_datetime_codec(dbapi_connection, connection_record):
+        """
+        On each new raw asyncpg connection, register a custom codec that
+        strips tzinfo from timestamptz results.
+        """
+        # dbapi_connection is the asyncpg-adapter wrapper; the real
+        # asyncpg Connection is stored in ._connection.
+        raw_conn = getattr(dbapi_connection, "_connection", None)
+        if raw_conn is None:
+            return
+
+        from datetime import datetime as _dt, timezone as _tz
+
+        def _decode_naive(val):
+            """Convert an aware datetime to naive UTC."""
+            if isinstance(val, _dt) and val.tzinfo is not None:
+                return val.astimezone(_tz.utc).replace(tzinfo=None)
+            return val
+
+        # Override the decoder for 'timestamptz' so results always arrive naive.
+        try:
+            raw_conn.set_type_codec(
+                "timestamptz",
+                encoder=str,
+                decoder=_decode_naive,
+                schema="pg_catalog",
+                format="text",
+            )
+        except Exception:
+            # Silently ignore if the codec registration fails (e.g. SQLite stub)
+            pass
+
 @event.listens_for(engine.sync_engine, "before_cursor_execute", retval=True)
 def _sanitize_params_for_asyncpg(conn, cursor, statement, parameters, context, executemany):
     """

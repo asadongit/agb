@@ -7,6 +7,8 @@ from __future__ import annotations
 import uuid
 from datetime import datetime, timedelta, time
 
+from app.core.datetime_utils import ensure_naive_utc
+
 from sqlalchemy import Float, Integer, String, cast, func, select, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -1956,7 +1958,7 @@ async def get_day_book(
         cust_name = (r.customer_name or "").strip() or "Walk-in"
         cust_phone = (r.customer_phone or "").strip() or None
         entries.append({
-            "ts": r.created_at,
+            "ts": ensure_naive_utc(r.created_at) or start_utc,
             "type": "SALE",
             "ref": r.basket_number or "",
             "desc": f"Bill via {pm}",
@@ -1984,7 +1986,7 @@ async def get_day_book(
         cust_name = (r.customer_name or "").strip() or "Walk-in"
         cust_phone = (r.customer_phone or "").strip() or None
         entries.append({
-            "ts": r.created_at,
+            "ts": ensure_naive_utc(r.created_at) or start_utc,
             "type": "CUSTOMER_RETURN",
             "ref": r.return_number or "",
             "desc": "Customer Refund",
@@ -2032,7 +2034,7 @@ async def get_day_book(
         staff_name = (r.user_name or "").strip() or (r.user_email or "").strip() or "Staff Member"
         staff_phone = (r.user_phone or "").strip() or None
         entries.append({
-            "ts": r.created_at,
+            "ts": ensure_naive_utc(r.created_at) or start_utc,
             "type": "CASH_DEPOSIT" if is_dep else "CASH_WITHDRAWAL",
             "ref": "-",
             "desc": r.notes or ttype,
@@ -2070,7 +2072,7 @@ async def get_day_book(
         
         entry_time = start_utc
         if hasattr(r.intake_date, "hour"):
-            entry_time = r.intake_date
+            entry_time = ensure_naive_utc(r.intake_date) or start_utc
         else:
             entry_time = datetime.combine(r.intake_date, datetime.min.time())
             
@@ -2088,7 +2090,7 @@ async def get_day_book(
             "entity_type": "SUPPLIER",
         })
         
-    entries.sort(key=lambda x: x["ts"])
+    entries.sort(key=lambda x: ensure_naive_utc(x["ts"]) or datetime.min)
     
     day_entries = []
     bal = opening_cash
