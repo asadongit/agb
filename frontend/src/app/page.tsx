@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useAdminAuth } from "./login/hooks/useAdminAuth";
 import { useAdminTheme } from "./login/hooks/useAdminTheme";
 import { useOrdersManagement } from "./login/hooks/useOrdersManagement";
@@ -148,7 +148,10 @@ export default function AdminDashboardPage() {
     if (!accessToken) return;
     try {
       const data = await apiRequest<RestaurantProfile>("/api/admin/outlets/me");
-      setRestaurant(data);
+      setRestaurant((prev) => {
+        if (prev && JSON.stringify(prev) === JSON.stringify(data)) return prev;
+        return data;
+      });
       if (typeof window !== "undefined") {
         window.localStorage.setItem(RESTAURANT_DATA_KEY, JSON.stringify(data));
       }
@@ -195,24 +198,49 @@ export default function AdminDashboardPage() {
   });
 
   const canManageInventory = isAdminRole && (!staffState.staffPermissions || staffState.staffPermissions.can_manage_inventory);
+  const handleItemOnboarded = useCallback(
+    (_item: any, hadSellingPrice: boolean) => {
+      if (hadSellingPrice) {
+        menuState.loadCategoriesAndMenuItems();
+      }
+    },
+    [menuState.loadCategoriesAndMenuItems]
+  );
+
   const inventoryState = useInventoryManagement(
     apiRequest,
     playBeep,
     canManageInventory,
-    (_item, hadSellingPrice) => {
-      if (hadSellingPrice) {
-        menuState.loadCategoriesAndMenuItems();
-      }
-    }
+    handleItemOnboarded
   );
 
+  // Debounce catalog & inventory refreshes to coalesce rapid events (e.g. bulk updates, WebSocket bursts)
+  const refreshTimerRef = useRef<NodeJS.Timeout | null>(null);
   const refreshCatalogAndInventory = useCallback(() => {
-    void menuState.loadCategoriesAndMenuItems();
-    if (canManageInventory) {
-      void inventoryState.fetchItems();
-      void inventoryState.fetchBatches();
+    if (refreshTimerRef.current) {
+      clearTimeout(refreshTimerRef.current);
     }
-  }, [menuState.loadCategoriesAndMenuItems, canManageInventory, inventoryState.fetchItems, inventoryState.fetchBatches]);
+    refreshTimerRef.current = setTimeout(() => {
+      void menuState.loadCategoriesAndMenuItems();
+      if (canManageInventory) {
+        void inventoryState.fetchItems();
+        void inventoryState.fetchBatches();
+      }
+    }, 600);
+  }, [
+    menuState.loadCategoriesAndMenuItems,
+    canManageInventory,
+    inventoryState.fetchItems,
+    inventoryState.fetchBatches,
+  ]);
+
+  useEffect(() => {
+    return () => {
+      if (refreshTimerRef.current) {
+        clearTimeout(refreshTimerRef.current);
+      }
+    };
+  }, []);
 
   const ordersState = useOrdersManagement({
     accessToken,
@@ -454,11 +482,7 @@ export default function AdminDashboardPage() {
             billingSearchQuery={billingState.billingSearchQuery}
             setBillingSearchQuery={billingState.setBillingSearchQuery}
             onOpenCreateBill={() => {
-              void menuState.loadCategoriesAndMenuItems();
-              if (canManageInventory) {
-                void inventoryState.fetchItems();
-                void inventoryState.fetchBatches();
-              }
+              refreshCatalogAndInventory();
               billingState.setCreateBillModalOpen(true);
             }}
             onResumeDraft={billingState.handleResumeDraft}
@@ -466,13 +490,7 @@ export default function AdminDashboardPage() {
             onOpenPaymentModal={billingState.openPaymentModal}
             onEditCompletedBill={billingState.handleEditCompletedBill}
             onDeleteBill={billingState.handleDeleteBill}
-            onBillSettled={() => {
-              void menuState.loadCategoriesAndMenuItems();
-              if (canManageInventory) {
-                void inventoryState.fetchItems();
-                void inventoryState.fetchBatches();
-              }
-            }}
+            onBillSettled={refreshCatalogAndInventory}
           />
         )}
 

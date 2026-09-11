@@ -50,9 +50,26 @@ export function useOrdersManagement({
     }
   }, [accessToken, fetchOrders]);
 
+  const loadDashboardRef = useRef(loadDashboard);
+  useEffect(() => {
+    loadDashboardRef.current = loadDashboard;
+  }, [loadDashboard]);
+
+  const onCatalogUpdatedRef = useRef(onCatalogUpdated);
+  useEffect(() => {
+    onCatalogUpdatedRef.current = onCatalogUpdated;
+  }, [onCatalogUpdated]);
+
+  const fetchOrdersRef = useRef(fetchOrders);
+  useEffect(() => {
+    fetchOrdersRef.current = fetchOrders;
+  }, [fetchOrders]);
+
+  const restaurantId = restaurant?.id;
+
   // WebSocket Live Feed
   const connectWebSocket = useCallback(async () => {
-    if (!accessToken || !restaurant) return;
+    if (!accessToken || !restaurantId) return;
     setWsStatus("connecting");
 
     try {
@@ -88,7 +105,7 @@ export function useOrdersManagement({
       }
 
       const ws = new WebSocket(
-        `${wsBaseUrl}/ws/mart/${restaurant.id}?ticket=${ticket}`
+        `${wsBaseUrl}/ws/mart/${restaurantId}?ticket=${ticket}`
       );
       wsRef.current = ws;
 
@@ -112,8 +129,10 @@ export function useOrdersManagement({
         if (event.data === "pong") return;
         try {
           const message = JSON.parse(event.data);
-          void fetchOrders();
-          void loadDashboard();
+          void fetchOrdersRef.current();
+          if (message.event === "OUTLET_UPDATED") {
+            void loadDashboardRef.current();
+          }
           if (message.event === "ORDER_STATUS_CHANGED" && message.data) {
             setOrders((current) =>
               current.map((order) =>
@@ -124,7 +143,7 @@ export function useOrdersManagement({
             );
           }
           if (message.event === "CATALOG_UPDATED") {
-            onCatalogUpdated?.();
+            onCatalogUpdatedRef.current?.();
           }
         } catch {
           // Ignore
@@ -151,10 +170,10 @@ export function useOrdersManagement({
     } catch {
       setWsStatus("disconnected");
     }
-  }, [accessToken, restaurant, loadDashboard, fetchOrders]);
+  }, [accessToken, restaurantId]);
 
   useEffect(() => {
-    if (restaurant && accessToken) {
+    if (restaurantId && accessToken) {
       void connectWebSocket();
     }
     return () => {
@@ -162,7 +181,7 @@ export function useOrdersManagement({
       if (wsPingRef.current) clearInterval(wsPingRef.current);
       if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current);
     };
-  }, [restaurant, accessToken, connectWebSocket]);
+  }, [restaurantId, accessToken, connectWebSocket]);
 
   // Orders Actions
   const onUpdateOrderStatus = async (orderId: string, nextStatus: OrderStatus) => {
