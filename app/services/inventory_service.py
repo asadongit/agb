@@ -206,7 +206,7 @@ async def process_order_auto_deduction(
 
                 inv_item.current_stock = inv_item.current_stock - deduct_qty
 
-                # FEFO batch stock drawdown by earliest expiry date
+                # FIFO batch stock drawdown by oldest intake date
                 batches_res = await db.execute(
                     select(StockIntake)
                     .where(
@@ -215,8 +215,8 @@ async def process_order_auto_deduction(
                         StockIntake.remaining_quantity > Decimal("0.000"),
                     )
                     .order_by(
-                        StockIntake.expiry_date.asc().nulls_last(),
                         StockIntake.intake_date.asc(),
+                        StockIntake.created_at.asc(),
                     )
                 )
                 batches = batches_res.scalars().all()
@@ -330,6 +330,9 @@ async def process_order_auto_deduction(
 
             if not target_inv_item:
                 continue
+
+            if not menu_item_obj.inventory_item_id:
+                menu_item_obj.inventory_item_id = target_inv_item.id
 
             unit_multiplier = get_unit_conversion_multiplier(
                 selected_unit=getattr(item, "selected_unit", None),
@@ -509,7 +512,7 @@ async def process_order_auto_deduction(
                     await sync_item_prices_from_oldest_batch(db, target_inv_item.id, order.outlet_id)
                     continue
 
-            # FEFO batch stock drawdown by earliest expiry date
+            # FIFO batch stock drawdown by oldest intake date
             batches_res = await db.execute(
                 select(StockIntake)
                 .where(
@@ -518,8 +521,8 @@ async def process_order_auto_deduction(
                     StockIntake.remaining_quantity > Decimal("0.000"),
                 )
                 .order_by(
-                    StockIntake.expiry_date.asc().nulls_last(),
                     StockIntake.intake_date.asc(),
+                    StockIntake.created_at.asc(),
                 )
             )
             batches = batches_res.scalars().all()
@@ -933,7 +936,6 @@ async def sync_item_prices_from_oldest_batch(
             StockIntake.remaining_quantity > Decimal("0.000"),
         )
         .order_by(
-            StockIntake.expiry_date.asc().nulls_last(),
             StockIntake.intake_date.asc(),
             StockIntake.created_at.asc(),
         )

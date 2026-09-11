@@ -119,6 +119,12 @@ class CustomerReturnResponse(BaseResponse):
     net_balance: float
     refund_payment_method: str
     processed_at: str
+    credit_applied: float = 0.0
+    debit_applied: float = 0.0
+    debt_settled: float = 0.0
+    credit_awarded: float = 0.0
+    credit_cashed_out: float = 0.0
+    customer_balance: float | None = None
 
 
 class BillItemResponse(StrictSchema):

@@ -1255,6 +1255,127 @@ async def process_customer_return(
     net_balance = float(total_return_amount)
     return_num = f"RET-{uuid.uuid4().hex[:6].upper()}"
 
+    # Process Customer Wallet (Store Credit/Debt) & Loyalty Points deduction
+    customer = None
+    if customer_phone:
+        from app.models.customer import Customer
+        from app.models.customer_ledger import CustomerLedger
+        
+        cust_res = await db.execute(
+            select(Customer).where(
+                Customer.outlet_id == outlet_id,
+                Customer.phone == customer_phone
+            )
+        )
+        customer = cust_res.scalar_one_or_none()
+        if not customer and (data.apply_credit > 0 or data.record_debit > 0 or data.record_credit > 0 or data.debt_settled > 0 or data.credit_cashed_out > 0 or data.refund_payment_method == "STORE_CREDIT"):
+            customer = Customer(
+                outlet_id=outlet_id,
+                phone=customer_phone,
+                name=customer_name or "Customer",
+                credit_balance=Decimal("0.00"),
+                loyalty_points=0,
+            )
+            db.add(customer)
+            await db.flush()
+        
+        if customer:
+            # 1. Loyalty Points Deduction for Return Value
+            res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+            outlet = res_rest.scalar_one_or_none()
+            if outlet and getattr(outlet, "loyalty_points_per_rupee", 0) > 0 and total_return_amount > 0:
+                points_to_deduct = int(float(total_return_amount) * float(outlet.loyalty_points_per_rupee))
+                if points_to_deduct > 0:
+                    customer.loyalty_points = max(0, (customer.loyalty_points or 0) - points_to_deduct)
+
+            # Auto-handling when STORE_CREDIT method is selected
+            if data.refund_payment_method == "STORE_CREDIT" and data.record_credit == 0 and data.debt_settled == 0:
+                net_refund_val = total_return_amount
+                if customer.credit_balance < 0:
+                    cur_debt = abs(customer.credit_balance)
+                    if net_refund_val <= cur_debt:
+                        data.debt_settled = net_refund_val
+                    else:
+                        data.debt_settled = cur_debt
+                        data.record_credit = net_refund_val - cur_debt
+                else:
+                    data.record_credit = net_refund_val
+
+            # 2. Process Ledger Operations
+            ledger_entries = []
+            
+            if data.apply_credit > 0:
+                customer.credit_balance -= data.apply_credit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        order_id=order.id if order else None,
+                        created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+                        entry_type="CREDIT_APPLIED",
+                        amount=data.apply_credit,
+                        balance_after=customer.credit_balance,
+                        note=f"Store credit applied to return/exchange {return_num}"
+                    )
+                )
+            if data.credit_cashed_out > 0:
+                customer.credit_balance -= data.credit_cashed_out
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        order_id=order.id if order else None,
+                        created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+                        entry_type="CREDIT_USED",
+                        amount=data.credit_cashed_out,
+                        balance_after=customer.credit_balance,
+                        note=f"Store credit cashed out during return {return_num}"
+                    )
+                )
+            if data.debt_settled > 0:
+                customer.credit_balance += data.debt_settled
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        order_id=order.id if order else None,
+                        created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+                        entry_type="DEBIT_SETTLED",
+                        amount=data.debt_settled,
+                        balance_after=customer.credit_balance,
+                        note=f"Debt settled during return/exchange {return_num}"
+                    )
+                )
+            if data.record_credit > 0:
+                customer.credit_balance += data.record_credit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        order_id=order.id if order else None,
+                        created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+                        entry_type="CREDIT_ADDED",
+                        amount=data.record_credit,
+                        balance_after=customer.credit_balance,
+                        note=f"Store credit added for return {return_num}"
+                    )
+                )
+            if data.record_debit > 0:
+                customer.credit_balance -= data.record_debit
+                ledger_entries.append(
+                    CustomerLedger(
+                        outlet_id=outlet_id,
+                        customer_id=customer.id,
+                        order_id=order.id if order else None,
+                        created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+                        entry_type="DEBIT_ADDED",
+                        amount=data.record_debit,
+                        balance_after=customer.credit_balance,
+                        note=f"Shortfall / extra change recorded as Debt {return_num}"
+                    )
+                )
+            db.add_all(ledger_entries)
+
     # Save to CustomerReturn table
     customer_return_rec = CustomerReturn(
         return_number=return_num,
@@ -1266,6 +1387,12 @@ async def process_customer_return(
         total_refund_amount=total_return_amount,
         refund_payment_method=data.refund_payment_method or "CASH",
         notes=data.notes,
+        credit_applied=data.apply_credit,
+        debit_applied=data.record_debit,
+        debt_settled=data.debt_settled,
+        credit_awarded=data.record_credit,
+        credit_cashed_out=data.credit_cashed_out,
+        customer_balance=customer.credit_balance if customer else None,
     )
     db.add(customer_return_rec)
     
@@ -1299,93 +1426,6 @@ async def process_customer_return(
                 created_by=_get_user_id(staff_user)
             )
             db.add(refund_tx)
-
-    # Process Customer Wallet (Store Credit/Debt) & Loyalty Points deduction
-    if customer_phone:
-        from app.models.customer import Customer
-        from app.models.customer_ledger import CustomerLedger
-        
-        cust_res = await db.execute(
-            select(Customer).where(
-                Customer.outlet_id == outlet_id,
-                Customer.phone == customer_phone
-            )
-        )
-        customer = cust_res.scalar_one_or_none()
-        
-        if customer:
-            # 1. Loyalty Points Deduction for Return Value
-            res_rest = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
-            outlet = res_rest.scalar_one_or_none()
-            if outlet and getattr(outlet, "loyalty_points_per_rupee", 0) > 0 and total_return_amount > 0:
-                points_to_deduct = int(float(total_return_amount) * float(outlet.loyalty_points_per_rupee))
-                if points_to_deduct > 0:
-                    customer.loyalty_points = max(0, (customer.loyalty_points or 0) - points_to_deduct)
-
-            # 2. Process Ledger Operations
-            ledger_entries = []
-            
-            if data.apply_credit > 0:
-                customer.credit_balance -= data.apply_credit
-                ledger_entries.append(
-                    CustomerLedger(
-                        outlet_id=outlet_id,
-                        customer_id=customer.id,
-                        entry_type="CREDIT_APPLIED",
-                        amount=-data.apply_credit,
-                        balance_after=customer.credit_balance,
-                        note=f"Store credit applied to return/exchange {return_num}"
-                    )
-                )
-            if data.credit_cashed_out > 0:
-                customer.credit_balance -= data.credit_cashed_out
-                ledger_entries.append(
-                    CustomerLedger(
-                        outlet_id=outlet_id,
-                        customer_id=customer.id,
-                        entry_type="CREDIT_APPLIED",
-                        amount=-data.credit_cashed_out,
-                        balance_after=customer.credit_balance,
-                        note=f"Store credit cashed out during return {return_num}"
-                    )
-                )
-            if data.debt_settled > 0:
-                customer.credit_balance += data.debt_settled
-                ledger_entries.append(
-                    CustomerLedger(
-                        outlet_id=outlet_id,
-                        customer_id=customer.id,
-                        entry_type="DEBIT_APPLIED",
-                        amount=data.debt_settled,
-                        balance_after=customer.credit_balance,
-                        note=f"Excess cash applied to settle debt during return {return_num}"
-                    )
-                )
-            if data.record_credit > 0:
-                customer.credit_balance += data.record_credit
-                ledger_entries.append(
-                    CustomerLedger(
-                        outlet_id=outlet_id,
-                        customer_id=customer.id,
-                        entry_type="CREDIT_ADDED",
-                        amount=data.record_credit,
-                        balance_after=customer.credit_balance,
-                        note=f"Refund shortfall converted to Store Credit {return_num}"
-                    )
-                )
-            if data.record_debit > 0:
-                customer.credit_balance -= data.record_debit
-                ledger_entries.append(
-                    CustomerLedger(
-                        outlet_id=outlet_id,
-                        customer_id=customer.id,
-                        entry_type="DEBIT_ADDED",
-                        amount=-data.record_debit,
-                        balance_after=customer.credit_balance,
-                        note=f"Extra refund given / payment shortfall recorded as Debt {return_num}"
-                    )
-                )
-            db.add_all(ledger_entries)
     
     # OUTBOX: Queue action for cloud sync if local
     append_to_outbox(
@@ -1424,6 +1464,7 @@ async def process_customer_return(
         "debt_settled": float(data.debt_settled or 0),
         "credit_awarded": float(data.record_credit or 0),
         "debit_applied": float(data.record_debit or 0),
+        "customer_balance": float(customer.credit_balance) if customer else None,
         "wallet_balance_after": float(customer.credit_balance) if customer else None,
     }
 
@@ -1453,6 +1494,12 @@ async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[
             "refund_payment_method": ret.refund_payment_method,
             "notes": ret.notes,
             "created_at": ret.created_at.isoformat() if ret.created_at else datetime.now(timezone.utc).isoformat(),
+            "credit_applied": float(getattr(ret, "credit_applied", 0) or 0),
+            "debit_applied": float(getattr(ret, "debit_applied", 0) or 0),
+            "debt_settled": float(getattr(ret, "debt_settled", 0) or 0),
+            "credit_awarded": float(getattr(ret, "credit_awarded", 0) or 0),
+            "credit_cashed_out": float(getattr(ret, "credit_cashed_out", 0) or 0),
+            "customer_balance": float(ret.customer_balance) if getattr(ret, "customer_balance", None) is not None else None,
         })
     return out
 

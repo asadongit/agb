@@ -1,5 +1,4 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { getApiBaseUrl } from "@/lib/api";
 import type { OrderStatus } from "@/types";
 import type { AdminOrder, RestaurantProfile } from "../adminTypes";
 
@@ -66,28 +65,55 @@ export function useOrdersManagement({
   }, [fetchOrders]);
 
   const restaurantId = restaurant?.id;
+  const reconnectAttemptsRef = useRef(0);
+  const lastPongRef = useRef(Date.now());
+
+  const scheduleReconnect = useCallback((forcedDelay?: number) => {
+    if (wsReconnectRef.current) {
+      clearTimeout(wsReconnectRef.current);
+    }
+    const baseDelay = 2000;
+    const maxDelay = 30000;
+    const attempts = reconnectAttemptsRef.current;
+    const delay = forcedDelay ?? Math.min(baseDelay * Math.pow(1.5, attempts), maxDelay);
+    reconnectAttemptsRef.current += 1;
+
+    wsReconnectRef.current = setTimeout(() => {
+      void connectWebSocket();
+    }, delay);
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // WebSocket Live Feed
   const connectWebSocket = useCallback(async () => {
     if (!accessToken || !restaurantId) return;
+
+    // Do not reconnect if already open
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      setWsStatus("connected");
+      return;
+    }
+
+    // Clean up any existing socket cleanly before reconnecting
+    if (wsRef.current) {
+      wsRef.current.onclose = null;
+      wsRef.current.onerror = null;
+      wsRef.current.close();
+      wsRef.current = null;
+    }
+
     setWsStatus("connecting");
 
     try {
-      const apiBase = getApiBaseUrl();
-      const ticketRes = await fetch(`${apiBase}/api/ws-ticket`, {
+      // Use apiRequest to leverage automatic token refresh if accessToken expired
+      const { ticket } = await apiRequest<{ ticket: string }>("/api/ws-ticket", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${accessToken}`,
-        },
       });
 
-      if (!ticketRes.ok) {
+      if (!ticket) {
         setWsStatus("disconnected");
+        scheduleReconnect();
         return;
       }
-
-      const { ticket } = await ticketRes.json();
 
       let wsBaseUrl = "";
       if (process.env.NEXT_PUBLIC_API_URL) {
@@ -112,21 +138,35 @@ export function useOrdersManagement({
       const connectTimeout = setTimeout(() => {
         if (ws.readyState !== WebSocket.OPEN) {
           setWsStatus("disconnected");
+          ws.close();
         }
-      }, 6000);
+      }, 8000);
 
       ws.onopen = () => {
         clearTimeout(connectTimeout);
         setWsStatus("connected");
+        reconnectAttemptsRef.current = 0; // Reset backoff counter on success
+        lastPongRef.current = Date.now();
+
+        if (wsPingRef.current) clearInterval(wsPingRef.current);
         wsPingRef.current = setInterval(() => {
           if (ws.readyState === WebSocket.OPEN) {
+            // Heartbeat watchdog: if no pong received for over 40 seconds, drop and reconnect
+            if (Date.now() - lastPongRef.current > 40000) {
+              ws.close();
+              return;
+            }
             ws.send("ping");
           }
         }, 20000);
       };
 
       ws.onmessage = (event) => {
-        if (event.data === "pong") return;
+        if (event.data === "pong") {
+          lastPongRef.current = Date.now();
+          return;
+        }
+        lastPongRef.current = Date.now();
         try {
           const message = JSON.parse(event.data);
           void fetchOrdersRef.current();
@@ -157,9 +197,7 @@ export function useOrdersManagement({
           clearInterval(wsPingRef.current);
           wsPingRef.current = null;
         }
-        wsReconnectRef.current = setTimeout(() => {
-          void connectWebSocket();
-        }, 5000);
+        scheduleReconnect();
       };
 
       ws.onerror = () => {
@@ -169,19 +207,55 @@ export function useOrdersManagement({
       };
     } catch {
       setWsStatus("disconnected");
+      scheduleReconnect();
     }
-  }, [accessToken, restaurantId]);
+  }, [accessToken, restaurantId, apiRequest, scheduleReconnect]);
 
   useEffect(() => {
     if (restaurantId && accessToken) {
       void connectWebSocket();
     }
     return () => {
-      if (wsRef.current) wsRef.current.close();
-      if (wsPingRef.current) clearInterval(wsPingRef.current);
-      if (wsReconnectRef.current) clearTimeout(wsReconnectRef.current);
+      if (wsReconnectRef.current) {
+        clearTimeout(wsReconnectRef.current);
+        wsReconnectRef.current = null;
+      }
+      if (wsPingRef.current) {
+        clearInterval(wsPingRef.current);
+        wsPingRef.current = null;
+      }
+      if (wsRef.current) {
+        wsRef.current.onclose = null;
+        wsRef.current.onerror = null;
+        wsRef.current.close();
+        wsRef.current = null;
+      }
     };
   }, [restaurantId, accessToken, connectWebSocket]);
+
+  // Instant auto-recovery on tab visibility return or network reconnect
+  useEffect(() => {
+    const handleVisibilityOrOnline = () => {
+      if (document.visibilityState === "visible" && (typeof navigator === "undefined" || navigator.onLine)) {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          if (wsReconnectRef.current) {
+            clearTimeout(wsReconnectRef.current);
+            wsReconnectRef.current = null;
+          }
+          reconnectAttemptsRef.current = 0; // Immediate fresh attempt
+          void connectWebSocket();
+        }
+      }
+    };
+
+    document.addEventListener("visibilitychange", handleVisibilityOrOnline);
+    window.addEventListener("online", handleVisibilityOrOnline);
+
+    return () => {
+      document.removeEventListener("visibilitychange", handleVisibilityOrOnline);
+      window.removeEventListener("online", handleVisibilityOrOnline);
+    };
+  }, [connectWebSocket]);
 
   // Orders Actions
   const onUpdateOrderStatus = async (orderId: string, nextStatus: OrderStatus) => {

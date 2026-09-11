@@ -38,6 +38,12 @@ function formatEntryBadge(type: string) {
         classes: "bg-amber-500/10 text-amber-400 border border-amber-500/20",
         isNegative: true,
       };
+    case "CREDIT_CASHED_OUT":
+      return {
+        label: "Credit Cashed Out",
+        classes: "bg-purple-500/10 text-purple-400 border border-purple-500/20",
+        isNegative: true,
+      };
     default:
       return {
         label: type.replace(/_/g, " "),
@@ -55,7 +61,7 @@ export function CreditDebitReport({ data, isLoading }: CreditDebitReportProps) {
 
   // Transactions ledger filter & search state
   const [txSearchQuery, setTxSearchQuery] = useState("");
-  const [txTypeFilter, setTxTypeFilter] = useState<"ALL" | "DEBIT_ADDED" | "DEBIT_SETTLED" | "CREDIT_ADDED" | "CREDIT_USED">("ALL");
+  const [txTypeFilter, setTxTypeFilter] = useState<"ALL" | "DEBIT_ADDED" | "DEBIT_SETTLED" | "CREDIT_ADDED" | "CREDIT_USED" | "CREDIT_CASHED_OUT">("ALL");
 
   if (isLoading) {
     return <div className="p-4 text-[var(--text-secondary)]">Loading credit / debit data...</div>;
@@ -91,6 +97,7 @@ export function CreditDebitReport({ data, isLoading }: CreditDebitReportProps) {
     if (txTypeFilter === "DEBIT_SETTLED" && tx.entry_type !== "DEBIT_SETTLED") return false;
     if (txTypeFilter === "CREDIT_ADDED" && tx.entry_type !== "CREDIT_ADDED") return false;
     if (txTypeFilter === "CREDIT_USED" && !["CREDIT_APPLIED", "CREDIT_USED"].includes(tx.entry_type)) return false;
+    if (txTypeFilter === "CREDIT_CASHED_OUT" && tx.entry_type !== "CREDIT_CASHED_OUT") return false;
 
     if (txSearchQuery.trim()) {
       const q = txSearchQuery.toLowerCase();
@@ -307,6 +314,7 @@ export function CreditDebitReport({ data, isLoading }: CreditDebitReportProps) {
               { id: "DEBIT_SETTLED", label: "Debt Settled" },
               { id: "CREDIT_ADDED", label: "Store Credit Added" },
               { id: "CREDIT_USED", label: "Credit Used" },
+              { id: "CREDIT_CASHED_OUT", label: "Credit Cashed Out" },
             ].map((f) => (
               <button
                 key={f.id}

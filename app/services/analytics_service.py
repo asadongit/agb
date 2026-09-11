@@ -9,7 +9,7 @@ from datetime import datetime, timedelta, time
 
 from app.core.datetime_utils import ensure_naive_utc
 
-from sqlalchemy import Float, Integer, String, cast, func, select, text, case
+from sqlalchemy import Float, Integer, String, cast, func, select, text, case, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
@@ -671,65 +671,246 @@ async def get_item_sales(
     limit: int,
     category_id: str | None = None,
 ) -> ItemSalesResponse:
-    stmt = (
-        select(
-            OrderItem.menu_item_id,
-            OrderItem.item_name,
-            Category.name.label("category_name"),
-            func.sum(OrderItem.quantity).label("quantity_sold"),
-            func.sum(OrderItem.line_total).label("revenue"),
-            InventoryItem.cost_per_unit,
-        )
-        .select_from(OrderItem)
-        .join(Order, OrderItem.order_id == Order.id)
-        .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
-        .outerjoin(Category, MenuItem.category_id == Category.id)
-        .outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id)
+    from_dt_naive = ensure_naive_utc(from_dt)
+    to_dt_naive = ensure_naive_utc(to_dt)
+
+    # 1. Settled Orders in target timeframe
+    settled_orders = (
+        select(Order.id)
         .where(
             Order.outlet_id == outlet_id,
-            Order.created_at >= from_dt,
-            Order.created_at <= to_dt,
+            Order.created_at >= from_dt_naive,
+            Order.created_at <= to_dt_naive,
             Order.status.in_(SETTLED_STATUSES),
         )
-        .group_by(OrderItem.menu_item_id, OrderItem.item_name, Category.name, InventoryItem.cost_per_unit)
+        .subquery("settled_orders")
+    )
+
+    # 2. Clean item name expression (stripping oversold backorder tag)
+    clean_item_name = func.trim(
+        func.replace(OrderItem.item_name, " [Oversold Backorder]", "")
+    )
+
+    # 3. Match inventory item fallback
+    inv_by_barcode = (
+        select(InventoryItem.id)
+        .where(
+            InventoryItem.outlet_id == outlet_id,
+            MenuItem.barcode != None,
+            MenuItem.barcode != "",
+            InventoryItem.barcode == MenuItem.barcode,
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    inv_by_menu_name = (
+        select(InventoryItem.id)
+        .where(
+            InventoryItem.outlet_id == outlet_id,
+            func.lower(func.trim(InventoryItem.name)) == func.lower(func.trim(MenuItem.name)),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+    inv_by_clean_name = (
+        select(InventoryItem.id)
+        .where(
+            InventoryItem.outlet_id == outlet_id,
+            func.lower(func.trim(InventoryItem.name)) == func.lower(clean_item_name),
+        )
+        .limit(1)
+        .scalar_subquery()
+    )
+
+    effective_inv_id = func.coalesce(
+        MenuItem.inventory_item_id,
+        inv_by_barcode,
+        inv_by_menu_name,
+        inv_by_clean_name,
+    )
+
+    # 4. Raw order items with effective_inv_id
+    raw_items_stmt = (
+        select(
+            OrderItem.id.label("order_item_id"),
+            OrderItem.order_id.label("order_id"),
+            OrderItem.menu_item_id.label("menu_item_id"),
+            clean_item_name.label("clean_name"),
+            OrderItem.quantity.label("quantity"),
+            OrderItem.line_total.label("line_total"),
+            MenuItem.category_id.label("category_id"),
+            effective_inv_id.label("effective_inv_id"),
+        )
+        .select_from(OrderItem)
+        .join(settled_orders, OrderItem.order_id == settled_orders.c.id)
+        .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
     )
 
     if category_id:
-        stmt = stmt.where(MenuItem.category_id == uuid.UUID(category_id))
+        raw_items_stmt = raw_items_stmt.where(MenuItem.category_id == uuid.UUID(category_id))
 
-    if sort_by.lower() == "revenue":
-        stmt = stmt.order_by(func.sum(OrderItem.line_total).desc())
+    raw_items = raw_items_stmt.subquery("raw_items")
+
+    # 5. Total quantity per (order_id, effective_inv_id) for proportional distribution
+    order_inv_totals = (
+        select(
+            raw_items.c.order_id,
+            raw_items.c.effective_inv_id,
+            func.sum(raw_items.c.quantity).label("total_order_inv_qty"),
+        )
+        .where(raw_items.c.effective_inv_id != None)
+        .group_by(raw_items.c.order_id, raw_items.c.effective_inv_id)
+        .subquery("order_inv_totals")
+    )
+
+    # 6. Total ledger COGS per (order_id, item_id)
+    order_ledger_totals = (
+        select(
+            StockLedger.reference_order_id.label("order_id"),
+            StockLedger.item_id.label("effective_inv_id"),
+            func.sum(
+                func.abs(StockLedger.quantity_change) * func.coalesce(StockLedger.unit_cost_snapshot, 0.0)
+            ).label("order_ledger_cogs"),
+        )
+        .join(settled_orders, StockLedger.reference_order_id == settled_orders.c.id)
+        .where(
+            StockLedger.outlet_id == outlet_id,
+            StockLedger.change_type.in_([StockChangeTypeEnum.AUTO_DEDUCTION, StockChangeTypeEnum.OVERSOLD]),
+        )
+        .group_by(StockLedger.reference_order_id, StockLedger.item_id)
+        .subquery("order_ledger_totals")
+    )
+
+    # 7. Fallback item cost from InventoryItem or oldest batch
+    fallback_cost = func.coalesce(
+        select(InventoryItem.cost_per_unit)
+        .where(InventoryItem.id == raw_items.c.effective_inv_id)
+        .limit(1)
+        .scalar_subquery(),
+        select(StockIntake.unit_cost)
+        .where(
+            StockIntake.item_id == raw_items.c.effective_inv_id,
+            StockIntake.remaining_quantity > 0,
+        )
+        .order_by(StockIntake.intake_date.asc(), StockIntake.created_at.asc())
+        .limit(1)
+        .scalar_subquery(),
+        0.0
+    )
+
+    # 8. Line COGS with float ratio
+    line_cogs = (
+        select(
+            raw_items.c.order_item_id,
+            raw_items.c.menu_item_id,
+            raw_items.c.clean_name,
+            raw_items.c.category_id,
+            raw_items.c.quantity,
+            raw_items.c.line_total,
+            raw_items.c.effective_inv_id,
+            case(
+                (
+                    and_(
+                        order_ledger_totals.c.order_ledger_cogs != None,
+                        order_inv_totals.c.total_order_inv_qty > 0
+                    ),
+                    order_ledger_totals.c.order_ledger_cogs * (
+                        cast(raw_items.c.quantity, Float) / order_inv_totals.c.total_order_inv_qty
+                    )
+                ),
+                else_=cast(raw_items.c.quantity, Float) * fallback_cost
+            ).label("computed_cogs"),
+            fallback_cost.label("fallback_unit_cost"),
+        )
+        .select_from(raw_items)
+        .outerjoin(
+            order_inv_totals,
+            and_(
+                raw_items.c.order_id == order_inv_totals.c.order_id,
+                raw_items.c.effective_inv_id == order_inv_totals.c.effective_inv_id,
+            )
+        )
+        .outerjoin(
+            order_ledger_totals,
+            and_(
+                raw_items.c.order_id == order_ledger_totals.c.order_id,
+                raw_items.c.effective_inv_id == order_ledger_totals.c.effective_inv_id,
+            )
+        )
+        .subquery("line_cogs")
+    )
+
+    # 9. Grouped Item Sales
+    total_rev_expr = func.sum(line_cogs.c.line_total)
+    total_cogs_expr = func.sum(line_cogs.c.computed_cogs)
+    total_qty_expr = func.sum(line_cogs.c.quantity)
+    profit_expr = total_rev_expr - total_cogs_expr
+
+    stmt = (
+        select(
+            func.max(line_cogs.c.menu_item_id).label("menu_item_id"),
+            line_cogs.c.clean_name.label("item_name"),
+            Category.name.label("category_name"),
+            total_qty_expr.label("quantity_sold"),
+            total_rev_expr.label("revenue"),
+            total_cogs_expr.label("total_cogs"),
+            case(
+                (total_qty_expr > 0, total_cogs_expr / total_qty_expr),
+                else_=func.avg(line_cogs.c.fallback_unit_cost)
+            ).label("cost_per_unit"),
+            profit_expr.label("estimated_profit"),
+            case(
+                (total_rev_expr > 0, (profit_expr / total_rev_expr) * 100.0),
+                else_=0.0
+            ).label("margin_pct"),
+        )
+        .select_from(line_cogs)
+        .outerjoin(Category, line_cogs.c.category_id == Category.id)
+        .group_by(line_cogs.c.clean_name, Category.name)
+    )
+
+    sort_lower = (sort_by or "revenue").lower()
+    if sort_lower == "revenue":
+        stmt = stmt.order_by(total_rev_expr.desc())
+    elif sort_lower == "profit":
+        stmt = stmt.order_by(profit_expr.desc())
+    elif sort_lower == "margin":
+        stmt = stmt.order_by(case((total_rev_expr > 0, (profit_expr / total_rev_expr) * 100.0), else_=0.0).desc())
     else:
-        stmt = stmt.order_by(func.sum(OrderItem.quantity).desc())
+        stmt = stmt.order_by(total_qty_expr.desc())
 
-    stmt = stmt.limit(limit)
+    if limit > 0:
+        stmt = stmt.limit(limit)
+
     res = await db.execute(stmt)
     rows = res.all()
 
-    # Need total revenue across all items to calculate share properly, but we'll approximate with limited rows or a subquery
     total_rev = sum(float(r.revenue or 0) for r in rows)
-    
+    total_cogs = sum(float(r.total_cogs or 0) for r in rows)
+    total_profit = total_rev - total_cogs
+    overall_margin = round((total_profit / total_rev) * 100.0, 2) if total_rev > 0 else 0.0
+
     items = []
     for r in rows:
         rev = float(r.revenue or 0)
         qty = float(r.quantity_sold or 0)
-        cost = float(r.cost_per_unit) if r.cost_per_unit is not None else None
-        
-        est_cogs = qty * cost if cost is not None else 0.0
-        est_profit = rev - est_cogs if cost is not None else None
-        margin = round((est_profit / rev) * 100.0, 2) if est_profit is not None and rev > 0 else None
+        cogs = float(r.total_cogs or 0)
+        cpu = float(r.cost_per_unit or 0) if r.cost_per_unit is not None else (cogs / qty if qty > 0 else 0.0)
+        profit = float(r.estimated_profit or 0)
+        margin = float(r.margin_pct) if r.margin_pct is not None else (round((profit / rev) * 100.0, 2) if rev > 0 else 0.0)
 
         items.append(
             ItemSalesRow(
                 menu_item_id=str(r.menu_item_id) if r.menu_item_id else None,
                 item_name=r.item_name or "Unknown Item",
                 category_name=r.category_name,
-                quantity_sold=qty,
+                quantity_sold=round(qty, 3),
                 revenue=round(rev, 2),
                 revenue_share_pct=round((rev / total_rev) * 100.0, 2) if total_rev > 0 else 0.0,
-                cost_per_unit=round(cost, 2) if cost is not None else None,
-                estimated_profit=round(est_profit, 2) if est_profit is not None else None,
-                margin_pct=margin
+                cogs=round(cogs, 2),
+                cost_per_unit=round(cpu, 2),
+                estimated_profit=round(profit, 2),
+                margin_pct=round(margin, 2),
             )
         )
 
@@ -739,7 +920,11 @@ async def get_item_sales(
         sort_by=sort_by,
         category_filter=category_id,
         total_items=len(items),
-        items=items
+        total_revenue=round(total_rev, 2),
+        total_cogs=round(total_cogs, 2),
+        total_profit=round(total_profit, 2),
+        overall_margin_pct=overall_margin,
+        items=items,
     )
 
 
@@ -1505,25 +1690,33 @@ async def get_cash_denomination_flow(
         types_map[ttype]["tx"] += 1
         tot_tx += 1
         
+        is_outflow_type = ttype in ("MANUAL_WITHDRAWAL", "CUSTOMER_CHANGE")
+
         for d, count in denoms.items():
             if not count: continue
             
             d_val = float(d)
-            val = d_val * count
+            cnt = int(count)
             
             if d not in overall_map:
                 overall_map[d] = {"in": 0, "out": 0}
             if d not in types_map[ttype]["denoms"]:
                 types_map[ttype]["denoms"][d] = {"in": 0, "out": 0}
                 
-            if count > 0:
-                overall_map[d]["in"] += count
-                types_map[ttype]["denoms"][d]["in"] += count
+            if is_outflow_type:
+                out_qty = abs(cnt)
+                overall_map[d]["out"] += out_qty
+                types_map[ttype]["denoms"][d]["out"] += out_qty
+                net_in_drawer -= out_qty * d_val
+            elif cnt > 0:
+                overall_map[d]["in"] += cnt
+                types_map[ttype]["denoms"][d]["in"] += cnt
+                net_in_drawer += cnt * d_val
             else:
-                overall_map[d]["out"] += abs(count)
-                types_map[ttype]["denoms"][d]["out"] += abs(count)
-                
-            net_in_drawer += val
+                out_qty = abs(cnt)
+                overall_map[d]["out"] += out_qty
+                types_map[ttype]["denoms"][d]["out"] += out_qty
+                net_in_drawer -= out_qty * d_val
 
     overall_denoms = []
     for d in sorted(overall_map.keys(), key=lambda x: float(x), reverse=True):
@@ -2305,8 +2498,8 @@ async def get_credit_debit_report(
             Customer.name,
             Customer.phone,
             Customer.credit_balance,
-            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("CREDIT_ADDED", "DEBIT_APPLIED")), CustomerLedger.amount), else_=0)), 0).label("total_credit_given"),
-            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("DEBIT_ADDED", "CREDIT_APPLIED")), CustomerLedger.amount), else_=0)), 0).label("total_debit_recorded"),
+            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("CREDIT_ADDED", "DEBIT_SETTLED", "DEBIT_APPLIED")), CustomerLedger.amount), else_=0)), 0).label("total_credit_given"),
+            func.coalesce(func.sum(case((CustomerLedger.entry_type.in_(("DEBIT_ADDED", "CREDIT_APPLIED", "CREDIT_USED", "CREDIT_CASHED_OUT")), CustomerLedger.amount), else_=0)), 0).label("total_debit_recorded"),
             func.max(CustomerLedger.created_at).label("last_tx")
         )
         .outerjoin(CustomerLedger, (Customer.id == CustomerLedger.customer_id) & (CustomerLedger.created_at >= from_dt) & (CustomerLedger.created_at <= to_dt))
@@ -2412,11 +2605,13 @@ async def get_day_book(
     opening_cash = 0.0
     for r in res_open.all():
         denoms = r.denominations or {}
+        tt = r.transaction_type.value if hasattr(r.transaction_type, "value") else str(r.transaction_type)
+        mult = -1 if tt in ("MANUAL_WITHDRAWAL", "CUSTOMER_CHANGE") else 1
         try:
-            amt = sum(int(k) * int(v) for k, v in denoms.items() if str(k).isdigit())
+            amt = sum(int(k) * (abs(int(v)) if tt in ("MANUAL_WITHDRAWAL", "CUSTOMER_CHANGE") else int(v)) for k, v in denoms.items() if str(k).isdigit())
         except (ValueError, TypeError):
             amt = 0.0
-        opening_cash += amt
+        opening_cash += amt * mult
     
     entries = []
     
@@ -2674,6 +2869,36 @@ async def get_outlet_earnings_report(
         
         np = ta - ca - da + ds + caw - cco
         chart_dict[date_str]["net_paid"] += np
+
+    from app.models.customer_return import CustomerReturn
+    stmt_ret = select(CustomerReturn).where(
+        CustomerReturn.outlet_id == outlet_id,
+        CustomerReturn.created_at >= from_dt,
+        CustomerReturn.created_at <= to_dt,
+    )
+    result_ret = await db.execute(stmt_ret)
+    returns = result_ret.scalars().all()
+
+    for r in returns:
+        date_str = r.created_at.strftime("%Y-%m-%d")
+        chart_dict[date_str]["date"] = date_str
+        
+        ca = float(getattr(r, "credit_applied", 0) or 0)
+        da = float(getattr(r, "debit_applied", 0) or 0)
+        ds = float(getattr(r, "debt_settled", 0) or 0)
+        cco = float(getattr(r, "credit_cashed_out", 0) or 0)
+        caw = float(getattr(r, "credit_awarded", 0) or 0)
+        
+        total_credit_applied += ca
+        total_udhaar_given += da
+        total_udhaar_recovered += ds
+        total_credit_cashed_out += cco
+        total_credit_awarded += caw
+        
+        chart_dict[date_str]["credit_applied"] += ca
+        chart_dict[date_str]["udhaar_given"] += da
+        chart_dict[date_str]["udhaar_recovered"] += ds
+        chart_dict[date_str]["credit_cashed_out"] += cco
 
     net_drawer_earnings = (
         gross_revenue

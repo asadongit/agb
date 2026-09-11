@@ -156,7 +156,9 @@ export function OrdersTab({
                                 </span>
                               )}
                               <p className="font-bold text-sm text-[var(--text-primary)] break-all">
-                                Basket #{order.basket_number}
+                                {order.basket_number && order.basket_number.toUpperCase().includes("WALK")
+                                  ? "Walk-In"
+                                  : `Basket #${order.basket_number}`}
                               </p>
                             </div>
                             <div className="flex items-center gap-1 flex-wrap mt-0.5">

@@ -689,7 +689,7 @@ export function PaymentModal({
               <div>
                 <h3 className="font-display text-base font-bold leading-none">Process Settlement Payment</h3>
                 <p className="text-[11px] text-[var(--text-muted)] font-mono mt-0.5">
-                  Bill #{paymentTargetBill.id.slice(0, 8).toUpperCase()} • Basket #{paymentTargetBill.basket_number}
+                  Bill #{paymentTargetBill.id.slice(0, 8).toUpperCase()} • {paymentTargetBill.basket_number && paymentTargetBill.basket_number.toUpperCase().includes("WALK") ? "Walk-In" : `Basket #${paymentTargetBill.basket_number}`}
                 </p>
               </div>
             </div>

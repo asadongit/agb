@@ -53,7 +53,11 @@ export function DeleteBillModal({
 
           <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4">
             <div className="flex justify-between items-center border-b border-[var(--border-subtle)] pb-2 mb-2">
-              <span className="font-medium text-sm">Basket #{order.basket_number}</span>
+              <span className="font-medium text-sm">
+                {order.basket_number && order.basket_number.toUpperCase().includes("WALK")
+                  ? "Walk-In"
+                  : `Basket #${order.basket_number}`}
+              </span>
               <span className="text-xs text-[var(--text-muted)]">ID: {order.id.slice(0,8)}</span>
             </div>
             <div className="flex justify-between text-sm">

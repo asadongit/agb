@@ -268,7 +268,7 @@ export async function generateA4InvoicePDF(
       }
     } else {
       const copy: ConsolidatedInvoiceItem = {
-        menu_item_id: item.menu_item_id,
+        menu_item_id: item.menu_item_id || undefined,
         name: cleanDishName,
         basePrice,
         effectiveRate,

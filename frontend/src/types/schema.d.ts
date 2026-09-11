@@ -4532,6 +4532,14 @@ export interface components {
             category_filter?: string | null;
             /** Total Items */
             total_items: number;
+            /** Total Revenue */
+            total_revenue?: number;
+            /** Total Cogs */
+            total_cogs?: number;
+            /** Total Profit */
+            total_profit?: number;
+            /** Overall Margin Pct */
+            overall_margin_pct?: number;
             /** Items */
             items: components["schemas"]["ItemSalesRow"][];
         };
@@ -4549,6 +4557,8 @@ export interface components {
             revenue: number;
             /** Revenue Share Pct */
             revenue_share_pct: number;
+            /** Cogs */
+            cogs?: number;
             /** Cost Per Unit */
             cost_per_unit: number | null;
             /** Estimated Profit */

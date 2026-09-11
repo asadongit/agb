@@ -99,6 +99,17 @@ export function BarcodeRegisterModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Close modal on Escape key
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onClose]);
+
   // Auto-populate item fields from an existing InventoryItem instance
   const populateFromItem = (itm: InventoryItem) => {
     setSelectedItemId(itm.id);
@@ -429,8 +440,8 @@ export function BarcodeRegisterModal({
   const discountAmount = mrpVal > 0 && sellVal > 0 && mrpVal > sellVal ? (mrpVal - sellVal).toFixed(2) : "0.00";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200" onClick={onClose}>
-      <div className="relative w-full max-w-lg rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-6 shadow-2xl space-y-4 max-h-[92vh] overflow-y-auto">
         {/* Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
           <div className="flex items-center gap-2.5">
@@ -840,7 +851,7 @@ export function BarcodeRegisterModal({
                   placeholder="e.g. 10"
                   value={wholesaleMarginPct}
                   onChange={(e) => setWholesaleMarginPct(e.target.value)}
-                  className="w-full rounded-lg border border-purple-500/20 bg-purple-500/5 px-2.5 py-1.5 text-xs font-mono text-purple-300 focus:border-purple-500 focus:outline-none"
+                  className="w-full rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs font-mono text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
                 />
               </div>
             </div>
@@ -911,10 +922,10 @@ export function BarcodeRegisterModal({
                   setWholesaleMarginPct(""); // clear margin if manual override
                   setWholesaleExact("");
                 }}
-                className="w-full rounded-xl border border-purple-500/40 bg-purple-500/5 px-3 py-2 text-xs font-mono text-purple-300 placeholder:text-purple-400/40 focus:border-purple-500 focus:outline-none"
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
               />
               {wholesaleExact && wholesaleExact !== wholesalePrice && (
-                <div className="text-[9px] text-purple-400/70 mt-1 ml-1 font-mono">
+                <div className="text-[9px] text-[var(--text-muted)] mt-1 ml-1 font-mono">
                   Exact: ₹{wholesaleExact}
                 </div>
               )}

@@ -352,7 +352,9 @@ export function BillingTab({
               >
                 <div className="flex items-center justify-between text-xs border-b border-[var(--border-subtle)] pb-2">
                   <span className="font-mono font-bold text-[var(--accent-brand)]">
-                    Basket #{appr.order_basket_number}
+                    {appr.order_basket_number && appr.order_basket_number.toUpperCase().includes("WALK")
+                      ? "Walk-In"
+                      : `Basket #${appr.order_basket_number || "Walk-In"}`}
                   </span>
                   <span className="text-[10px] text-[var(--text-muted)]">
                     {parseUTCDate(appr.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
@@ -435,7 +437,7 @@ export function BillingTab({
               type="text"
               value={billingSearchQuery}
               onChange={(e) => setBillingSearchQuery(e.target.value)}
-              placeholder="Search by Bill ID or Table... (/)"
+              placeholder="Search by Bill ID or Basket... (/)"
               className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 pl-8 pr-3 text-xs"
             />
           </div>
@@ -447,7 +449,7 @@ export function BillingTab({
             <thead>
               <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 <th className="p-3.5">Bill ID &amp; Source</th>
-                <th className="p-3.5">Table &amp; Customer</th>
+                <th className="p-3.5">Basket &amp; Customer</th>
                 <th className="p-3.5 text-center">Items</th>
                 <th className="p-3.5 text-right">Subtotal</th>
                 <th className="p-3.5 text-right">Discount</th>
@@ -504,7 +506,11 @@ export function BillingTab({
                       </td>
 
                       <td className="p-3.5">
-                        <span className="font-bold text-[var(--text-primary)]">Basket #{b.basket_number}</span>
+                        <span className="font-bold text-[var(--text-primary)]">
+                          {b.basket_number && b.basket_number.toUpperCase().includes("WALK")
+                            ? "Walk-In"
+                            : `Basket #${b.basket_number || "Walk-In"}`}
+                        </span>
                         {b.customer_name && (
                           <span className="block text-xs font-semibold text-[var(--text-muted)]">{b.customer_name}</span>
                         )}

@@ -174,9 +174,10 @@ class ItemSalesRow(StrictSchema):
     quantity_sold: float
     revenue: float
     revenue_share_pct: float
-    cost_per_unit: float | None
-    estimated_profit: float | None
-    margin_pct: float | None
+    cogs: float = 0.0
+    cost_per_unit: float | None = None
+    estimated_profit: float | None = None
+    margin_pct: float | None = None
 
 
 class ItemSalesResponse(BaseResponse):
@@ -185,6 +186,10 @@ class ItemSalesResponse(BaseResponse):
     sort_by: str
     category_filter: str | None = None
     total_items: int
+    total_revenue: float = 0.0
+    total_cogs: float = 0.0
+    total_profit: float = 0.0
+    overall_margin_pct: float = 0.0
     items: list[ItemSalesRow]
 
 

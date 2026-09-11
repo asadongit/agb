@@ -98,6 +98,57 @@ export function ReturnSuccessModal({
               ₹{returnData.total_refund_amount.toFixed(2)}
             </span>
           </div>
+
+          {/* Wallet / Credit / Debit Adjustments */}
+          {((returnData as any).credit_applied > 0 ||
+            (returnData as any).debit_applied > 0 ||
+            (returnData as any).debt_settled > 0 ||
+            (returnData as any).credit_awarded > 0 ||
+            (returnData as any).credit_cashed_out > 0 ||
+            (returnData as any).wallet_balance_after !== undefined) && (
+            <div className="pt-2 border-t border-[var(--border-subtle)] space-y-1 text-xs font-mono">
+              {(returnData as any).credit_applied > 0 && (
+                <div className="flex justify-between text-amber-400">
+                  <span>Store Credit Applied:</span>
+                  <span className="font-bold">₹{Number((returnData as any).credit_applied).toFixed(2)}</span>
+                </div>
+              )}
+              {(returnData as any).debit_applied > 0 && (
+                <div className="flex justify-between text-rose-400">
+                  <span>Recorded as Udhaar (Shortfall):</span>
+                  <span className="font-bold">₹{Number((returnData as any).debit_applied).toFixed(2)}</span>
+                </div>
+              )}
+              {(returnData as any).debt_settled > 0 && (
+                <div className="flex justify-between text-emerald-400">
+                  <span>Old Debt Cleared:</span>
+                  <span className="font-bold">₹{Number((returnData as any).debt_settled).toFixed(2)}</span>
+                </div>
+              )}
+              {(returnData as any).credit_awarded > 0 && (
+                <div className="flex justify-between text-sky-400">
+                  <span>Store Credit Awarded:</span>
+                  <span className="font-bold">₹{Number((returnData as any).credit_awarded).toFixed(2)}</span>
+                </div>
+              )}
+              {(returnData as any).credit_cashed_out > 0 && (
+                <div className="flex justify-between text-purple-400">
+                  <span>Store Credit Cashed Out:</span>
+                  <span className="font-bold">₹{Number((returnData as any).credit_cashed_out).toFixed(2)}</span>
+                </div>
+              )}
+              {(returnData as any).wallet_balance_after !== undefined && (returnData as any).wallet_balance_after !== null && (
+                <div className="flex justify-between pt-1 border-t border-[var(--border-subtle)] font-bold">
+                  <span className="text-[var(--text-muted)]">Wallet Balance After:</span>
+                  <span className={(returnData as any).wallet_balance_after >= 0 ? "text-emerald-400" : "text-rose-400"}>
+                    {(returnData as any).wallet_balance_after >= 0
+                      ? `₹${Number((returnData as any).wallet_balance_after).toFixed(2)} (Cr)`
+                      : `-₹${Math.abs(Number((returnData as any).wallet_balance_after)).toFixed(2)} (Dr)`}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
         </div>
 
         {/* Action Buttons */}
