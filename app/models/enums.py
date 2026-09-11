@@ -125,3 +125,4 @@ class NotificationChannelEnum(str, enum.Enum):
     IN_APP = "IN_APP"
     EMAIL = "EMAIL"
     WHATSAPP = "WHATSAPP"
+    SMS = "SMS"

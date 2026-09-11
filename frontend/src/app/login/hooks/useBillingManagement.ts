@@ -12,6 +12,7 @@ type UseBillingManagementProps = {
   apiRequest: <T>(endpoint: string, options?: RequestInit) => Promise<T>;
   setNotice: (msg: string | null) => void;
   setError: (msg: string | null) => void;
+  onBillSettled?: () => void;
 };
 
 export function useBillingManagement({
@@ -20,6 +21,7 @@ export function useBillingManagement({
   apiRequest,
   setNotice,
   setError,
+  onBillSettled,
 }: UseBillingManagementProps) {
   const [billsList, setBillsList] = useState<ManualBill[]>([]);
   const [pendingApprovals, setPendingApprovals] = useState<DiscountApproval[]>([]);
@@ -374,6 +376,7 @@ export function useBillingManagement({
       resetCreateBillForm();
       setNotice(`Bill #${paymentTargetBill.id.slice(0, 8).toUpperCase()} marked as PAID via ${selectedPaymentMethod}! Stock auto-deducted.`);
       void loadBillingData();
+      onBillSettled?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to mark bill paid.");
     }
@@ -385,6 +388,7 @@ export function useBillingManagement({
       await apiRequest(`/api/billing/bills/${billId}`, { method: "DELETE" });
       setBillsList((current) => current.filter((b) => b.id !== billId));
       setNotice(`Bill #${billId.slice(0, 8)} deleted permanently.`);
+      onBillSettled?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Delete failed.");
       throw err;

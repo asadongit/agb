@@ -255,6 +255,12 @@ async def transition_order_status(
                     .values(total_sold=MenuItem.total_sold + int(item.quantity))
                 )
 
+        try:
+            from app.services.websocket_service import broadcast_catalog_updated
+            await broadcast_catalog_updated(order.outlet_id, reason="ORDER_STATUS_AUTO_DEDUCTION", item_id=str(order.id))
+        except Exception:
+            pass
+
     # Trigger cancellation reversal if an already deducted order is cancelled or refunded
     if new_status in {OrderStatusEnum.CANCELLED, OrderStatusEnum.REFUNDED} and old_status in {OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING, OrderStatusEnum.COMPLETED}:
         from app.services.inventory_service import process_order_cancellation_reversal
@@ -270,6 +276,12 @@ async def transition_order_status(
                     .where(MenuItem.id == item.menu_item_id)
                     .values(total_sold=MenuItem.total_sold - int(item.quantity))
                 )
+
+        try:
+            from app.services.websocket_service import broadcast_catalog_updated
+            await broadcast_catalog_updated(order.outlet_id, reason="ORDER_STATUS_REVERSAL", item_id=str(order.id))
+        except Exception:
+            pass
 
     # Check if this transition completes the entire session
     if order.session_id:

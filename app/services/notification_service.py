@@ -123,6 +123,21 @@ async def sync_near_expiry_notifications(
                     channels_sent=["IN_APP"],
                 )
                 db.add(new_notif)
+                await db.flush()
+
+                # Automatically trigger alert service to configured emails and numbers
+                if outlet.notification_emails or outlet.notification_phones:
+                    try:
+                        from app.services.alert_dispatch_service import dispatch_outlet_alert
+                        alert_res = await dispatch_outlet_alert(
+                            outlet=outlet,
+                            title=title,
+                            message=message,
+                            details=details_payload,
+                        )
+                        new_notif.channels_sent = list(set(new_notif.channels_sent or []).union(alert_res.get("dispatched_channels", [])))
+                    except Exception as e:
+                        print(f"⚠️ [Near Expiry Alert Dispatch Warning] {e}")
 
     await db.commit()
 
@@ -132,6 +147,7 @@ async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) 
     Syncs shelf life alerts into the DB 'notifications' table.
     Checks if intake_date + shelf_life_alert_hrs <= NOW() for active batches.
     """
+    outlet = await db.get(Outlet, outlet_id)
     now = datetime.now(timezone.utc)
     
     stmt = (
@@ -158,15 +174,17 @@ async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) 
         if elapsed_hours >= alert_hrs:
             details_payload = {
                 "batch_id": str(intake.id),
+                "batch_number": intake.batch_number or "N/A",
                 "item_id": str(item.id),
                 "item_name": item.name,
                 "unit": item.unit,
                 "remaining_quantity": float(intake.remaining_quantity),
+                "cost_per_unit": float(intake.unit_cost or 0),
                 "shelf_life_alert_hrs": alert_hrs,
             }
             
             title = f"{item.name} — Shelf Life Reached"
-            message = f"The item shelf life has reached and its current count is {float(intake.remaining_quantity)} {item.unit}."
+            message = f"The item shelf life has reached ({alert_hrs}h threshold) and its current count is {float(intake.remaining_quantity)} {item.unit}."
             
             existing_stmt = select(Notification).where(
                 Notification.outlet_id == outlet_id,
@@ -192,6 +210,21 @@ async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) 
                     channels_sent=["IN_APP"],
                 )
                 db.add(new_notif)
+                await db.flush()
+
+                # Automatically trigger alert service to configured emails and numbers
+                if outlet and (outlet.notification_emails or outlet.notification_phones):
+                    try:
+                        from app.services.alert_dispatch_service import dispatch_outlet_alert
+                        alert_res = await dispatch_outlet_alert(
+                            outlet=outlet,
+                            title=title,
+                            message=message,
+                            details=details_payload,
+                        )
+                        new_notif.channels_sent = list(set(new_notif.channels_sent or []).union(alert_res.get("dispatched_channels", [])))
+                    except Exception as e:
+                        print(f"⚠️ [Shelf Life Alert Dispatch Warning] {e}")
 
     await db.commit()
 
@@ -265,8 +298,8 @@ async def dispatch_notification_channels(
         raise ValueError("Outlet not found")
 
     # Resolve recipient emails and phones
-    recipient_emails = outlet.notification_emails or []
-    recipient_phones = outlet.notification_phones or []
+    recipient_emails = list(outlet.notification_emails or [])
+    recipient_phones = list(outlet.notification_phones or [])
     
     if not recipient_emails:
         user_stmt = select(User).where(
@@ -276,19 +309,17 @@ async def dispatch_notification_channels(
         admin_user = user_res.scalar_one_or_none()
         if admin_user and admin_user.email:
             recipient_emails = [admin_user.email]
+            outlet.notification_emails = [admin_user.email]
 
-    # Simulate Email & WhatsApp dispatch formatting
-    dispatched_channels = ["IN_APP"]
-
-    for email in recipient_emails:
-        print(f"📧 [Email Dispatch] Sent to '{email}': {notif.title} - {notif.message}")
-    if recipient_emails:
-        dispatched_channels.append("EMAIL")
-
-    for phone in recipient_phones:
-        print(f"💬 [WhatsApp Dispatch] Sent to '{phone}': {notif.title} - {notif.message}")
-    if recipient_phones:
-        dispatched_channels.append("WHATSAPP")
+    # Multi-channel Alert Dispatch (Resend Email, WhatsApp, SMS)
+    from app.services.alert_dispatch_service import dispatch_outlet_alert
+    dispatch_res = await dispatch_outlet_alert(
+        outlet=outlet,
+        title=notif.title,
+        message=notif.message,
+        details=notif.details,
+    )
+    dispatched_channels = dispatch_res.get("dispatched_channels", ["IN_APP"])
 
     notif.channels_sent = list(set(notif.channels_sent or []).union(dispatched_channels))
     await db.commit()

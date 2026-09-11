@@ -80,6 +80,8 @@ type CreateBillDrawerProps = {
   eveningPriceActive?: boolean;
   restaurant?: import("../adminTypes").RestaurantProfile | null;
   onQuickEditOffer?: (itemId: string, updates: Partial<AdminMenuItem>) => Promise<void>;
+  onRefreshCatalog?: () => void;
+  inventoryItems?: { id: string; current_stock?: number | string | null }[];
 };
 
 function CartItemQuantityInput({
@@ -225,9 +227,48 @@ export function CreateBillDrawer({
   eveningPriceActive = false,
   restaurant,
   onQuickEditOffer,
+  onRefreshCatalog,
+  inventoryItems,
 }: CreateBillDrawerProps) {
   const { isAdminRole } = useAdminAuth();
   const isPrivileged = isAdminRole;
+
+  useEffect(() => {
+    if (isOpen && onRefreshCatalog) {
+      onRefreshCatalog();
+    }
+  }, [isOpen, onRefreshCatalog]);
+
+  const inventoryStockMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (inventoryItems) {
+      for (const inv of inventoryItems) {
+        if (inv.current_stock !== undefined && inv.current_stock !== null && inv.current_stock !== "") {
+          const num = parseFloat(String(inv.current_stock));
+          if (!isNaN(num)) {
+            map.set(inv.id, num);
+          }
+        }
+      }
+    }
+    return map;
+  }, [inventoryItems]);
+
+  const getEffectiveBatchRemaining = useCallback(
+    (curBatch: { id: string; remaining_quantity: string | number }, orig?: AdminMenuItem) => {
+      const rawBatchQty = Number(curBatch.remaining_quantity);
+      if (!orig?.inventory_item_id) return rawBatchQty;
+      const linkedStock = inventoryStockMap.get(orig.inventory_item_id);
+      if (linkedStock !== undefined) {
+        if (linkedStock <= 0) return 0;
+        if ((orig.active_batches?.length || 0) <= 1) {
+          return Math.min(rawBatchQty, Math.max(0, linkedStock));
+        }
+      }
+      return rawBatchQty;
+    },
+    [inventoryStockMap]
+  );
 
   const [searchQuery, setSearchQuery] = useState("");
   const searchInputRef = useRef<HTMLInputElement>(null);
@@ -409,9 +450,10 @@ export function CreateBillDrawer({
     const isLatestBatch = batchIdx === activeBatches.length - 1;
 
     // Calculate unallocated stock for curBatch (excluding this cartIdx)
+    const effectiveCurBatchQty = getEffectiveBatchRemaining(curBatch, orig);
     const availableQty = getUnallocatedBatchStock(
       curBatch.id,
-      Number(curBatch.remaining_quantity),
+      effectiveCurBatchQty,
       draftCartItems,
       cartIdx
     );
@@ -552,7 +594,7 @@ export function CreateBillDrawer({
 
       const nbAvail = getUnallocatedBatchStock(
         nb.id,
-        Number(nb.remaining_quantity),
+        getEffectiveBatchRemaining(nb, orig),
         updatedCart,
         existingNbIdx >= 0 ? existingNbIdx : -1
       );
@@ -662,7 +704,8 @@ export function CreateBillDrawer({
       const orig = menuItems.find((m) => m.id === ci.menu_item_id);
       const curBatch = orig?.active_batches?.find((b) => b.id === ci.selected_batch_id) || orig?.active_batches?.[0];
       if (orig?.inventory_item_id && curBatch && !ci.allow_oversell) {
-        const avail = getUnallocatedBatchStock(curBatch.id, Number(curBatch.remaining_quantity), draftCartItems, i);
+        const effectiveCurBatchQty = getEffectiveBatchRemaining(curBatch, orig);
+        const avail = getUnallocatedBatchStock(curBatch.id, effectiveCurBatchQty, draftCartItems, i);
         if (ci.quantity > avail) {
           handleCartItemQuantityChange(i, ci.quantity);
           return;
@@ -936,7 +979,9 @@ export function CreateBillDrawer({
   }, [menuItems, searchQuery]);
 
   const addItemToCart = useCallback((item: AdminMenuItem, v?: AdminVariant, qty: number = 1) => {
-    const isOos = item.is_out_of_stock || (item.inventory_item_id && item.current_stock !== undefined && Number(item.current_stock) <= 0);
+    const linkedStock = item.inventory_item_id ? inventoryStockMap.get(item.inventory_item_id) : undefined;
+    const effectiveStock = linkedStock !== undefined ? linkedStock : (item.current_stock !== undefined && item.current_stock !== null ? Number(item.current_stock) : null);
+    const isOos = item.is_out_of_stock || (item.inventory_item_id && effectiveStock !== null && effectiveStock <= 0);
     if (item.inventory_item_id && isOos && item.allow_oversell === false) {
       setInlineNotice(`'${item.name}' is Out of Stock. Overselling is disabled for this product.`);
       return;
@@ -1001,7 +1046,7 @@ export function CreateBillDrawer({
     if (isBackorder) {
       setInlineNotice(`'${item.name}' is out of stock. Added as [Oversold Backorder].`);
     }
-  }, [eveningPriceActive, pricingMode, setDraftCartItems]);
+  }, [eveningPriceActive, pricingMode, setDraftCartItems, inventoryStockMap]);
 
   // Sync draft cart prices if menu items are updated (e.g. quick edit offer)
   useEffect(() => {
@@ -1178,8 +1223,10 @@ export function CreateBillDrawer({
                 const discountPercent = hasDiscount ? Math.round(((mrpVal - activePriceNum) / mrpVal) * 100) : 0;
                 const taxRate = item.tax_rate ? parseFloat(String(item.tax_rate)) : 0;
                 const cartQtyForItem = draftCartItems.filter((ci) => ci.menu_item_id === item.id).reduce((sum, ci) => sum + ci.quantity, 0);
-                const isOos = Boolean(item.is_out_of_stock || (item.inventory_item_id && item.current_stock !== undefined && Number(item.current_stock) <= 0));
-                const stockNum = item.current_stock !== undefined ? Number(item.current_stock) : null;
+                const linkedStock = item.inventory_item_id ? inventoryStockMap.get(item.inventory_item_id) : undefined;
+                const effectiveStock = linkedStock !== undefined ? linkedStock : (item.current_stock !== undefined && item.current_stock !== null ? Number(item.current_stock) : null);
+                const isOos = Boolean(item.is_out_of_stock || (item.inventory_item_id && effectiveStock !== null && effectiveStock <= 0));
+                const stockNum = effectiveStock;
                 const isBlocked = Boolean(item.inventory_item_id && isOos && item.allow_oversell === false);
 
                 return (
@@ -1736,7 +1783,8 @@ export function CreateBillDrawer({
                                       };
                                     })
                                   );
-                                  const avail = getUnallocatedBatchStock(chosenBatch.id, Number(chosenBatch.remaining_quantity), draftCartItems, idx);
+                                  const effectiveStock = getEffectiveBatchRemaining(chosenBatch, originalItem);
+                                  const avail = getUnallocatedBatchStock(chosenBatch.id, effectiveStock, draftCartItems, idx);
                                   if (ci.quantity > avail) {
                                     setTimeout(() => {
                                       handleCartItemQuantityChange(idx, ci.quantity);
@@ -1747,7 +1795,8 @@ export function CreateBillDrawer({
                                 title="Select Inventory Lot"
                               >
                                 {originalItem.active_batches.map((b) => {
-                                  const unallocated = getUnallocatedBatchStock(b.id, Number(b.remaining_quantity), draftCartItems, idx);
+                                  const effectiveStock = getEffectiveBatchRemaining(b, originalItem);
+                                  const unallocated = getUnallocatedBatchStock(b.id, effectiveStock, draftCartItems, idx);
                                   const factor = getUnitFactor(originalItem, ci.selected_unit);
                                   const bBasePrice = Number(b.retail_price ?? originalItem.price);
                                   const bDisplayPrice = factor > 0 ? bBasePrice / factor : bBasePrice;
@@ -1766,7 +1815,84 @@ export function CreateBillDrawer({
                             )}
                           </div>
                         )}
-                        {(!originalItem?.active_batches || originalItem.active_batches.length <= 1) && ci.allow_oversell && (
+
+                        {/* Single-batch item indicator */}
+                        {originalItem?.active_batches && originalItem.active_batches.length === 1 && (() => {
+                          const singleBatch = originalItem.active_batches[0];
+                          const effectiveStock = getEffectiveBatchRemaining(singleBatch, originalItem);
+                          const unallocated = getUnallocatedBatchStock(singleBatch.id, effectiveStock, draftCartItems, idx);
+                          return (
+                            <div className="flex items-center gap-1">
+                              {ci.allow_oversell ? (
+                                <span
+                                  className="inline-flex items-center gap-1 text-[11px] font-mono rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-rose-400 font-semibold"
+                                  title={`Oversold Backorder priced at latest lot rate (${ci.selected_batch_number ? `Lot #${ci.selected_batch_number}` : "Latest Rate"})`}
+                                >
+                                  Backorder · {ci.selected_batch_number ? `Lot #${ci.selected_batch_number}` : "Latest Lot"}
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[11px] font-mono rounded-md border px-2 py-0.5 font-medium ${
+                                    unallocated <= 0
+                                      ? "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                                      : unallocated <= 5
+                                      ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                      : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)]"
+                                  }`}
+                                  title={`Active Batch: ${singleBatch.batch_number} · ${unallocated} available in stock`}
+                                >
+                                  Lot: {singleBatch.batch_number}
+                                  <span className={unallocated <= 5 ? "font-bold text-amber-400" : "text-[var(--text-muted)]"}>
+                                    ({unallocated} left)
+                                  </span>
+                                </span>
+                              )}
+                              {ci.allow_oversell && (
+                                <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
+                                  Oversell
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {/* Unbatched inventory item indicator */}
+                        {(!originalItem?.active_batches || originalItem.active_batches.length === 0) && originalItem?.inventory_item_id && (() => {
+                          const linkedStock = inventoryStockMap.get(originalItem.inventory_item_id);
+                          if (linkedStock === undefined) return null;
+                          return (
+                            <div className="flex items-center gap-1">
+                              {ci.allow_oversell ? (
+                                <span className="inline-flex items-center gap-1 text-[11px] font-mono rounded-md border border-rose-500/30 bg-rose-500/10 px-2 py-0.5 text-rose-400 font-semibold">
+                                  Backorder
+                                </span>
+                              ) : (
+                                <span
+                                  className={`inline-flex items-center gap-1 text-[11px] font-mono rounded-md border px-2 py-0.5 font-medium ${
+                                    linkedStock <= 0
+                                      ? "border-rose-500/30 bg-rose-500/10 text-rose-400"
+                                      : linkedStock <= 5
+                                      ? "border-amber-500/30 bg-amber-500/10 text-amber-300"
+                                      : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)]"
+                                  }`}
+                                  title={`Current stock: ${linkedStock}`}
+                                >
+                                  Stock:{" "}
+                                  <span className={linkedStock <= 5 ? "font-bold text-amber-400" : "text-[var(--text-muted)]"}>
+                                    {linkedStock} left
+                                  </span>
+                                </span>
+                              )}
+                              {ci.allow_oversell && (
+                                <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
+                                  Oversell
+                                </span>
+                              )}
+                            </div>
+                          );
+                        })()}
+
+                        {(!originalItem?.inventory_item_id && (!originalItem?.active_batches || originalItem.active_batches.length === 0)) && ci.allow_oversell && (
                           <span className="text-[10px] font-bold text-rose-500 bg-rose-500/10 border border-rose-500/20 px-1 py-0.5 rounded">
                             Oversell
                           </span>

@@ -4,12 +4,15 @@ Billing Service — manual bill creation, discount application with approval wor
 
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from decimal import Decimal
 from typing import Any
 
 from app.core.datetime_utils import utc_now, ensure_naive_utc
+
+logger = logging.getLogger(__name__)
 
 from fastapi import HTTPException
 from sqlalchemy import delete, func, select
@@ -1056,6 +1059,14 @@ async def mark_bill_paid(
     )
 
     await db.flush()
+    await db.commit()
+
+    try:
+        from app.services.websocket_service import broadcast_catalog_updated
+        await broadcast_catalog_updated(outlet_id, reason="BILL_PAID", item_id=str(order_id))
+    except Exception as e:
+        logger.warning("Failed to broadcast catalog update on bill paid: %s", e)
+
     return order
 
 
@@ -1387,6 +1398,13 @@ async def process_customer_return(
     )
 
     await db.flush()
+    await db.commit()
+
+    try:
+        from app.services.websocket_service import broadcast_catalog_updated
+        await broadcast_catalog_updated(outlet_id, reason="CUSTOMER_RETURN", item_id=str(customer_return_rec.id))
+    except Exception as e:
+        logger.warning("Failed to broadcast catalog update on customer return: %s", e)
 
     return {
         "id": str(customer_return_rec.id),

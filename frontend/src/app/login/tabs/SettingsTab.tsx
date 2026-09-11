@@ -9,7 +9,7 @@
 "use client";
 
 import { FormEvent, useState } from "react";
-import { Loader2, Save, Settings2, Upload, Plus, Trash2 } from "lucide-react";
+import { Loader2, Save, Settings2, Upload, Plus, Trash2, BellRing } from "lucide-react";
 import { getApiBaseUrl } from "@/lib/api";
 import type { PaymentMode } from "@/types";
 import type {
@@ -49,7 +49,7 @@ export function SettingsTab({
   const [activeTab, setActiveTab] = useState<SettingsSubTab>("general");
 
   return (
-    <div className="space-y-6 max-w-2xl">
+    <div className="space-y-6 max-w-3xl">
       <div>
         <h1 className="font-display text-2xl font-bold tracking-tight">Outlet Settings</h1>
         <p className="text-sm text-[var(--text-secondary)]">
@@ -357,47 +357,233 @@ export function SettingsTab({
                 </label>
               </div>
 
-              <div className="space-y-3 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-4">
-                <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
-                  <span>Inventory &amp; Expiry Alert Settings</span>
-                </h3>
-                <div className="grid gap-4 sm:grid-cols-2">
-                  <label className="block space-y-1">
-                    <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Near-Expiry Alert Threshold (Days)</span>
+              <div className="space-y-4 rounded-2xl border border-amber-500/30 bg-amber-500/5 p-5">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-amber-500/20 pb-3">
+                  <h3 className="text-xs font-bold uppercase tracking-wider text-amber-400 flex items-center gap-1.5">
+                    <BellRing className="h-4 w-4 text-amber-400" />
+                    <span>Inventory &amp; Expiry Alert Settings</span>
+                  </h3>
+                  <span className="text-[10px] font-semibold text-amber-300 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded-full">
+                    Auto-Dispatches via Resend Email, WhatsApp &amp; SMS
+                  </span>
+                </div>
+
+                {/* Threshold Setting Card */}
+                <div className="rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div className="space-y-0.5">
+                    <span className="text-xs uppercase tracking-wide text-[var(--text-primary)] font-bold block">
+                      Near-Expiry Threshold (Days)
+                    </span>
+                    <p className="text-[11px] text-[var(--text-muted)] leading-relaxed">
+                      Batches expiring within these days or reaching shelf life trigger notifications &amp; dispatch to configured contacts.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
                     <input
                       type="number"
                       min={1}
                       max={180}
                       value={restaurantForm.near_expiry_threshold_days}
-                      onChange={(event) => setRestaurantForm((current) => ({ ...current, near_expiry_threshold_days: parseInt(event.target.value) || 7 }))}
-                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-bold text-amber-400"
+                      onChange={(event) =>
+                        setRestaurantForm((current) => ({
+                          ...current,
+                          near_expiry_threshold_days: parseInt(event.target.value) || 7,
+                        }))
+                      }
+                      className="w-20 rounded-xl border border-amber-500/40 bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-center text-sm font-bold text-amber-400 focus:border-amber-400 focus:outline-none"
                     />
-                    <span className="text-[10px] text-[var(--text-muted)] block">
-                      Batches expiring within these days trigger top-right notifications &amp; email/whatsapp alerts.
-                    </span>
-                  </label>
+                    <span className="text-xs font-semibold text-amber-400">Days</span>
+                  </div>
+                </div>
 
-                  <div className="grid grid-cols-2 gap-3">
-                    <label className="block space-y-1">
-                      <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Emails</span>
-                      <input
-                        type="text"
-                        value={restaurantForm.notification_emails}
-                        onChange={(event) => setRestaurantForm((current) => ({ ...current, notification_emails: event.target.value }))}
-                        placeholder="admin1@example.com"
-                        className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
-                      />
-                    </label>
-                    <label className="block space-y-1">
-                      <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Alert Phones</span>
-                      <input
-                        type="text"
-                        value={restaurantForm.notification_phones}
-                        onChange={(event) => setRestaurantForm((current) => ({ ...current, notification_phones: event.target.value }))}
-                        placeholder="+919876543210"
-                        className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm font-mono"
-                      />
-                    </label>
+                {/* Progressive Alert Contacts (Spacious 2-column layout) */}
+                <div className="grid sm:grid-cols-2 gap-5 pt-1">
+                  {/* Alert Emails Column */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold block">
+                        Alert Emails ({restaurantForm.notification_emails?.filter(Boolean).length || 0})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRestaurantForm((current) => ({
+                            ...current,
+                            notification_emails: [...(current.notification_emails || []), ""],
+                          }));
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/30 transition cursor-pointer"
+                        title="Add another email recipient"
+                      >
+                        <Plus className="h-3 w-3" /> Add Email
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(restaurantForm.notification_emails && restaurantForm.notification_emails.length > 0
+                        ? restaurantForm.notification_emails
+                        : [""]
+                      ).map((email, idx, arr) => {
+                        const isLast = idx === arr.length - 1;
+                        const isFilled = email.trim().length > 0;
+                        return (
+                          <div key={`email-${idx}`} className="flex items-center gap-1.5 animate-in fade-in duration-150">
+                            <input
+                              type="email"
+                              value={email}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setRestaurantForm((current) => {
+                                  const list = [...(current.notification_emails || [""])];
+                                  list[idx] = val;
+                                  return { ...current, notification_emails: list };
+                                });
+                              }}
+                              placeholder={idx === 0 ? "admin1@example.com" : `Additional email ${idx + 1}`}
+                              className="min-w-0 flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm font-mono focus:border-amber-400 focus:outline-none transition-colors"
+                            />
+
+                            {/* + icon appears on the last entry: brightly lit and active when filled, visible and muted when empty */}
+                            {isLast && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isFilled) {
+                                    setRestaurantForm((current) => ({
+                                      ...current,
+                                      notification_emails: [...(current.notification_emails || []), ""],
+                                    }));
+                                  }
+                                }}
+                                disabled={!isFilled}
+                                title={isFilled ? "Add another alert email" : "Type an email above to activate +"}
+                                className={`h-8 w-8 flex items-center justify-center rounded-xl transition-all border shrink-0 ${
+                                  isFilled
+                                    ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 hover:scale-105 border-amber-500/30 cursor-pointer shadow-xs"
+                                    : "bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border-[var(--border-strong)] opacity-50 cursor-not-allowed"
+                                }`}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Delete/remove button if more than 1 entry */}
+                            {arr.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRestaurantForm((current) => {
+                                    const list = (current.notification_emails || []).filter((_, i) => i !== idx);
+                                    return { ...current, notification_emails: list.length > 0 ? list : [""] };
+                                  });
+                                }}
+                                title="Remove email"
+                                className="h-8 w-8 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition border border-rose-500/20 shrink-0 cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      Dispatched via Resend REST API. Click <strong>+</strong> or <strong>Add Email</strong> to add more.
+                    </span>
+                  </div>
+
+                  {/* Alert Phones Column */}
+                  <div className="space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold block">
+                        Alert Phones ({restaurantForm.notification_phones?.filter(Boolean).length || 0})
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setRestaurantForm((current) => ({
+                            ...current,
+                            notification_phones: [...(current.notification_phones || []), ""],
+                          }));
+                        }}
+                        className="inline-flex items-center gap-1 text-[11px] font-bold text-amber-400 hover:text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 px-2 py-0.5 rounded-lg border border-amber-500/30 transition cursor-pointer"
+                        title="Add another phone recipient"
+                      >
+                        <Plus className="h-3 w-3" /> Add Phone
+                      </button>
+                    </div>
+
+                    <div className="space-y-2">
+                      {(restaurantForm.notification_phones && restaurantForm.notification_phones.length > 0
+                        ? restaurantForm.notification_phones
+                        : [""]
+                      ).map((phone, idx, arr) => {
+                        const isLast = idx === arr.length - 1;
+                        const isFilled = phone.trim().length > 0;
+                        return (
+                          <div key={`phone-${idx}`} className="flex items-center gap-1.5 animate-in fade-in duration-150">
+                            <input
+                              type="tel"
+                              value={phone}
+                              onChange={(e) => {
+                                const val = e.target.value;
+                                setRestaurantForm((current) => {
+                                  const list = [...(current.notification_phones || [""])];
+                                  list[idx] = val;
+                                  return { ...current, notification_phones: list };
+                                });
+                              }}
+                              placeholder={idx === 0 ? "+919876543210" : `Additional phone ${idx + 1}`}
+                              className="min-w-0 flex-1 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-1.5 text-sm font-mono focus:border-amber-400 focus:outline-none transition-colors"
+                            />
+
+                            {/* + icon appears on the last entry: brightly lit and active when filled, visible and muted when empty */}
+                            {isLast && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  if (isFilled) {
+                                    setRestaurantForm((current) => ({
+                                      ...current,
+                                      notification_phones: [...(current.notification_phones || []), ""],
+                                    }));
+                                  }
+                                }}
+                                disabled={!isFilled}
+                                title={isFilled ? "Add another alert phone" : "Type a phone number above to activate +"}
+                                className={`h-8 w-8 flex items-center justify-center rounded-xl transition-all border shrink-0 ${
+                                  isFilled
+                                    ? "bg-amber-500/20 text-amber-400 hover:bg-amber-500/30 hover:scale-105 border-amber-500/30 cursor-pointer shadow-xs"
+                                    : "bg-[var(--bg-surface-elevated)] text-[var(--text-muted)] border-[var(--border-strong)] opacity-50 cursor-not-allowed"
+                                }`}
+                              >
+                                <Plus className="h-4 w-4" />
+                              </button>
+                            )}
+
+                            {/* Delete/remove button if more than 1 entry */}
+                            {arr.length > 1 && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setRestaurantForm((current) => {
+                                    const list = (current.notification_phones || []).filter((_, i) => i !== idx);
+                                    return { ...current, notification_phones: list.length > 0 ? list : [""] };
+                                  });
+                                }}
+                                title="Remove phone"
+                                className="h-8 w-8 flex items-center justify-center rounded-xl bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 hover:text-rose-300 transition border border-rose-500/20 shrink-0 cursor-pointer"
+                              >
+                                <Trash2 className="h-3.5 w-3.5" />
+                              </button>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                    <span className="text-[10px] text-[var(--text-muted)] block">
+                      Dispatched via WhatsApp &amp; SMS. Click <strong>+</strong> or <strong>Add Phone</strong> to add more.
+                    </span>
                   </div>
                 </div>
               </div>

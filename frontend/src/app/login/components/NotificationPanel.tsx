@@ -61,15 +61,22 @@ export function NotificationPanel({
       const res = await apiRequest<{
         notification_id: string;
         dispatched_channels: string[];
+        recipient_emails?: string[];
+        recipient_phones?: string[];
         recipient_email?: string;
         recipient_phone?: string;
       }>(`/api/admin/notifications/${id}/dispatch`, {
         method: "POST",
       });
+      const activeChannels = res.dispatched_channels.filter((c) => c !== "IN_APP");
+      const recipients = [
+        ...(res.recipient_emails || []),
+        ...(res.recipient_phones || []),
+      ];
       setDispatchStatus((prev) => ({
         ...prev,
-        [id]: `Dispatched via ${res.dispatched_channels.join(", ")} to ${
-          res.recipient_email || res.recipient_phone || "Admin"
+        [id]: `Dispatched via ${activeChannels.join(", ") || "external channels"} to ${
+          recipients.length > 0 ? recipients.join(", ") : "configured contacts"
         }`,
       }));
       onRefresh();
@@ -241,7 +248,7 @@ export function NotificationPanel({
                         className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 py-1 text-[11px] font-bold text-sky-400 hover:bg-sky-500/20 transition disabled:opacity-50"
                       >
                         <Send className="h-3 w-3" />
-                        <span>{dispatchingId === item.id ? "Sending..." : "Dispatch Email & WhatsApp"}</span>
+                        <span>{dispatchingId === item.id ? "Sending..." : "Dispatch Email, WhatsApp & SMS"}</span>
                       </button>
                     </div>
 

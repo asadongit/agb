@@ -109,8 +109,8 @@ export interface RestaurantFormState {
   verification_cutoff_amount?: string;
   flagged_item_ids: string[];
   near_expiry_threshold_days: number;
-  notification_emails: string;
-  notification_phones: string;
+  notification_emails: string[];
+  notification_phones: string[];
   weighing_scale_barcode_format: string;
   email: string;
   bill_qr_url: string;

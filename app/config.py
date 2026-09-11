@@ -41,6 +41,28 @@ class Settings(BaseSettings):
     CLOUDINARY_API_SECRET: str = ""
     CLOUDINARY_URL: str = ""
 
+    # ---- Alerts & Notifications (Email, WhatsApp, SMS) ----
+    RESEND_API_KEY: str = ""
+    RESEND_FROM_EMAIL: str = "ApnaGreen Basket <alerts@apnagreenbasket.com>"
+
+    # Twilio (WhatsApp & SMS)
+    TWILIO_ACCOUNT_SID: str = ""
+    TWILIO_AUTH_TOKEN: str = ""
+    TWILIO_WHATSAPP_FROM: str = ""  # e.g. "whatsapp:+14155238886"
+    TWILIO_SMS_FROM: str = ""       # e.g. "+1XXXXXXXXXX"
+
+    # Meta WhatsApp Cloud API (Alternative)
+    META_WHATSAPP_TOKEN: str = ""
+    META_WHATSAPP_PHONE_ID: str = ""
+
+    # Fast2SMS (Indian SMS Gateway)
+    FAST2SMS_API_KEY: str = ""
+
+    # MSG91 (Indian SMS Gateway)
+    MSG91_AUTH_KEY: str = ""
+    MSG91_SENDER_ID: str = ""
+    MSG91_TEMPLATE_ID: str = ""
+
     # ---- App ----
     APP_ENV: str = "development"
     DEBUG: bool = True

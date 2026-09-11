@@ -57,6 +57,7 @@ type BillingTabProps = {
   onOpenPaymentModal: (bill: ManualBill) => void;
   onEditCompletedBill?: (bill: ManualBill) => void;
   onDeleteBill?: (billId: string) => Promise<void>;
+  onBillSettled?: () => void;
 };
 
 export function BillingTab({
@@ -78,6 +79,7 @@ export function BillingTab({
   onOpenPaymentModal,
   onEditCompletedBill,
   onDeleteBill,
+  onBillSettled,
 }: BillingTabProps) {
   const [returnsModalOpen, setReturnsModalOpen] = useState(false);
   const [billToDelete, setBillToDelete] = useState<ManualBill | null>(null);
@@ -193,7 +195,8 @@ export function BillingTab({
       setSuccessReturnData(res);
       setReturnsModalOpen(false);
       setShowReturnSuccessModal(true);
-      setReturnsModalOpen(false);
+      void loadBillingData();
+      onBillSettled?.();
     } catch (err: any) {
       setError(err instanceof Error ? err.message : "Failed to process return.");
     }

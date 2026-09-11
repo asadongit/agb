@@ -194,16 +194,6 @@ export default function AdminDashboardPage() {
     enabled: canManageMenu,
   });
 
-  const ordersState = useOrdersManagement({
-    accessToken,
-    restaurant,
-    apiRequest,
-    loadDashboard,
-    setNotice,
-    setError,
-    onCatalogUpdated: menuState.loadCategoriesAndMenuItems,
-  });
-
   const canManageInventory = isAdminRole && (!staffState.staffPermissions || staffState.staffPermissions.can_manage_inventory);
   const inventoryState = useInventoryManagement(
     apiRequest,
@@ -216,12 +206,35 @@ export default function AdminDashboardPage() {
     }
   );
 
+  const ordersState = useOrdersManagement({
+    accessToken,
+    restaurant,
+    apiRequest,
+    loadDashboard,
+    setNotice,
+    setError,
+    onCatalogUpdated: () => {
+      void menuState.loadCategoriesAndMenuItems();
+      if (canManageInventory) {
+        void inventoryState.fetchItems();
+        void inventoryState.fetchBatches();
+      }
+    },
+  });
+
   const billingState = useBillingManagement({
     accessToken,
     authHeaders,
     apiRequest,
     setNotice,
     setError,
+    onBillSettled: () => {
+      void menuState.loadCategoriesAndMenuItems();
+      if (canManageInventory) {
+        void inventoryState.fetchItems();
+        void inventoryState.fetchBatches();
+      }
+    },
   });
 
   const analyticsState = useAnalyticsManagement({
@@ -444,12 +457,26 @@ export default function AdminDashboardPage() {
             setBillingStatusFilter={billingState.setBillingStatusFilter}
             billingSearchQuery={billingState.billingSearchQuery}
             setBillingSearchQuery={billingState.setBillingSearchQuery}
-            onOpenCreateBill={() => billingState.setCreateBillModalOpen(true)}
+            onOpenCreateBill={() => {
+              void menuState.loadCategoriesAndMenuItems();
+              if (canManageInventory) {
+                void inventoryState.fetchItems();
+                void inventoryState.fetchBatches();
+              }
+              billingState.setCreateBillModalOpen(true);
+            }}
             onResumeDraft={billingState.handleResumeDraft}
             onOpenDiscountModal={billingState.openDiscountModal}
             onOpenPaymentModal={billingState.openPaymentModal}
             onEditCompletedBill={billingState.handleEditCompletedBill}
             onDeleteBill={billingState.handleDeleteBill}
+            onBillSettled={() => {
+              void menuState.loadCategoriesAndMenuItems();
+              if (canManageInventory) {
+                void inventoryState.fetchItems();
+                void inventoryState.fetchBatches();
+              }
+            }}
           />
         )}
 
@@ -661,6 +688,14 @@ export default function AdminDashboardPage() {
       <CreateBillDrawer
         isOpen={billingState.createBillModalOpen}
         onClose={billingState.handleCloseCreateBillDrawer}
+        onRefreshCatalog={() => {
+          void menuState.loadCategoriesAndMenuItems();
+          if (canManageInventory) {
+            void inventoryState.fetchItems();
+            void inventoryState.fetchBatches();
+          }
+        }}
+        inventoryItems={inventoryState.items}
         menuItems={menuState.menuItems}
         variantsByItem={menuState.variantsByItem}
         draftCartItems={billingState.draftCartItems}

@@ -13,6 +13,18 @@ type UseSettingsManagementProps = {
   setError: (msg: string | null) => void;
 };
 
+function normalizeStringList(val: any): string[] {
+  if (Array.isArray(val)) {
+    const list = val.map(String).map((s) => s.trim()).filter(Boolean);
+    return list.length > 0 ? list : [""];
+  }
+  if (typeof val === "string" && val.trim().length > 0) {
+    const list = val.split(",").map((s) => s.trim()).filter(Boolean);
+    return list.length > 0 ? list : [""];
+  }
+  return [""];
+}
+
 export function useSettingsManagement({
   accessToken,
   restaurant,
@@ -38,8 +50,8 @@ export function useSettingsManagement({
     verification_amount_cutoff: "",
     flagged_item_ids: [],
     near_expiry_threshold_days: 7,
-    notification_emails: "",
-    notification_phones: "",
+    notification_emails: [""],
+    notification_phones: [""],
     email: "",
     bill_qr_url: "",
     place_of_supply: "",
@@ -74,8 +86,8 @@ export function useSettingsManagement({
             : "",
         flagged_item_ids: restaurant.flagged_item_ids || [],
         near_expiry_threshold_days: restaurant.near_expiry_threshold_days ?? 7,
-        notification_emails: (restaurant.notification_emails || []).join(", "),
-        notification_phones: (restaurant.notification_phones || []).join(", "),
+        notification_emails: normalizeStringList(restaurant.notification_emails),
+        notification_phones: normalizeStringList(restaurant.notification_phones),
         email: restaurant.email || "",
         bill_qr_url: restaurant.bill_qr_url || "",
         place_of_supply: restaurant.place_of_supply || "",
@@ -116,8 +128,8 @@ export function useSettingsManagement({
         verification_amount_cutoff: restaurantForm.verification_amount_cutoff?.trim() ? parseFloat(restaurantForm.verification_amount_cutoff) : null,
         flagged_item_ids: restaurantForm.flagged_item_ids || [],
         near_expiry_threshold_days: restaurantForm.near_expiry_threshold_days,
-        notification_emails: restaurantForm.notification_emails.split(",").map(e => e.trim()).filter(Boolean),
-        notification_phones: restaurantForm.notification_phones.split(",").map(p => p.trim()).filter(Boolean),
+        notification_emails: (restaurantForm.notification_emails || []).map(e => e.trim()).filter(Boolean),
+        notification_phones: (restaurantForm.notification_phones || []).map(p => p.trim()).filter(Boolean),
         email: restaurantForm.email?.trim() || null,
         bill_qr_url: restaurantForm.bill_qr_url?.trim() || null,
         place_of_supply: restaurantForm.place_of_supply?.trim() || null,
