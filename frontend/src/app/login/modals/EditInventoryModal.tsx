@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   X,
   Edit,
@@ -156,6 +156,20 @@ export function EditInventoryModal({
     }
   }, [item]);
 
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    };
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
+  const formBodyRef = useRef<HTMLFormElement>(null);
+
   const handleShelfLifeUnitChange = (newUnit: "DAYS" | "HOURS") => {
     if (newUnit === shelfLifeUnit) return;
     const val = parseFloat(shelfLifeValue);
@@ -266,14 +280,21 @@ export function EditInventoryModal({
       onClose();
     } catch (err: any) {
       setError(err?.message || "Failed to update inventory item");
+      formBodyRef.current?.scrollTo({ top: 0, behavior: "smooth" });
     } finally {
       setIsSubmitting(false);
     }
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200">
-      <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/75 backdrop-blur-sm p-3 sm:p-4 animate-in fade-in duration-200"
+      onClick={onClose}
+    >
+      <div
+        className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] shadow-2xl overflow-hidden"
+        onClick={(e) => e.stopPropagation()}
+      >
         {/* Modal Header */}
         <div className="flex items-center justify-between border-b border-[var(--border-subtle)] px-5 py-4 bg-[var(--bg-surface-elevated)]">
           <div className="flex items-center gap-2.5">
@@ -302,7 +323,11 @@ export function EditInventoryModal({
         </div>
 
         {/* Scrollable Form Body */}
-        <form onSubmit={handleSubmit} className="p-5 overflow-y-auto space-y-4 custom-scrollbar flex-1">
+        <form
+          ref={formBodyRef}
+          onSubmit={handleSubmit}
+          className="p-5 overflow-y-auto space-y-4 custom-scrollbar flex-1"
+        >
           {error && (
             <div className="flex items-start gap-2 rounded-xl border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-400 animate-in fade-in duration-150">
               <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />

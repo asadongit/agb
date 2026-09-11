@@ -274,11 +274,10 @@ export function InventoryTab({
   };
 
   const handleCloseEditItem = () => {
+    setIsLocalEditModalOpen(false);
+    setLocalEditItem(null);
     if (propCloseEditItemModal) {
       propCloseEditItemModal();
-    } else {
-      setIsLocalEditModalOpen(false);
-      setLocalEditItem(null);
     }
   };
 

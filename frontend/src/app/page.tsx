@@ -638,6 +638,7 @@ export default function AdminDashboardPage() {
             selectedEditItem={inventoryState.selectedEditItem}
             isEditItemModalOpen={inventoryState.isEditItemModalOpen}
             openEditItemModal={inventoryState.openEditItemModal}
+            closeEditItemModal={inventoryState.closeEditItemModal}
             updateInventoryItem={async (itemId, data) => {
               const res = await inventoryState.updateInventoryItem(itemId, data);
               await menuState.loadCategoriesAndMenuItems();
