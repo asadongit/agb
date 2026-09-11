@@ -156,8 +156,6 @@ export function EditInventoryModal({
     }
   }, [item]);
 
-  if (!isOpen || !item) return null;
-
   const handleShelfLifeUnitChange = (newUnit: "DAYS" | "HOURS") => {
     if (newUnit === shelfLifeUnit) return;
     const val = parseFloat(shelfLifeValue);
@@ -184,6 +182,8 @@ export function EditInventoryModal({
       return `≈ ${days} day${days === 1 ? "" : "s"}`;
     }
   }, [shelfLifeValue, shelfLifeUnit]);
+
+  if (!isOpen || !item) return null;
 
   const handleTaxCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const cat = e.target.value;
