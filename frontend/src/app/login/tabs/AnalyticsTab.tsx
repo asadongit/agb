@@ -72,7 +72,7 @@ type AnalyticsTabProps = {
   categorySalesData: any; itemSalesData: any; aovData: any; paymentMixData: any; discountData: any;
   stockMovementData: any; stockIntakeData: any; wastageData: any; purchaseReturnData: any; supplierSpendData: any;
   newCustomerData: any; customerReturnData: any; creditDebitData: any; loyaltyData: any; abandonedCartData: any;
-  profitData: any; billProfitData: any; taxSummaryData: any; cashDenomData: any; outletEarningsData: any;
+  profitData: any; billProfitData: any; taxSummaryData: any; gstr1HsnData?: any; cashDenomData: any; outletEarningsData: any;
   dayBookData: any;
 };
 
@@ -339,14 +339,14 @@ export function AnalyticsTab(props: AnalyticsTabProps) {
                   <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />
                   <ProfitMarginReport data={props.profitData} />
                   <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} restaurant={props.restaurant} />
-                  <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />
+                  <TaxSummaryReport data={props.taxSummaryData} gstr1Data={props.gstr1HsnData} isLoading={props.isLoading} fromDate={props.customFromDate} toDate={props.customToDate} />
                   <CashDenominationReport data={props.cashDenomData} isLoading={props.isLoading} />
                 </div>
               )}
               {props.activeFinancialSubTab === "outlet_earnings" && <OutletEarningsReport data={props.outletEarningsData} isLoading={props.isLoading} />}
               {props.activeFinancialSubTab === "profit_margin" && <ProfitMarginReport data={props.profitData} />}
               {props.activeFinancialSubTab === "bill_profit" && <BillProfitReport data={props.billProfitData} isLoading={props.isLoading} restaurant={props.restaurant} />}
-              {props.activeFinancialSubTab === "tax_summary" && <TaxSummaryReport data={props.taxSummaryData} isLoading={props.isLoading} />}
+              {props.activeFinancialSubTab === "tax_summary" && <TaxSummaryReport data={props.taxSummaryData} gstr1Data={props.gstr1HsnData} isLoading={props.isLoading} fromDate={props.customFromDate} toDate={props.customToDate} />}
               {props.activeFinancialSubTab === "cash_denominations" && <CashDenominationReport data={props.cashDenomData} isLoading={props.isLoading} />}
             </div>
           )}

@@ -79,14 +79,20 @@ export function CustomerServicesTab({
     }
   }, [activeSubTab, searchQuery]);
 
-  const handleAddCustomer = async (name: string, phone: string) => {
+  const handleAddCustomer = async (
+    name: string,
+    phone: string,
+    address?: string,
+    city?: string,
+    state?: string
+  ) => {
     const res = await fetch("/api/admin/customers", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ name, phone }),
+      body: JSON.stringify({ name, phone, address, city, state }),
     });
 
     if (!res.ok) {
@@ -97,14 +103,22 @@ export function CustomerServicesTab({
     await fetchCustomers();
   };
 
-  const handleEditCustomer = async (id: string, name: string, phone: string, extra_detail: string) => {
+  const handleEditCustomer = async (
+    id: string,
+    name: string,
+    phone: string,
+    extra_detail: string,
+    address?: string,
+    city?: string,
+    state?: string
+  ) => {
     const res = await fetch(`/api/admin/customers/${id}`, {
       method: "PATCH",
       headers: {
         "Content-Type": "application/json",
         Authorization: `Bearer ${authToken}`,
       },
-      body: JSON.stringify({ name, phone, extra_detail }),
+      body: JSON.stringify({ name, phone, extra_detail, address, city, state }),
     });
 
     if (!res.ok) {
@@ -325,10 +339,17 @@ export function CustomerServicesTab({
                       <tr key={c.id} className="hover:bg-[var(--bg-surface-elevated)] transition">
                         <td className="py-3 px-4 font-bold text-[var(--text-primary)]">
                           <span className="flex items-center gap-2">
-                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold">
+                            <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-purple-500/10 text-purple-400 border border-purple-500/20 font-bold shrink-0">
                               {c.name.charAt(0).toUpperCase()}
                             </span>
-                            {c.name}
+                            <div>
+                              <div>{c.name}</div>
+                              {(c.city || c.state) && (
+                                <div className="text-[10px] font-normal text-[var(--text-muted)]">
+                                  {[c.city, c.state].filter(Boolean).join(", ")}
+                                </div>
+                              )}
+                            </div>
                           </span>
                         </td>
                         <td className="py-3 px-4 font-mono text-[var(--text-secondary)]">

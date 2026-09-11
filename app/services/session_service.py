@@ -646,6 +646,12 @@ async def staff_add_items_to_session(
         u_price_dec = Decimal(str(cart_item.get("unit_price", 0)))
         l_total_dec = q_dec * u_price_dec
 
+        item_hsn = cart_item.get("hsn_code")
+        if not item_hsn and m_id:
+            mi = await db.get(MenuItem, m_id)
+            if mi:
+                item_hsn = mi.hsn_code
+
         o_item = OrderItem(
             id=uuid.uuid4(),
             order_id=existing_order.id,
@@ -655,6 +661,7 @@ async def staff_add_items_to_session(
             quantity=q_dec,
             unit_price=u_price_dec,
             line_total=l_total_dec,
+            hsn_code=item_hsn,
         )
         db.add(o_item)
 

@@ -17,6 +17,12 @@ class CustomerCreate(StrictSchema):
     name: str = Field(..., min_length=1, max_length=255)
     phone: str = Field(..., min_length=3, max_length=20)
     extra_detail: str | None = Field(None, max_length=1000)
+    gstin: str | None = Field(None, max_length=15)
+    legal_name: str | None = Field(None, max_length=255)
+    state_code: str | None = Field(None, max_length=2)
+    address: str | None = Field(None, max_length=500)
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
 
     @field_validator("name", "phone", mode="before")
     @classmethod
@@ -30,6 +36,12 @@ class CustomerUpdate(StrictSchema):
     name: str | None = Field(None, min_length=1, max_length=255)
     phone: str | None = Field(None, min_length=3, max_length=20)
     extra_detail: str | None = Field(None, max_length=1000)
+    gstin: str | None = Field(None, max_length=15)
+    legal_name: str | None = Field(None, max_length=255)
+    state_code: str | None = Field(None, max_length=2)
+    address: str | None = Field(None, max_length=500)
+    city: str | None = Field(None, max_length=100)
+    state: str | None = Field(None, max_length=100)
 
     @field_validator("name", "phone", mode="before")
     @classmethod
@@ -49,6 +61,12 @@ class CustomerResponse(BaseResponse):
     loyalty_points: int = 0
     credit_balance: float = 0.0
     extra_detail: str | None = None
+    gstin: str | None = None
+    legal_name: str | None = None
+    state_code: str | None = None
+    address: str | None = None
+    city: str | None = None
+    state: str | None = None
     created_at: datetime
     updated_at: datetime
 

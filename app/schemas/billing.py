@@ -22,6 +22,7 @@ class BillItemInput(StrictSchema):
     unit_price: Decimal | None = Field(None, ge=0)
     mrp: Decimal | None = Field(None, ge=0)
     tax_rate: Decimal | None = Field(None, ge=0)
+    hsn_code: str | None = None
     pricing_type: str = Field(default="RETAIL", pattern="^(RETAIL|WHOLESALE)$")
     is_complimentary: bool = False
 
@@ -31,7 +32,11 @@ class CreateManualBillRequest(StrictSchema):
     customer_name: str | None = None
     customer_phone: str | None = None
     customer_extra_detail: str | None = Field(None, max_length=1000)
+    customer_gstin: str | None = Field(None, max_length=15)
+    customer_legal_name: str | None = Field(None, max_length=255)
     replaces_bill_id: str | None = None
+    is_interstate: bool = False
+    place_of_supply: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
 
@@ -40,7 +45,11 @@ class UpdateManualBillRequest(StrictSchema):
     customer_name: str | None = None
     customer_phone: str | None = None
     customer_extra_detail: str | None = Field(None, max_length=1000)
+    customer_gstin: str | None = Field(None, max_length=15)
+    customer_legal_name: str | None = Field(None, max_length=255)
     replaces_bill_id: str | None = None
+    is_interstate: bool = False
+    place_of_supply: str | None = None
     items: list[BillItemInput] = Field(default_factory=list)
 
 
@@ -126,6 +135,7 @@ class BillItemResponse(StrictSchema):
     cost_price: float | None = None
     mrp: float | None = None
     tax_rate: float | None = None
+    hsn_code: str | None = None
     is_complimentary: bool
     line_total: float
 
@@ -136,6 +146,8 @@ class BillResponse(BaseResponse):
     basket_number: str
     customer_name: str | None = None
     customer_phone: str | None = None
+    customer_gstin: str | None = None
+    customer_legal_name: str | None = None
     status: str
     source: str
     subtotal_amount: float
@@ -143,6 +155,8 @@ class BillResponse(BaseResponse):
     handling_charge: float = 0.0
     tax_amount: float = 0.0
     total_amount: float
+    is_interstate: bool = False
+    place_of_supply: str | None = None
     credit_applied: float = 0.0
     debit_applied: float = 0.0
     credit_awarded: float = 0.0

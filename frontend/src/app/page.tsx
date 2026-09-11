@@ -594,6 +594,14 @@ export default function AdminDashboardPage() {
             deleteBatch={inventoryState.deleteBatch}
             updateBatchMetadata={inventoryState.updateBatchMetadata}
             logWastage={inventoryState.logWastage}
+            selectedEditItem={inventoryState.selectedEditItem}
+            isEditItemModalOpen={inventoryState.isEditItemModalOpen}
+            openEditItemModal={inventoryState.openEditItemModal}
+            updateInventoryItem={async (itemId, data) => {
+              const res = await inventoryState.updateInventoryItem(itemId, data);
+              await menuState.loadCategoriesAndMenuItems();
+              return res;
+            }}
             catalogCategories={menuState.categories}
             authToken={accessToken || undefined}
           />
@@ -665,6 +673,14 @@ export default function AdminDashboardPage() {
         setCustomerPhone={billingState.setCustomerPhone}
         customerExtraDetail={billingState.customerExtraDetail}
         setCustomerExtraDetail={billingState.setCustomerExtraDetail}
+        isInterstate={billingState.isInterstate}
+        setIsInterstate={billingState.setIsInterstate}
+        placeOfSupply={billingState.placeOfSupply}
+        setPlaceOfSupply={billingState.setPlaceOfSupply}
+        customerGstin={billingState.customerGstin}
+        setCustomerGstin={billingState.setCustomerGstin}
+        customerLegalName={billingState.customerLegalName}
+        setCustomerLegalName={billingState.setCustomerLegalName}
         handleCreateBill={billingState.handleCreateBill}
         eveningPriceActive={restaurant?.evening_price_active ?? false}
         restaurant={restaurant}

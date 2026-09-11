@@ -204,6 +204,7 @@ async def create_menu_item(
         unit_label=data.unit_label,
         alternate_units=data.alternate_units if hasattr(data, "alternate_units") else [],
         allow_oversell=data.allow_oversell if data.allow_oversell is not None else True,
+        hsn_code=data.hsn_code.strip() if data.hsn_code else None,
     )
     db.add(item)
     await db.flush()
@@ -349,8 +350,10 @@ async def update_menu_item(
         item.alternate_units = data.alternate_units
     if "allow_oversell" in fields_set and data.allow_oversell is not None:
         item.allow_oversell = data.allow_oversell
+    if "hsn_code" in fields_set:
+        item.hsn_code = data.hsn_code.strip() if data.hsn_code else None
 
-    if item.inventory_item_id and ("alternate_units" in fields_set or ("allow_oversell" in fields_set and data.allow_oversell is not None)):
+    if item.inventory_item_id:
         inv_res = await db.execute(
             select(InventoryItem).where(InventoryItem.id == item.inventory_item_id)
         )
@@ -360,6 +363,25 @@ async def update_menu_item(
                 inv_obj.alternate_units = data.alternate_units
             if "allow_oversell" in fields_set and data.allow_oversell is not None:
                 inv_obj.allow_oversell = data.allow_oversell
+            if "hsn_code" in fields_set:
+                inv_obj.hsn_code = data.hsn_code.strip() if data.hsn_code else None
+            if "price" in fields_set and data.price is not None:
+                inv_obj.retail_price = data.price
+            if "mrp" in fields_set:
+                inv_obj.mrp = data.mrp
+            if "wholesale_price" in fields_set:
+                inv_obj.wholesale_price = data.wholesale_price
+
+            if any(k in fields_set for k in ("price", "mrp", "wholesale_price")):
+                from app.services.inventory_service import sync_oldest_batch_prices_from_item
+                await sync_oldest_batch_prices_from_item(
+                    db,
+                    inv_obj.id,
+                    current_user.outlet_id,
+                    retail_price=inv_obj.retail_price,
+                    mrp=inv_obj.mrp,
+                    wholesale_price=inv_obj.wholesale_price,
+                )
 
     effective_mrp = data.mrp if "mrp" in fields_set else item.mrp
     effective_price = item.effective_price

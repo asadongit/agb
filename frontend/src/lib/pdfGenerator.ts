@@ -4,33 +4,8 @@ import { parseUTCDate } from "./api";
 import { OrderResponse } from "@/types";
 import QRCode from "qrcode";
 
-export interface ReceiptPdfData {
-  invoice_no?: string;
-  order_id: string;
-  basket_number: string;
-  created_at?: string;
-  date_time?: string;
-  customer_name?: string;
-  customer_phone?: string;
-  total_amount: string | number;
-  delivery_charge?: number;
-  handling_charge?: number;
-  subtotal_without_tax?: number;
-  total_tax?: number;
-  cgst?: number;
-  sgst?: number;
-  items: Array<{
-    menu_item_id?: string;
-    item_name?: string;
-    quantity: number;
-    unit_price: string | number;
-    line_total?: string | number;
-    mrp?: string | number;
-    is_complimentary?: boolean;
-    tax_rate?: number | string | null;
-    item_tax_rate?: number | string | null;
-  }>;
-}
+// Thermal Receipt Data Types
+
 
 // Helper to safely fetch an image and convert it to Base64 (bypassing canvas CORS issues for relative paths)
 async function fetchImageAsBase64(url: string): Promise<string> {
@@ -53,6 +28,10 @@ export interface ReceiptPdfData {
   date_time?: string;
   customer_name?: string;
   customer_phone?: string;
+  customer_gstin?: string;
+  customer_legal_name?: string;
+  is_interstate?: boolean;
+  place_of_supply?: string;
   total_amount: string | number;
   delivery_charge?: number;
   handling_charge?: number;
@@ -70,6 +49,7 @@ export interface ReceiptPdfData {
     is_complimentary?: boolean;
     tax_rate?: number | string | null;
     item_tax_rate?: number | string | null;
+    hsn_code?: string | null;
   }>;
   restaurant?: {
     name?: string;
@@ -87,13 +67,15 @@ export interface ReceiptPdfData {
   customer?: {
     name?: string;
     phone?: string;
+    gstin?: string;
+    legal_name?: string;
   };
 }
 
 export async function generateReceiptPDF(
   order: OrderResponse | ReceiptPdfData,
   restaurantName: string = "Outlet Receipt",
-  menuItemsMap?: Record<string, { name: string; price?: string; tax_rate?: number | string | null; tax_category?: string | null; unit_label?: string; unit?: string }>,
+  menuItemsMap?: Record<string, { name: string; price?: string; tax_rate?: number | string | null; tax_category?: string | null; unit_label?: string; unit?: string; hsn_code?: string | null }>,
   storeDetailsOrAction?: any,
   actionOpt: "download" | "view" = "download"
 ) {
@@ -268,11 +250,26 @@ export async function generateReceiptPDF(
   if (guestPhone) {
     doc.text(`Mob: ${guestPhone}`, pageWidth - margin, y, { align: "right" });
   }
-  
-  const placeOfSupply = getOutletField("place_of_supply");
+
+  const custGstin = (order as any).customer_gstin || (order as any).customer?.gstin;
+  const custLegalName = (order as any).customer_legal_name || (order as any).customer?.legal_name;
+  if (custGstin) {
+    y += 3.5;
+    doc.text(`GSTIN   : ${custGstin}`, margin, y);
+  }
+  if (custLegalName && custLegalName !== guestName) {
+    y += 3.5;
+    doc.text(`Legal   : ${custLegalName}`, margin, y);
+  }
+
+  const isInterstate = Boolean((order as any).is_interstate);
+  const placeOfSupply = (order as any).place_of_supply || getOutletField("place_of_supply");
   if (placeOfSupply) {
     y += 3.5;
-    doc.text(`Place of Supply: ${placeOfSupply}`, margin, y);
+    doc.text(`Place of Supply: ${placeOfSupply}${isInterstate ? " (Inter-State)" : ""}`, margin, y);
+  } else if (isInterstate) {
+    y += 3.5;
+    doc.text(`Supply Type    : Inter-State (IGST)`, margin, y);
   }
 
   y += 2.5;
@@ -467,11 +464,9 @@ export async function generateReceiptPDF(
   doc.setTextColor(0, 0, 0);
 
   if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
-    if (mrpSavings > 0 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0) {
-      doc.text("Total MRP Value", margin, summaryY);
-      doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 3.5;
-    }
+    doc.text("Total MRP Value", margin, summaryY);
+    doc.text(`INR ${totalMrpVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    summaryY += 3.5;
 
     if (mrpSavings > 0) {
       doc.text("Product Discount", margin, summaryY);
@@ -496,23 +491,22 @@ export async function generateReceiptPDF(
     summaryY += 4.5;
   }
 
-  doc.setFont("courier", "bold");
-  doc.text("Bill Total (GST Inclusive)", margin, summaryY);
-  doc.text(`INR ${amountPayable.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-  summaryY += 4.5;
-  doc.setFont("courier", "normal");
-
-  // Only distribute bill-level discounts (PERCENT and FLAT) across items.
-  // Item-level discounts (COMPLIMENTARY_ITEMS, COMPLIMENTARY) shouldn't reduce the taxable base of paid items.
+  // Calculate ratio of actual paid amount to the taxable subtotal (handles FLAT/PERCENT)
   let taxableSubtotal = totalSellingSubtotal;
   if (discType === "COMPLIMENTARY_ITEMS" || discType === "COMPLIMENTARY") {
     taxableSubtotal = amountPayable + loyaltyDiscountRupees; // Paid items subtotal before bill-level discounts
   }
-  
-  // Calculate ratio of actual paid amount to the taxable subtotal (handles FLAT/PERCENT)
   const discountRatio = taxableSubtotal > 0 ? ((amountPayable + loyaltyDiscountRupees) / taxableSubtotal) : 0;
 
-  const taxGroupMap: Record<number, { base: number; tax: number }> = {};
+  const isInterstateOrder = Boolean((order as any).is_interstate);
+
+  interface HsnSummaryItem {
+    hsn: string;
+    rate: number;
+    base: number;
+    tax: number;
+  }
+  const hsnSummaryMap: Record<string, HsnSummaryItem> = {};
 
   ((order as any).items || []).forEach((item: any) => {
     if (item.is_complimentary === true || item.is_complimentary === 1 || item.is_complimentary === "true" || item.is_complimentary === "1") return;
@@ -530,45 +524,24 @@ export async function generateReceiptPDF(
     }
     if (isNaN(itemTaxRate)) itemTaxRate = 0;
 
+    let itemHsn = (item as any).hsn_code || (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id] as any)?.hsn_code) || "-";
+
     if (itemTaxRate >= 0) {
       const base = itemLineTotal / (1 + (itemTaxRate / 100));
       const taxAmount = itemLineTotal - base;
 
-      if (!taxGroupMap[itemTaxRate]) {
-        taxGroupMap[itemTaxRate] = { base: 0, tax: 0 };
+      const groupKey = `${itemHsn}_${itemTaxRate}`;
+      if (!hsnSummaryMap[groupKey]) {
+        hsnSummaryMap[groupKey] = { hsn: itemHsn, rate: itemTaxRate, base: 0, tax: 0 };
       }
-      taxGroupMap[itemTaxRate].base += base;
-      taxGroupMap[itemTaxRate].tax += taxAmount;
+      hsnSummaryMap[groupKey].base += base;
+      hsnSummaryMap[groupKey].tax += taxAmount;
     }
   });
 
-  const activeTaxRates = Object.keys(taxGroupMap).map(Number).sort((a, b) => a - b);
+  const hsnList = Object.values(hsnSummaryMap).sort((a, b) => a.hsn.localeCompare(b.hsn) || a.rate - b.rate);
 
-  activeTaxRates.forEach((rate) => {
-    const group = taxGroupMap[rate];
-    const groupTax = group.tax;
-    const cgstVal = groupTax / 2;
-    const sgstVal = groupTax / 2;
-
-    const rateLabel = rate.toFixed(1).replace(/\.0$/, "");
-    const halfRateLabel = (rate / 2).toFixed(1).replace(/\.0$/, "");
-
-    doc.text(`GST Included @ ${rateLabel}% (on Rs.${group.base.toFixed(2)})`, margin, summaryY);
-    summaryY += 3.5;
-
-    doc.text(`  CGST @ ${halfRateLabel}%`, margin, summaryY);
-    doc.text(`INR ${cgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-
-    doc.text(`  SGST @ ${halfRateLabel}%`, margin, summaryY);
-    doc.text(`INR ${sgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  });
-
-  summaryY += 1;
-  drawDashedLine(summaryY);
-
-  summaryY += 4.5;
+  // Subtotal & Final Bill Charges
   const billAmount = amountPayable;
   const totalBeforeRound = billAmount + deliveryCharge + handlingCharge;
   
@@ -576,45 +549,47 @@ export async function generateReceiptPDF(
   const netTotal = Math.round(totalBeforeRound);
   const roundOff = netTotal - totalBeforeRound;
 
-  doc.setFont("courier", "normal");
-  doc.setFontSize(7.5);
-  
-  doc.text("Bill Amount", margin, summaryY);
-  doc.text(`INR ${billAmount.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-  summaryY += 3.5;
-  
-  if (deliveryCharge > 0 || (order as any).delivery_charge !== undefined) {
-    doc.text("Delivery Charge", margin, summaryY);
-    doc.text(`INR ${deliveryCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  }
-  
-  if (handlingCharge > 0 || (order as any).handling_charge !== undefined) {
-    doc.text("Handling Charge", margin, summaryY);
-    doc.text(`INR ${handlingCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  }
-  
-  if (Math.abs(roundOff) > 0.001) {
-    doc.text("Round Off", margin, summaryY);
-    const sign = roundOff > 0 ? "+" : "";
-    doc.text(`${sign}${roundOff.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  }
-  
-  summaryY += 1;
-  drawSolidLine(summaryY);
+  const hasExtraLines = deliveryCharge > 0 || handlingCharge > 0 || Math.abs(roundOff) > 0.001 || extraDiscountRupees > 0 || loyaltyDiscountRupees > 0 || mrpSavings > 0;
 
-  summaryY += 4;
+  if (hasExtraLines) {
+    doc.setFont("courier", "normal");
+    doc.setFontSize(7.5);
+    doc.text("Bill Amount", margin, summaryY);
+    doc.text(`INR ${billAmount.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+    summaryY += 3.8;
+
+    if (deliveryCharge > 0) {
+      doc.text("Delivery Charge", margin, summaryY);
+      doc.text(`INR ${deliveryCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+    
+    if (handlingCharge > 0) {
+      doc.text("Handling Charge", margin, summaryY);
+      doc.text(`INR ${handlingCharge.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+    
+    if (Math.abs(roundOff) > 0.001) {
+      doc.text("Round Off", margin, summaryY);
+      const sign = roundOff > 0 ? "+" : "";
+      doc.text(`${sign}${roundOff.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+      summaryY += 3.5;
+    }
+    
+    summaryY += 1.5;
+    drawSolidLine(summaryY);
+    summaryY += 4.5;
+  }
+
   doc.setFont("courier", "bold");
   doc.setFontSize(8.5);
   doc.text("NET TOTAL", margin, summaryY);
   doc.text(`INR ${netTotal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
   
-  summaryY += 1;
-  drawSolidLine(summaryY + 2);
-
-  summaryY += 6;
+  summaryY += 2;
+  drawSolidLine(summaryY);
+  summaryY += 4.5;
 
   const debtSettled = parseFloat(String((order as any).debt_settled || 0)) || 0;
   const creditAwarded = parseFloat(String((order as any).credit_awarded || 0)) || 0;
@@ -661,21 +636,22 @@ export async function generateReceiptPDF(
           netPaid -= creditCashedOut;
       }
       
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
-      summaryY += 6;
+      summaryY += 1.5;
+      drawSolidLine(summaryY);
+      summaryY += 4.5;
       doc.setFont("courier", "bold");
       doc.setFontSize(8.5);
       doc.text("NET PAID", margin, summaryY);
       doc.text(`INR ${netPaid.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
+      summaryY += 2;
+      drawSolidLine(summaryY);
+      summaryY += 4.5;
   }
 
   const customerBalanceRaw = (order as any).customer_balance;
   if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
       const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
-      summaryY += 5;
+      summaryY += 2;
       doc.setFont("courier", "normal");
       doc.setFontSize(7.5);
       if (customerBalance >= 0) {
@@ -685,7 +661,94 @@ export async function generateReceiptPDF(
           doc.text("Outstanding Debit", margin, summaryY);
           doc.text(`INR ${Math.abs(customerBalance).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       }
-      summaryY += 2;
+      summaryY += 3.5;
+  }
+
+  // 4. STATUTORY GST BREAKDOWN TABLE (Spacious & Clean Layout)
+  if (hsnList.length > 0) {
+    summaryY += 5;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(7.5);
+    doc.text("GST TAX SUMMARY", pageWidth / 2, summaryY, { align: "center" });
+    summaryY += 3.2;
+
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+    doc.text(isInterstateOrder ? "(INTER-STATE / IGST)" : "(INTRA-STATE SALE)", pageWidth / 2, summaryY, { align: "center" });
+    summaryY += 3.0;
+
+    drawDashedLine(summaryY);
+    summaryY += 4.0;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(6.5);
+    if (isInterstateOrder) {
+      doc.text("HSN/SAC", margin, summaryY);
+      doc.text("Taxable", 38, summaryY, { align: "right" });
+      doc.text("Rate", 54, summaryY, { align: "right" });
+      doc.text("IGST Amt", pageWidth - margin, summaryY, { align: "right" });
+    } else {
+      doc.text("HSN/SAC", margin, summaryY);
+      doc.text("Taxable", 30, summaryY, { align: "right" });
+      doc.text("CGST", 44, summaryY, { align: "right" });
+      doc.text("SGST", 58, summaryY, { align: "right" });
+      doc.text("Total Tax", pageWidth - margin, summaryY, { align: "right" });
+    }
+    summaryY += 1.8;
+    drawDashedLine(summaryY);
+    summaryY += 4.0;
+
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+
+    let totHsnBase = 0;
+    let totHsnTax = 0;
+
+    hsnList.forEach((grp) => {
+      totHsnBase += grp.base;
+      totHsnTax += grp.tax;
+
+      const displayHsn = grp.hsn && grp.hsn !== "null" && grp.hsn !== "undefined"
+        ? (grp.hsn.length > 8 ? grp.hsn.substring(0, 8) : grp.hsn)
+        : "-";
+      doc.text(displayHsn, margin, summaryY);
+
+      if (isInterstateOrder) {
+        doc.text(grp.base.toFixed(2), 38, summaryY, { align: "right" });
+        doc.text(`${grp.rate.toFixed(1).replace(/\.0$/, "")}%`, 54, summaryY, { align: "right" });
+        doc.text(grp.tax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+      } else {
+        const halfTax = grp.tax / 2;
+        doc.text(grp.base.toFixed(2), 30, summaryY, { align: "right" });
+        doc.text(halfTax.toFixed(2), 44, summaryY, { align: "right" });
+        doc.text(halfTax.toFixed(2), 58, summaryY, { align: "right" });
+        doc.text(grp.tax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+      }
+      summaryY += 3.8;
+    });
+
+    summaryY += 0.8;
+    drawDashedLine(summaryY);
+    summaryY += 3.8;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(6.5);
+    doc.text("Total", margin, summaryY);
+
+    if (isInterstateOrder) {
+      doc.text(totHsnBase.toFixed(2), 38, summaryY, { align: "right" });
+      doc.text(totHsnTax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+    } else {
+      const halfTot = totHsnTax / 2;
+      doc.text(totHsnBase.toFixed(2), 30, summaryY, { align: "right" });
+      doc.text(halfTot.toFixed(2), 44, summaryY, { align: "right" });
+      doc.text(halfTot.toFixed(2), 58, summaryY, { align: "right" });
+      doc.text(totHsnTax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+    }
+
+    summaryY += 2.0;
+    drawDashedLine(summaryY);
   }
 
   // 5. FOOTER & QR CODE

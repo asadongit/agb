@@ -14,6 +14,7 @@ import {
   Plus,
   Trash2,
   TrendingUp,
+  Scale,
 } from "lucide-react";
 import type { BatchDetail, Supplier, InventoryItem } from "@/types";
 import { parseUTCDate } from "@/lib/api";
@@ -83,7 +84,6 @@ export function EditBatchModal({
   const [retailPrice, setRetailPrice] = useState<string>("");
   const [wholesalePrice, setWholesalePrice] = useState<string>("");
   const [syncCatalogPrice, setSyncCatalogPrice] = useState<boolean>(true);
-  const [alternateUnits, setAlternateUnits] = useState<Array<{ unit_label: string; conversion_factor: number }>>([]);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -105,18 +105,6 @@ export function EditBatchModal({
       setRetailPrice(bRetail);
       setWholesalePrice(bWholesale);
       setSyncCatalogPrice(true);
-
-      const rawAlts = (item as any)?.alternate_units || (batch as any)?.alternate_units || [];
-      if (Array.isArray(rawAlts) && rawAlts.length > 0) {
-        setAlternateUnits(
-          rawAlts.map((u: any) => ({
-            unit_label: u.unit_label || "",
-            conversion_factor: Number(u.conversion_factor) || 1,
-          }))
-        );
-      } else {
-        setAlternateUnits([]);
-      }
       setError(null);
     }
   }, [batch, item]);
@@ -203,7 +191,6 @@ export function EditBatchModal({
         mrp: mrp.trim() ? parseFloat(mrp.trim()) : null,
         retail_price: retailPrice.trim() ? parseFloat(retailPrice.trim()) : null,
         wholesale_price: wholesalePrice.trim() ? parseFloat(wholesalePrice.trim()) : null,
-        alternate_units: alternateUnits.filter((u) => u.unit_label.trim() && u.conversion_factor > 0),
         sync_catalog_price: syncCatalogPrice,
       };
 
@@ -502,81 +489,38 @@ export function EditBatchModal({
             </label>
           </div>
 
-          {/* Alternate Units Configuration */}
-          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-2.5">
+          {/* Configured Product Units (Read-only from Item Master) */}
+          <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-2">
             <div className="flex items-center justify-between">
-              <div>
-                <label className="block font-bold text-xs text-[var(--text-primary)]">
-                  Alternate Units Configuration
-                </label>
-                <p className="text-[10px] text-[var(--text-muted)]">
-                  Configure secondary units for this item if omitted during creation (e.g. 1 dozen = 12 piece).
-                </p>
+              <div className="flex items-center gap-2">
+                <Scale className="h-3.5 w-3.5 text-amber-400" />
+                <span className="font-bold text-xs text-[var(--text-primary)]">
+                  Product Packaging & Units
+                </span>
               </div>
-              <button
-                type="button"
-                onClick={() => setAlternateUnits([...alternateUnits, { unit_label: "", conversion_factor: 1 }])}
-                className="inline-flex items-center gap-1 rounded-lg bg-[var(--accent-brand)]/10 px-2.5 py-1 text-[11px] font-bold text-[var(--accent-brand)] hover:bg-[var(--accent-brand)]/20 transition cursor-pointer"
-              >
-                <Plus className="h-3 w-3" /> Add Unit
-              </button>
+              <span className="text-[10px] text-[var(--text-muted)]">
+                Configured in Item Master
+              </span>
             </div>
 
-            {alternateUnits.length === 0 ? (
-              <div className="rounded-lg border border-dashed border-[var(--border-subtle)] p-2.5 text-center text-[11px] text-[var(--text-muted)]">
-                No alternate units configured. Base unit is <span className="font-mono font-bold text-[var(--text-primary)]">{item?.unit || batch.unit || "piece"}</span>.
+            <div className="flex flex-wrap items-center gap-2 pt-1">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-xs">
+                <span className="text-[10px] font-semibold text-[var(--text-muted)] uppercase">Base:</span>
+                <span className="font-mono font-bold text-emerald-400">{item?.unit || (batch as any).unit || "piece"}</span>
               </div>
-            ) : (
-              <div className="space-y-2">
-                {alternateUnits.map((altUnit, idx) => (
-                  <div key={idx} className="flex gap-2 items-center">
-                    <div className="flex items-center gap-1.5 shrink-0 px-2.5 py-1.5 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg">
-                      <span className="text-xs font-semibold text-[var(--text-primary)]">1</span>
-                      <span className="text-xs font-medium text-[var(--text-muted)] max-w-[70px] truncate" title={item?.unit || batch.unit || "piece"}>
-                        {item?.unit || batch.unit || "piece"}
-                      </span>
-                    </div>
-                    <span className="text-xs font-bold text-[var(--text-muted)] shrink-0">=</span>
-                    <div className="flex items-center flex-1 min-w-0 gap-2">
-                      <input
-                        type="number"
-                        step="any"
-                        min="0.001"
-                        placeholder="factor"
-                        value={altUnit.conversion_factor}
-                        onChange={(e) => {
-                          const updated = [...alternateUnits];
-                          updated[idx].conversion_factor = parseFloat(e.target.value) || 1;
-                          setAlternateUnits(updated);
-                        }}
-                        className="w-20 shrink-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none text-center"
-                      />
-                      <input
-                        type="text"
-                        placeholder="e.g. piece, box, crate"
-                        value={altUnit.unit_label}
-                        onChange={(e) => {
-                          const updated = [...alternateUnits];
-                          updated[idx].unit_label = e.target.value;
-                          setAlternateUnits(updated);
-                        }}
-                        className="flex-1 min-w-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
-                      />
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setAlternateUnits(alternateUnits.filter((_, i) => i !== idx));
-                      }}
-                      className="shrink-0 rounded-lg p-1.5 text-rose-400 hover:text-rose-300 hover:bg-rose-500/10 transition cursor-pointer"
-                      title="Remove unit"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                    </button>
+
+              {Array.isArray(item?.alternate_units) && item.alternate_units.length > 0 ? (
+                item.alternate_units.map((u, i) => (
+                  <div key={i} className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-[var(--accent-brand)]/10 border border-[var(--accent-brand)]/20 text-xs font-mono text-[var(--accent-brand)]">
+                    <span>1 {item?.unit || "piece"} = {u.conversion_factor} {u.unit_label}</span>
                   </div>
-                ))}
-              </div>
-            )}
+                ))
+              ) : (
+                <span className="text-[11px] text-[var(--text-muted)] italic">
+                  No secondary units. Edit the item master to configure secondary units.
+                </span>
+              )}
+            </div>
           </div>
 
           {/* Lot Notes / Storage Remarks */}

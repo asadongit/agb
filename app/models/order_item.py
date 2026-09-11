@@ -74,6 +74,7 @@ class OrderItem(Base):
     line_total: Mapped[Decimal | None] = mapped_column(Numeric(10, 2), nullable=True)
     tax_rate: Mapped[Decimal | None] = mapped_column(Numeric(5, 2), nullable=True, default=Decimal("0.00"))
     tax_category: Mapped[str | None] = mapped_column(String(50), nullable=True, default="GST 0%")
+    hsn_code: Mapped[str | None] = mapped_column(String(20), nullable=True)
 
     # Relationships
     order: Mapped[Order] = relationship("Order", back_populates="items")

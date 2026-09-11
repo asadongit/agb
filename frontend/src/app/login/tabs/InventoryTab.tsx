@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect, useMemo, useRef } from "react";
+import React, { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   AlertCircle,
   AlertTriangle,
@@ -66,6 +66,7 @@ import { ReturnBillModal } from "../components/ReturnBillModal";
 import { PrintBarcodesModal } from "../components/PrintBarcodesModal";
 import { DeleteInventoryModal } from "../modals/DeleteInventoryModal";
 import { EditBatchModal } from "../modals/EditBatchModal";
+import { EditInventoryModal } from "../modals/EditInventoryModal";
 import { parseUTCDate } from "../adminUtils";
 import type { InventoryTabType, ScanFeedItem } from "../hooks/useInventoryManagement";
 
@@ -171,6 +172,12 @@ interface InventoryTabProps {
   }) => Promise<void>;
   catalogCategories?: { id: string; name: string }[];
   authToken?: string;
+  // Edit Inventory Item Modal
+  selectedEditItem?: InventoryItem | null;
+  isEditItemModalOpen?: boolean;
+  openEditItemModal?: (item: InventoryItem) => void;
+  closeEditItemModal?: () => void;
+  updateInventoryItem?: (itemId: string, data: any) => Promise<any>;
 }
 
 export function InventoryTab({
@@ -229,6 +236,11 @@ export function InventoryTab({
   logWastage,
   catalogCategories,
   authToken,
+  selectedEditItem: propSelectedEditItem,
+  isEditItemModalOpen: propIsEditItemModalOpen,
+  openEditItemModal: propOpenEditItemModal,
+  closeEditItemModal: propCloseEditItemModal,
+  updateInventoryItem,
 }: InventoryTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
@@ -241,6 +253,31 @@ export function InventoryTab({
   // Edit Batch Modal State
   const [selectedEditBatch, setSelectedEditBatch] = useState<BatchDetail | null>(null);
   const [isEditBatchModalOpen, setIsEditBatchModalOpen] = useState(false);
+
+  // Edit Inventory Item Modal State
+  const [localEditItem, setLocalEditItem] = useState<InventoryItem | null>(null);
+  const [isLocalEditModalOpen, setIsLocalEditModalOpen] = useState(false);
+
+  const activeEditItem = propSelectedEditItem !== undefined ? propSelectedEditItem : localEditItem;
+  const isEditOpen = propIsEditItemModalOpen !== undefined ? propIsEditItemModalOpen : isLocalEditModalOpen;
+
+  const handleOpenEditItem = (item: InventoryItem) => {
+    if (propOpenEditItemModal) {
+      propOpenEditItemModal(item);
+    } else {
+      setLocalEditItem(item);
+      setIsLocalEditModalOpen(true);
+    }
+  };
+
+  const handleCloseEditItem = () => {
+    if (propCloseEditItemModal) {
+      propCloseEditItemModal();
+    } else {
+      setIsLocalEditModalOpen(false);
+      setLocalEditItem(null);
+    }
+  };
 
   useEffect(() => {
     if (localError) {
@@ -301,6 +338,40 @@ export function InventoryTab({
 
   const [itemSortOption, setItemSortOption] = useState<ItemSortOption>("recent");
 
+  // Map of item_id -> latest batch arrival/creation timestamp (ms) based on all batches loaded
+  const latestBatchTimeMap = useMemo(() => {
+    const map = new Map<string, number>();
+    if (!batches || batches.length === 0) return map;
+    for (const b of batches) {
+      if (!b.item_id) continue;
+      const intakeTime = b.intake_date ? parseUTCDate(b.intake_date).getTime() : 0;
+      const createdTime = (b as any).created_at ? parseUTCDate((b as any).created_at).getTime() : 0;
+      const bTime = Math.max(intakeTime, createdTime);
+      if (bTime > 0) {
+        const current = map.get(b.item_id) || 0;
+        if (bTime > current) {
+          map.set(b.item_id, bTime);
+        }
+      }
+    }
+    return map;
+  }, [batches]);
+
+  // Compute the most recent activity/addition timestamp for an item (item created vs its batches)
+  const getMostRecentAddedTime = useCallback(
+    (item: InventoryItem): number => {
+      const itemCreated = (item as any).created_at
+        ? parseUTCDate((item as any).created_at).getTime()
+        : 0;
+      const itemLatestBatch = (item as any).latest_batch_date
+        ? parseUTCDate((item as any).latest_batch_date).getTime()
+        : 0;
+      const batchTime = latestBatchTimeMap.get(item.id) || 0;
+      return Math.max(itemCreated, itemLatestBatch, batchTime);
+    },
+    [latestBatchTimeMap]
+  );
+
   const filteredAndSortedItems = useMemo(() => {
     const list = items.filter((item) => {
       const matchesSearch =
@@ -314,13 +385,16 @@ export function InventoryTab({
     list.sort((a, b) => {
       switch (itemSortOption) {
         case "recent": {
-          const tA = (a as any).created_at ? new Date((a as any).created_at).getTime() : 0;
-          const tB = (b as any).created_at ? new Date((b as any).created_at).getTime() : 0;
-          return tB - tA;
+          const tA = getMostRecentAddedTime(a);
+          const tB = getMostRecentAddedTime(b);
+          if (tB !== tA) {
+            return tB - tA;
+          }
+          return (a.name || "").localeCompare(b.name || "");
         }
         case "oldest": {
-          const tA = (a as any).created_at ? new Date((a as any).created_at).getTime() : 0;
-          const tB = (b as any).created_at ? new Date((b as any).created_at).getTime() : 0;
+          const tA = (a as any).created_at ? parseUTCDate((a as any).created_at).getTime() : 0;
+          const tB = (b as any).created_at ? parseUTCDate((b as any).created_at).getTime() : 0;
           return tA - tB;
         }
         case "alpha_asc":
@@ -341,7 +415,7 @@ export function InventoryTab({
     });
 
     return list;
-  }, [items, searchQuery, selectedCategory, itemSortOption]);
+  }, [items, searchQuery, selectedCategory, itemSortOption, getMostRecentAddedTime]);
 
   const filteredItems = filteredAndSortedItems;
 
@@ -820,13 +894,14 @@ export function InventoryTab({
                         )}
                       </div>
                     </th>
+                    <th className="py-3 px-4">HSN</th>
                     <th className="py-3 px-4 text-right">Actions</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-[var(--border-subtle)]">
                   {filteredItems.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="py-12 text-center">
+                      <td colSpan={7} className="py-12 text-center">
                         <div className="flex flex-col items-center justify-center gap-3">
                           <Package className="h-10 w-10 text-[var(--text-muted)] opacity-50" />
                           <p className="text-sm font-medium text-[var(--text-muted)]">
@@ -894,8 +969,28 @@ export function InventoryTab({
                           <td className="py-3 px-4 font-mono text-[var(--text-secondary)]">
                             ₹{parseFloat(item.cost_per_unit).toFixed(2)}
                           </td>
+                          <td className="py-3 px-4 font-mono text-xs text-[var(--text-secondary)]">
+                            {item.hsn_code ? (
+                              <span className="rounded bg-[var(--bg-surface-elevated)] px-1.5 py-0.5 border border-[var(--border-subtle)] text-[11px] font-bold text-amber-400">
+                                {item.hsn_code}
+                              </span>
+                            ) : (
+                              <span className="text-[11px] text-[var(--text-muted)] italic">-</span>
+                            )}
+                          </td>
                           <td className="py-3 px-4 text-right">
                             <div className="flex items-center justify-end gap-2">
+                              {/* Edit Item Button */}
+                              <button
+                                type="button"
+                                onClick={() => handleOpenEditItem(item)}
+                                className="inline-flex items-center gap-1 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1 text-[11px] font-bold text-amber-400 hover:bg-amber-500/20 transition cursor-pointer"
+                                title="Edit inventory item (HSN, barcode, category, alternate units, tax, pricing)"
+                              >
+                                <Edit className="h-3.5 w-3.5" />
+                                Edit
+                              </button>
+
                               {/* View Batches Button */}
                               {openBatchDrawer && (
                                 <button
@@ -1800,6 +1895,34 @@ export function InventoryTab({
         onConfirm={async (itemId) => {
           if (deleteInventoryItem) {
             await deleteInventoryItem(itemId);
+          }
+        }}
+      />
+
+      {/* Edit Inventory Item Modal */}
+      <EditInventoryModal
+        isOpen={isEditOpen}
+        onClose={handleCloseEditItem}
+        item={activeEditItem}
+        existingCategories={Array.from(new Set(items.map((i) => i.category).filter(Boolean)))}
+        onSave={async (itemId, data) => {
+          if (updateInventoryItem) {
+            await updateInventoryItem(itemId, data);
+          } else {
+            const res = await fetch(`/api/admin/inventory/items/${itemId}`, {
+              method: "PUT",
+              headers: {
+                "Content-Type": "application/json",
+                ...(authToken ? { Authorization: `Bearer ${authToken}` } : {}),
+              },
+              body: JSON.stringify(data),
+            });
+            if (!res.ok) {
+              const errData = await res.json().catch(() => ({}));
+              throw new Error(errData.detail || "Failed to update item");
+            }
+            if (fetchItems) await fetchItems();
+            if (fetchBatches) await fetchBatches();
           }
         }}
       />

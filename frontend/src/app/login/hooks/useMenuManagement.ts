@@ -116,6 +116,10 @@ export function useMenuManagement({
             formData.tax_rate && String(formData.tax_rate).trim() !== ""
               ? parseFloat(String(formData.tax_rate))
               : 0,
+          hsn_code:
+            formData.hsn_code && String(formData.hsn_code).trim() !== ""
+              ? String(formData.hsn_code).trim()
+              : null,
           offer_expires_at: formData.offer_expires_at || null,
         };
 

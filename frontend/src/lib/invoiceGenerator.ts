@@ -157,18 +157,38 @@ export async function generateA4InvoicePDF(
   // 2. BILLED TO SECTION
   const cName = order.customer_name || (order as any).customer?.name || "Walk-in Customer";
   const cPhone = order.customer_phone || (order as any).customer?.phone || "";
+  const cGstin = (order as any).customer_gstin || (order as any).customer?.gstin || "";
+  const cLegalName = (order as any).customer_legal_name || (order as any).customer?.legal_name || "";
+  const posVal = (order as any).place_of_supply || (order as any).customer?.state_code || placeOfSupply || "";
+  const isInterstateBill = Boolean((order as any).is_interstate);
 
   doc.setFont("helvetica", "bold");
   doc.setFontSize(10);
   doc.text("Billed To:", margin, currentY + 4);
   
   doc.setFont("helvetica", "normal");
-  doc.text(`Name: ${cName}`, margin, currentY + 9);
-  if (cPhone) {
-    doc.text(`Phone: ${cPhone}`, margin, currentY + 14);
+  let billedY = currentY + 9;
+  if (cLegalName && cLegalName !== cName) {
+    doc.text(`Legal Name: ${cLegalName}`, margin, billedY); billedY += 4.5;
+    doc.text(`Trade Name: ${cName}`, margin, billedY); billedY += 4.5;
+  } else {
+    doc.text(`Name: ${cName}`, margin, billedY); billedY += 4.5;
   }
-  
-  currentY += 20;
+  if (cPhone) {
+    doc.text(`Phone: ${cPhone}`, margin, billedY); billedY += 4.5;
+  }
+  if (cGstin) {
+    doc.setFont("helvetica", "bold");
+    doc.text(`Customer GSTIN: ${cGstin}`, margin, billedY); billedY += 4.5;
+    doc.setFont("helvetica", "normal");
+  }
+  if (posVal) {
+    doc.text(`Place of Supply: ${posVal}`, margin, billedY); billedY += 4.5;
+  }
+  doc.text(`Supply Type: ${isInterstateBill ? "Inter-State (IGST)" : "Intra-State (CGST + SGST)"}`, margin, billedY);
+  billedY += 4.5;
+
+  currentY = billedY + 2;
 
   // 3. ITEMS TABLE
   const tableData: any[] = [];
@@ -176,19 +196,34 @@ export async function generateA4InvoicePDF(
   let totalSellingSubtotal = 0;
   let totalTaxSum = 0;
 
+  interface HsnBreakdownItem {
+    hsn: string;
+    rate: number;
+    taxable: number;
+    cgst: number;
+    sgst: number;
+    igst: number;
+    totalTax: number;
+  }
+  const hsnGroups: Record<string, HsnBreakdownItem> = {};
+
   order.items.forEach((item, index) => {
     let name = item.item_name || "Unknown Item";
     let basePrice = parseFloat(String(item.unit_price)) || 0;
     
-    // Resolve MRP and Tax
+    // Resolve MRP, Tax, HSN
     let mrpNum = item.mrp ? parseFloat(String(item.mrp)) : undefined;
     let taxRateStr = (item as any).tax_rate ?? (item as any).item_tax_rate ?? null;
+    let hsnCode = (item as any).hsn_code || (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id] as any)?.hsn_code) || "-";
     
     if (menuItemsMap && item.menu_item_id && menuItemsMap[item.menu_item_id]) {
       const mi = menuItemsMap[item.menu_item_id];
       if (!name || name === "Unknown Item") name = mi.name;
       if (taxRateStr === null && mi.tax_rate != null) {
         taxRateStr = String(mi.tax_rate);
+      }
+      if ((!hsnCode || hsnCode === "-") && (mi as any).hsn_code) {
+        hsnCode = (mi as any).hsn_code;
       }
     }
 
@@ -211,6 +246,29 @@ export async function generateA4InvoicePDF(
     totalSellingSubtotal += basePrice * qty;
     totalTaxSum += lineTaxTotal;
 
+    // Aggregate GST breakup per (HSN, Rate)
+    const hsnKey = `${hsnCode}_${taxRate}`;
+    const itemIgst = isInterstateBill ? lineTaxTotal : 0;
+    const itemCgst = !isInterstateBill ? lineTaxTotal / 2 : 0;
+    const itemSgst = !isInterstateBill ? lineTaxTotal / 2 : 0;
+
+    if (!hsnGroups[hsnKey]) {
+      hsnGroups[hsnKey] = {
+        hsn: hsnCode,
+        rate: taxRate,
+        taxable: 0,
+        cgst: 0,
+        sgst: 0,
+        igst: 0,
+        totalTax: 0,
+      };
+    }
+    hsnGroups[hsnKey].taxable += lineBaseTotal;
+    hsnGroups[hsnKey].cgst += itemCgst;
+    hsnGroups[hsnKey].sgst += itemSgst;
+    hsnGroups[hsnKey].igst += itemIgst;
+    hsnGroups[hsnKey].totalTax += lineTaxTotal;
+
     const rawUnit =
       (item as any).selected_unit ||
       (item as any).unit ||
@@ -224,9 +282,11 @@ export async function generateA4InvoicePDF(
     tableData.push([
       index + 1,
       name + (isComplimentary ? "\n(Complimentary)" : ""),
+      hsnCode,
       qtyStr,
       mrp.toFixed(2),
       effectiveRate.toFixed(2),
+      lineBaseTotal.toFixed(2),
       `${taxRate}%`,
       lineTaxTotal.toFixed(2),
       lineTotal.toFixed(2)
@@ -235,26 +295,29 @@ export async function generateA4InvoicePDF(
 
   autoTable(doc, {
     startY: currentY,
-    head: [['S.No', 'Item Description', 'Qty', 'MRP (Rs)', 'Rate (Rs)', 'Tax %', 'Tax Amt', 'Total (Rs)']],
+    head: [['S.No', 'Item Description', 'HSN/SAC', 'Qty', 'MRP (Rs)', 'Rate (Rs)', 'Taxable (Rs)', 'Tax %', 'Tax Amt', 'Total (Rs)']],
     body: tableData,
     theme: 'grid',
     headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
-    styles: { fontSize: 9, cellPadding: 3 },
+    styles: { fontSize: 8.5, cellPadding: 2.5 },
     columnStyles: {
-      0: { halign: 'center', cellWidth: 15 },
-      2: { halign: 'center', cellWidth: 15 },
-      3: { halign: 'right', cellWidth: 22 },
-      4: { halign: 'right', cellWidth: 22 },
-      5: { halign: 'center', cellWidth: 15 },
-      6: { halign: 'right', cellWidth: 22 },
-      7: { halign: 'right', cellWidth: 25 },
+      0: { halign: 'center', cellWidth: 10 },
+      1: { halign: 'left', cellWidth: 44 },
+      2: { halign: 'center', cellWidth: 18 },
+      3: { halign: 'center', cellWidth: 14 },
+      4: { halign: 'right', cellWidth: 16 },
+      5: { halign: 'right', cellWidth: 16 },
+      6: { halign: 'right', cellWidth: 18 },
+      7: { halign: 'center', cellWidth: 14 },
+      8: { halign: 'right', cellWidth: 15 },
+      9: { halign: 'right', cellWidth: 15 },
     },
     didDrawPage: (data) => {
       currentY = data.cursor?.y || currentY;
     }
   });
 
-  currentY = (doc as any).lastAutoTable.finalY + 10; // Two line spacing after table
+  currentY = (doc as any).lastAutoTable.finalY + 8;
   if (currentY > 220) {
     doc.addPage();
     currentY = margin;
@@ -375,10 +438,100 @@ export async function generateA4InvoicePDF(
           printRightRow("OUTSTANDING DEBIT", Math.abs(customerBalance), true);
       }
   }
+
+  // 5. STATUTORY GST BREAKUP TABLE (RULE 46 COMPLIANT)
+  currentY = tY + 8;
+  if (currentY > 215) {
+    doc.addPage();
+    currentY = margin;
+  }
+
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(9);
+  doc.text("Tax Summary / Statutory GST Breakup (as per Rule 46):", margin, currentY);
+  currentY += 3;
+
+  const gstGroupsList = Object.values(hsnGroups);
+  const gstTableHead = isInterstateBill
+    ? [['HSN / SAC', 'Taxable Value (Rs)', 'IGST Rate', 'IGST Amount (Rs)', 'Total Tax (Rs)']]
+    : [['HSN / SAC', 'Taxable Value (Rs)', 'CGST Rate', 'CGST Amount (Rs)', 'SGST Rate', 'SGST Amount (Rs)', 'Total Tax (Rs)']];
+
+  const gstTableBody: any[] = isInterstateBill
+    ? gstGroupsList.map(g => [
+        g.hsn,
+        g.taxable.toFixed(2),
+        `${g.rate}%`,
+        g.igst.toFixed(2),
+        g.totalTax.toFixed(2)
+      ])
+    : gstGroupsList.map(g => [
+        g.hsn,
+        g.taxable.toFixed(2),
+        `${(g.rate / 2).toFixed(1)}%`,
+        g.cgst.toFixed(2),
+        `${(g.rate / 2).toFixed(1)}%`,
+        g.sgst.toFixed(2),
+        g.totalTax.toFixed(2)
+      ]);
+
+  // Totals Row for GST table
+  const totTaxable = gstGroupsList.reduce((acc, g) => acc + g.taxable, 0);
+  const totIgst = gstGroupsList.reduce((acc, g) => acc + g.igst, 0);
+  const totCgst = gstGroupsList.reduce((acc, g) => acc + g.cgst, 0);
+  const totSgst = gstGroupsList.reduce((acc, g) => acc + g.sgst, 0);
+  const totTax = gstGroupsList.reduce((acc, g) => acc + g.totalTax, 0);
+
+  if (isInterstateBill) {
+    gstTableBody.push([
+      'Total',
+      totTaxable.toFixed(2),
+      '',
+      totIgst.toFixed(2),
+      totTax.toFixed(2)
+    ]);
+  } else {
+    gstTableBody.push([
+      'Total',
+      totTaxable.toFixed(2),
+      '',
+      totCgst.toFixed(2),
+      '',
+      totSgst.toFixed(2),
+      totTax.toFixed(2)
+    ]);
+  }
+
+  autoTable(doc, {
+    startY: currentY,
+    head: gstTableHead,
+    body: gstTableBody,
+    theme: 'grid',
+    headStyles: { fillColor: [240, 240, 240], textColor: [0, 0, 0], fontStyle: 'bold' },
+    styles: { fontSize: 8, cellPadding: 2 },
+    columnStyles: isInterstateBill ? {
+      0: { halign: 'center', cellWidth: 35 },
+      1: { halign: 'right', cellWidth: 40 },
+      2: { halign: 'center', cellWidth: 30 },
+      3: { halign: 'right', cellWidth: 35 },
+      4: { halign: 'right', cellWidth: 40 },
+    } : {
+      0: { halign: 'center', cellWidth: 26 },
+      1: { halign: 'right', cellWidth: 30 },
+      2: { halign: 'center', cellWidth: 20 },
+      3: { halign: 'right', cellWidth: 26 },
+      4: { halign: 'center', cellWidth: 20 },
+      5: { halign: 'right', cellWidth: 26 },
+      6: { halign: 'right', cellWidth: 32 },
+    },
+    didDrawPage: (data) => {
+      currentY = data.cursor?.y || currentY;
+    }
+  });
+
+  currentY = (doc as any).lastAutoTable.finalY + 8;
   
-  // 5. AMOUNT IN WORDS
-  currentY = tY + 10;
-  if (currentY > 260) {
+  // 6. AMOUNT IN WORDS
+  if (currentY > 255) {
     doc.addPage();
     currentY = margin;
   }

@@ -83,6 +83,10 @@ export function useInventoryManagement(
   const [selectedBatchItem, setSelectedBatchItem] = useState<InventoryItem | null>(null);
   const [isBatchDrawerOpen, setIsBatchDrawerOpen] = useState(false);
 
+  // Edit Item Modal state
+  const [selectedEditItem, setSelectedEditItem] = useState<InventoryItem | null>(null);
+  const [isEditItemModalOpen, setIsEditItemModalOpen] = useState(false);
+
   // Supplier Modal
   const [isAddSupplierModalOpen, setIsAddSupplierModalOpen] = useState(false);
   const [editingSupplier, setEditingSupplier] = useState<Supplier | undefined>();
@@ -296,6 +300,37 @@ export function useInventoryManagement(
     [apiRequest, fetchBatches, fetchItems]
   );
 
+  const openEditItemModal = useCallback((item: InventoryItem) => {
+    setSelectedEditItem(item);
+    setIsEditItemModalOpen(true);
+  }, []);
+
+  const closeEditItemModal = useCallback(() => {
+    setIsEditItemModalOpen(false);
+    setSelectedEditItem(null);
+  }, []);
+
+  const updateInventoryItem = useCallback(
+    async (itemId: string, data: any) => {
+      try {
+        const res = await apiRequest<InventoryItem>(
+          `/api/admin/inventory/items/${itemId}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(data),
+          }
+        );
+        await Promise.all([fetchItems(), fetchBatches()]);
+        return res;
+      } catch (err: any) {
+        setError(err?.message || "Failed to update inventory item");
+        throw err;
+      }
+    },
+    [apiRequest, fetchItems, fetchBatches]
+  );
+
   useEffect(() => {
     if (activeSubTab === "ledger") {
       fetchLedger();
@@ -388,6 +423,7 @@ export function useInventoryManagement(
       tax_rate?: number;
       sorted_quantity?: number;
       total_billed_amount?: number;
+      hsn_code?: string;
       alternate_units?: Array<{ unit_label: string; conversion_factor: number }>;
     }) => {
       const newItem = await apiRequest<InventoryItem>(
@@ -520,6 +556,12 @@ export function useInventoryManagement(
     isBatchDrawerOpen,
     openBatchDrawer,
     closeBatchDrawer,
+    // Edit Item Modal
+    selectedEditItem,
+    isEditItemModalOpen,
+    openEditItemModal,
+    closeEditItemModal,
+    updateInventoryItem,
     // Supplier Modal
     isAddSupplierModalOpen,
     setIsAddSupplierModalOpen,

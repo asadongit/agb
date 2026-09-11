@@ -113,6 +113,9 @@ class Outlet(Base, TimestampMixin):
     place_of_supply: Mapped[str | None] = mapped_column(
         String(100), nullable=True, default=None
     )
+    interstate_mode: Mapped[str] = mapped_column(
+        String(20), nullable=False, server_default="OFF", default="OFF"
+    )  # "OFF", "PER_BILL", "ALWAYS_ON"
     invoice_terms_conditions: Mapped[str | None] = mapped_column(
         String(2000), nullable=True, default="1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction."
     )

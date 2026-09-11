@@ -115,6 +115,12 @@ class Order(Base, TimestampMixin):
     confirmed_offline: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    is_interstate: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    place_of_supply: Mapped[str | None] = mapped_column(
+        String(100), nullable=True
+    )
     delivery_charge: Mapped[Decimal] = mapped_column(
         Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
     )

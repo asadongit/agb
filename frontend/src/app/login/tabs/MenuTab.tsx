@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useMemo, useEffect } from "react";
+import React, { useState, useMemo, useEffect, useCallback } from "react";
 import {
   ArrowUpDown,
   Barcode,
@@ -40,7 +40,13 @@ export type MenuSortOption =
   | "available_first"
   | "popular_desc";
 
-export type MenuAvailabilityFilter = "ALL" | "IN_STOCK" | "OFFERS" | "OUT_OF_STOCK" | "EVENING_PRICE";
+export type MenuAvailabilityFilter =
+  | "ALL"
+  | "IN_STOCK"
+  | "OUT_OF_STOCK"
+  | "UNAVAILABLE"
+  | "OFFERS"
+  | "EVENING_PRICE";
 import { MenuSettingsDrawer } from "../modals/MenuSettingsDrawer";
 import { BulkOperationsMenu } from "../components/BulkOperationsMenu";
 import { resolveImageUrl } from "@/lib/api";
@@ -61,7 +67,13 @@ interface MenuTabProps {
   onOpenVariantModal: (item: AdminMenuItem) => void;
   onOpenOfferModal: (item: AdminMenuItem) => void;
   onCreateCategory?: (name: string) => Promise<any>;
-  inventoryItems?: { id: string; name: string; barcode?: string | null }[];
+  inventoryItems?: {
+    id: string;
+    name: string;
+    barcode?: string | null;
+    current_stock?: number | string | null;
+    unit?: string;
+  }[];
   restaurant?: RestaurantProfile | null;
   onRestaurantUpdate?: (r: RestaurantProfile) => void;
   authToken?: string;
@@ -126,6 +138,7 @@ export function MenuTab({
     mrp: "",
     tax_category: "GST 0%",
     tax_rate: "0",
+    hsn_code: "",
     pricing_mode: "FIXED_UNIT",
     unit_label: "piece",
     alternate_units: [],
@@ -197,6 +210,7 @@ export function MenuTab({
       mrp: "",
       tax_category: "GST 0%",
       tax_rate: "0",
+      hsn_code: "",
       pricing_mode: "FIXED_UNIT",
       unit_label: "piece",
       alternate_units: [],
@@ -230,6 +244,7 @@ export function MenuTab({
       mrp: item.mrp || "",
       tax_category: item.tax_category || "GST 0%",
       tax_rate: String(item.tax_rate ?? 0),
+      hsn_code: item.hsn_code || "",
       pricing_mode: item.pricing_mode || "FIXED_UNIT",
       unit_label: item.unit_label || "piece",
       alternate_units: (item.alternate_units as any) || [],
@@ -279,18 +294,70 @@ export function MenuTab({
     }
   }, [isEveningActive, availabilityFilter]);
 
+  const inventoryMap = useMemo(() => {
+    const map = new Map<
+      string,
+      { id: string; name: string; barcode?: string | null; current_stock?: number | string | null; unit?: string }
+    >();
+    if (inventoryItems) {
+      for (const inv of inventoryItems) {
+        map.set(inv.id, inv);
+      }
+    }
+    return map;
+  }, [inventoryItems]);
+
+  const getItemStockInfo = useCallback(
+    (item: AdminMenuItem) => {
+      const hasLinkedInventory = Boolean(item.inventory_item_id);
+      if (!hasLinkedInventory) {
+        return {
+          hasLinkedInventory: false,
+          stockVal: null,
+          isOutOfStock: false,
+        };
+      }
+
+      const linkedInv = item.inventory_item_id ? inventoryMap.get(item.inventory_item_id) : undefined;
+      const rawStock = linkedInv?.current_stock !== undefined ? linkedInv.current_stock : item.current_stock;
+      const stockVal =
+        rawStock !== undefined && rawStock !== null && rawStock !== ""
+          ? parseFloat(String(rawStock))
+          : null;
+
+      // Out of stock if stockVal is <= 0 (zero or negative / deficit), or item.is_out_of_stock is true
+      const isOutOfStock =
+        (stockVal !== null && !isNaN(stockVal) && stockVal <= 0) || Boolean(item.is_out_of_stock);
+
+      return {
+        hasLinkedInventory: true,
+        stockVal,
+        isOutOfStock,
+      };
+    },
+    [inventoryMap]
+  );
+
   const catalogCounts = useMemo(() => {
     const scopeItems = menuItems.filter(
       (item) => selectedCategory === "ALL" || item.category_id === selectedCategory
     );
     let inStock = 0;
-    let specialOffers = 0;
     let outOfStock = 0;
+    let unavailable = 0;
+    let specialOffers = 0;
     let eveningPriceSupported = 0;
 
     scopeItems.forEach((item) => {
-      if (item.is_available) inStock++;
-      else outOfStock++;
+      const stockInfo = getItemStockInfo(item);
+
+      if (!item.is_available) {
+        unavailable++;
+      } else if (stockInfo.hasLinkedInventory && stockInfo.isOutOfStock) {
+        outOfStock++;
+      } else {
+        inStock++;
+      }
 
       if (item.is_on_offer) {
         specialOffers++;
@@ -305,11 +372,12 @@ export function MenuTab({
     return {
       all: scopeItems.length,
       inStock,
-      specialOffers,
       outOfStock,
+      unavailable,
+      specialOffers,
       eveningPriceSupported,
     };
-  }, [menuItems, selectedCategory]);
+  }, [menuItems, selectedCategory, getItemStockInfo]);
 
   const filteredAndSortedItems = useMemo(() => {
     let list = menuItems.filter((item) => {
@@ -323,11 +391,20 @@ export function MenuTab({
 
     // Quick Filter Toggles
     if (availabilityFilter === "IN_STOCK") {
-      list = list.filter((item) => item.is_available);
+      list = list.filter((item) => {
+        if (!item.is_available) return false;
+        const stockInfo = getItemStockInfo(item);
+        return !stockInfo.hasLinkedInventory || !stockInfo.isOutOfStock;
+      });
+    } else if (availabilityFilter === "OUT_OF_STOCK") {
+      list = list.filter((item) => {
+        const stockInfo = getItemStockInfo(item);
+        return stockInfo.hasLinkedInventory && stockInfo.isOutOfStock;
+      });
+    } else if (availabilityFilter === "UNAVAILABLE") {
+      list = list.filter((item) => !item.is_available);
     } else if (availabilityFilter === "OFFERS") {
       list = list.filter((item) => !!item.is_on_offer);
-    } else if (availabilityFilter === "OUT_OF_STOCK") {
-      list = list.filter((item) => !item.is_available);
     } else if (availabilityFilter === "EVENING_PRICE") {
       list = list.filter((item) => {
         const eve = item.evening_price ? parseFloat(String(item.evening_price)) : 0;
@@ -393,7 +470,7 @@ export function MenuTab({
     });
 
     return list;
-  }, [menuItems, searchQuery, selectedCategory, availabilityFilter, sortOption, restaurant?.evening_price_active]);
+  }, [menuItems, searchQuery, selectedCategory, availabilityFilter, sortOption, restaurant?.evening_price_active, getItemStockInfo]);
 
   const filteredItems = filteredAndSortedItems;
 
@@ -538,17 +615,39 @@ export function MenuTab({
               </button>
             )}
 
-            {catalogCounts.outOfStock > 0 && (
+            {/* Out of Stock (linked inventory item stock <= 0 or deficit) */}
+            {(catalogCounts.outOfStock > 0 || availabilityFilter === "OUT_OF_STOCK") && (
               <button
                 type="button"
-                onClick={() => setAvailabilityFilter("OUT_OF_STOCK")}
+                onClick={() =>
+                  setAvailabilityFilter(availabilityFilter === "OUT_OF_STOCK" ? "ALL" : "OUT_OF_STOCK")
+                }
                 className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
                   availabilityFilter === "OUT_OF_STOCK"
+                    ? "bg-amber-600 text-white shadow-sm"
+                    : "bg-[var(--bg-surface)] text-amber-400 hover:bg-amber-500/10 border border-amber-500/20"
+                }`}
+              >
+                <Boxes className="h-3 w-3" />
+                Out of Stock ({catalogCounts.outOfStock})
+              </button>
+            )}
+
+            {/* Unavailable (marked unavailable in catalog) */}
+            {(catalogCounts.unavailable > 0 || availabilityFilter === "UNAVAILABLE") && (
+              <button
+                type="button"
+                onClick={() =>
+                  setAvailabilityFilter(availabilityFilter === "UNAVAILABLE" ? "ALL" : "UNAVAILABLE")
+                }
+                className={`inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer ${
+                  availabilityFilter === "UNAVAILABLE"
                     ? "bg-rose-600 text-white shadow-sm"
                     : "bg-[var(--bg-surface)] text-rose-400 hover:bg-rose-500/10 border border-rose-500/20"
                 }`}
               >
-                Out of Stock ({catalogCounts.outOfStock})
+                <span className="h-1.5 w-1.5 rounded-full bg-rose-400" />
+                Unavailable ({catalogCounts.unavailable})
               </button>
             )}
           </div>
@@ -668,17 +767,55 @@ export function MenuTab({
 
                 {/* Status Badges */}
                 <div className="flex flex-wrap gap-1.5 items-center">
-                  <button
-                    type="button"
-                    onClick={() => onToggleAvailability(item.id, !item.is_available)}
-                    className={`rounded-full px-2.5 py-0.5 text-[10px] font-bold transition ${
-                      item.is_available
-                        ? "bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)]"
-                        : "bg-red-500/10 text-red-400 border border-red-500/30"
-                    }`}
-                  >
-                    {item.is_available ? "In Stock" : "Unavailable"}
-                  </button>
+                  {(() => {
+                    const stockInfo = getItemStockInfo(item);
+                    if (!item.is_available) {
+                      return (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => onToggleAvailability(item.id, true)}
+                            className="rounded-full px-2.5 py-0.5 text-[10px] font-bold transition bg-rose-500/10 text-rose-400 border border-rose-500/30 hover:bg-rose-500/20 cursor-pointer"
+                            title="Marked unavailable in catalog. Click to make available."
+                          >
+                            Unavailable
+                          </button>
+                          {stockInfo.hasLinkedInventory && stockInfo.isOutOfStock && (
+                            <span
+                              className="inline-flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/30"
+                              title={`Out of stock in inventory (${stockInfo.stockVal ?? 0})`}
+                            >
+                              Out of Stock{stockInfo.stockVal !== null && stockInfo.stockVal < 0 ? ` (${stockInfo.stockVal})` : ""}
+                            </span>
+                          )}
+                        </>
+                      );
+                    }
+
+                    if (stockInfo.hasLinkedInventory && stockInfo.isOutOfStock) {
+                      return (
+                        <button
+                          type="button"
+                          onClick={() => onToggleAvailability(item.id, false)}
+                          className="rounded-full px-2.5 py-0.5 text-[10px] font-bold transition bg-rose-500/15 text-rose-400 border border-rose-500/30 hover:bg-rose-500/25 cursor-pointer"
+                          title={`Out of stock in inventory (${stockInfo.stockVal ?? 0}). Click to mark unavailable in catalog.`}
+                        >
+                          Out of Stock{stockInfo.stockVal !== null && stockInfo.stockVal < 0 ? ` (${stockInfo.stockVal})` : ""}
+                        </button>
+                      );
+                    }
+
+                    return (
+                      <button
+                        type="button"
+                        onClick={() => onToggleAvailability(item.id, false)}
+                        className="rounded-full px-2.5 py-0.5 text-[10px] font-bold transition bg-[var(--bg-surface-elevated)] text-[var(--text-secondary)] border border-[var(--border-subtle)] hover:text-[var(--text-primary)] cursor-pointer"
+                        title="In Stock. Click to mark unavailable in catalog."
+                      >
+                        In Stock
+                      </button>
+                    );
+                  })()}
 
                   {hasDiscount && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-bold text-amber-400 border border-amber-500/20">
@@ -699,6 +836,12 @@ export function MenuTab({
                   {item.tax_category && (
                     <span className="inline-flex items-center gap-1 rounded-full bg-indigo-500/10 px-2 py-0.5 text-[10px] font-semibold text-indigo-300 border border-indigo-500/20">
                       {item.tax_category}
+                    </span>
+                  )}
+
+                  {item.hsn_code && (
+                    <span className="inline-flex items-center gap-1 rounded-full bg-amber-500/10 px-2 py-0.5 text-[10px] font-mono font-bold text-amber-300 border border-amber-500/30">
+                      HSN: {item.hsn_code}
                     </span>
                   )}
 
@@ -876,7 +1019,7 @@ export function MenuTab({
                     <option value="">-- Direct 1:1 Auto-Match / Recipe Managed --</option>
                     {inventoryItems.map((inv) => (
                       <option key={inv.id} value={inv.id}>
-                        {inv.name} {inv.barcode ? `(${inv.barcode})` : ""}
+                        {inv.name} {inv.barcode ? `(${inv.barcode})` : ""}{inv.current_stock !== undefined && inv.current_stock !== null ? ` [Stock: ${inv.current_stock}]` : ""}
                       </option>
                     ))}
                   </select>
@@ -1106,6 +1249,18 @@ export function MenuTab({
                       <span className="text-xs font-bold text-[var(--text-muted)]">%</span>
                     </div>
                   )}
+                </div>
+
+                <div>
+                  <label className="block font-semibold mb-1 text-xs">HSN / SAC Code</label>
+                  <input
+                    type="text"
+                    maxLength={8}
+                    placeholder="e.g. 2106 or 1006"
+                    value={formData.hsn_code || ""}
+                    onChange={(e) => setFormData({ ...formData, hsn_code: e.target.value.trim() })}
+                    className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
+                  />
                 </div>
               </div>
 

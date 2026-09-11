@@ -726,6 +726,7 @@ async def create_inventory_item(
         shelf_life_alert_hrs=getattr(data, "shelf_life_alert_hrs", None),
         alternate_units=getattr(data, "alternate_units", []) or [],
         allow_oversell=getattr(data, "allow_oversell", True) if getattr(data, "allow_oversell", None) is not None else True,
+        hsn_code=getattr(data, "hsn_code", None),
         is_active=True,
     )
     db.add(item)
@@ -756,10 +757,33 @@ async def update_inventory_item(
 
     if data.name is not None:
         item.name = data.name.strip()
+    if "barcode" in data.model_fields_set:
+        item.barcode = data.barcode.strip() if data.barcode else None
     if data.unit is not None:
-        item.unit = data.unit
+        item.unit = data.unit.strip().lower()
+    
+    cat_obj = None
     if data.category is not None:
-        item.category = data.category.strip()
+        cat_name = data.category.strip()
+        item.category = cat_name
+        from app.models.category import Category
+        cat_res = await db.execute(
+            select(Category).where(
+                Category.outlet_id == outlet_id,
+                Category.name.ilike(cat_name)
+            )
+        )
+        cat_obj = cat_res.scalars().first()
+        if not cat_obj:
+            cat_obj = Category(
+                id=uuid.uuid4(),
+                outlet_id=outlet_id,
+                name=cat_name,
+                display_order=0,
+            )
+            db.add(cat_obj)
+            await db.flush()
+
     if data.current_stock is not None:
         item.current_stock = data.current_stock
     if data.reorder_threshold is not None:
@@ -786,6 +810,8 @@ async def update_inventory_item(
         item.mrp_margin_pct = data.mrp_margin_pct
     if getattr(data, "wholesale_margin_pct", None) is not None:
         item.wholesale_margin_pct = data.wholesale_margin_pct
+    if "hsn_code" in data.model_fields_set:
+        item.hsn_code = data.hsn_code.strip() if data.hsn_code else None
     if data.is_active is not None:
         item.is_active = data.is_active
 
@@ -795,7 +821,17 @@ async def update_inventory_item(
     if getattr(data, "alternate_units", None) is not None:
         item.alternate_units = data.alternate_units
 
-    # Sync to linked MenuItem
+    if any(getattr(data, k, None) is not None for k in ("retail_price", "mrp", "wholesale_price")):
+        await sync_oldest_batch_prices_from_item(
+            db,
+            item.id,
+            outlet_id,
+            retail_price=item.retail_price,
+            mrp=item.mrp,
+            wholesale_price=item.wholesale_price,
+        )
+
+    # Sync to linked MenuItem(s)
     from app.models.menu_item import MenuItem
     mi_res = await db.execute(
         select(MenuItem).where(
@@ -803,21 +839,60 @@ async def update_inventory_item(
             MenuItem.inventory_item_id == item.id,
         )
     )
-    for mi in mi_res.scalars().all():
-        if getattr(data, "mrp", None) is not None:
-            mi.mrp = data.mrp
+    linked_mis = list(mi_res.scalars().all())
+
+    # If not linked by ID, attempt to link matching MenuItem by name
+    if not linked_mis and item.name:
+        mi_name_res = await db.execute(
+            select(MenuItem).where(
+                MenuItem.outlet_id == outlet_id,
+                MenuItem.name.ilike(item.name),
+            )
+        )
+        by_name = mi_name_res.scalars().first()
+        if by_name:
+            by_name.inventory_item_id = item.id
+            linked_mis.append(by_name)
+
+    for mi in linked_mis:
         if data.name is not None:
-            mi.name = data.name.strip()
+            mi.name = item.name
+        if "barcode" in data.model_fields_set:
+            mi.barcode = item.barcode
+        if cat_obj is not None:
+            mi.category_id = cat_obj.id
+        if "hsn_code" in data.model_fields_set:
+            mi.hsn_code = item.hsn_code
+        if getattr(data, "tax_category", None) is not None:
+            mi.tax_category = item.tax_category
+        if getattr(data, "tax_rate", None) is not None:
+            mi.tax_rate = item.tax_rate
+        if data.unit is not None:
+            mi.unit_label = item.unit
         if getattr(data, "alternate_units", None) is not None:
-            mi.alternate_units = data.alternate_units
+            mi.alternate_units = item.alternate_units
         if getattr(data, "allow_oversell", None) is not None:
-            mi.allow_oversell = data.allow_oversell
+            mi.allow_oversell = item.allow_oversell
+        if getattr(data, "mrp", None) is not None:
+            mi.mrp = item.mrp
+        if getattr(data, "retail_price", None) is not None and data.retail_price is not None:
+            mi.price = item.retail_price
+        if getattr(data, "wholesale_price", None) is not None:
+            mi.wholesale_price = item.wholesale_price
 
     from app.services.menu_service import invalidate_outlet_menu
     await invalidate_outlet_menu(db, outlet_id)
 
     await db.flush()
+    await db.commit()
     await db.refresh(item)
+
+    try:
+        from app.services.websocket_service import broadcast_catalog_updated
+        await broadcast_catalog_updated(outlet_id, reason="INVENTORY_ITEM_UPDATED", item_id=str(item.id))
+    except Exception:
+        pass
+
     return item
 
 
@@ -923,6 +998,45 @@ async def sync_item_prices_from_oldest_batch(
             pass
 
     return price_changed
+
+
+async def sync_oldest_batch_prices_from_item(
+    db: AsyncSession,
+    item_id: uuid.UUID,
+    outlet_id: uuid.UUID,
+    retail_price: Decimal | None = None,
+    mrp: Decimal | None = None,
+    wholesale_price: Decimal | None = None,
+) -> StockIntake | None:
+    """
+    When selling price, MRP, or wholesale price is edited from Menu Item dashboard,
+    Excel import, or Inventory Item master:
+    Updates the OLDEST active positive batch (remaining_quantity > 0) following FIFO.
+    Newer/upcoming batches remain untouched, preserving their own batch prices.
+    When this oldest batch is later depleted, the next batch's prices will take over automatically.
+    """
+    batches_res = await db.execute(
+        select(StockIntake)
+        .where(
+            StockIntake.item_id == item_id,
+            StockIntake.outlet_id == outlet_id,
+            StockIntake.remaining_quantity > Decimal("0.000"),
+        )
+        .order_by(
+            StockIntake.expiry_date.asc().nulls_last(),
+            StockIntake.intake_date.asc(),
+            StockIntake.created_at.asc(),
+        )
+    )
+    oldest_batch = batches_res.scalars().first()
+    if oldest_batch:
+        if retail_price is not None:
+            oldest_batch.retail_price = retail_price
+        if mrp is not None:
+            oldest_batch.mrp = mrp
+        if wholesale_price is not None:
+            oldest_batch.wholesale_price = wholesale_price
+    return oldest_batch
 
 
 async def absorb_deficit_into_new_batch(
@@ -1275,6 +1389,7 @@ async def onboard_scanned_item(
     mrp_margin_pct: Decimal | None = None,
     wholesale_margin_pct: Decimal | None = None,
     alternate_units: list[dict[str, Any]] | None = None,
+    hsn_code: str | None = None,
 ) -> tuple[InventoryItem, StockIntake | None]:
     """
     Scan / Manual Inward Stock: Registers a new item or appends a new batch to an existing item.
@@ -1344,6 +1459,8 @@ async def onboard_scanned_item(
             item.barcode = clean_barcode
         if alternate_units is not None:
             item.alternate_units = alternate_units
+        if hsn_code is not None:
+            item.hsn_code = hsn_code.strip() if hsn_code else None
     else:
         # Item does not exist -> Create new InventoryItem
         if clean_barcode:
@@ -1380,6 +1497,7 @@ async def onboard_scanned_item(
             tax_rate=tax_rate,
             shelf_life_alert_hrs=shelf_life_alert_hrs,
             alternate_units=alternate_units or [],
+            hsn_code=hsn_code.strip() if hsn_code else None,
             is_active=True,
         )
         db.add(item)
@@ -1469,6 +1587,8 @@ async def onboard_scanned_item(
                 menu_item.alternate_units = alternate_units
             if clean_barcode:
                 menu_item.barcode = clean_barcode
+            if hsn_code is not None:
+                menu_item.hsn_code = hsn_code.strip() if hsn_code else None
         else:
             menu_item = MenuItem(
                 id=uuid.uuid4(),
@@ -1482,6 +1602,7 @@ async def onboard_scanned_item(
                 wholesale_price=wholesale_price,
                 tax_category=tax_category,
                 tax_rate=tax_rate,
+                hsn_code=hsn_code.strip() if hsn_code else None,
                 is_available=True,
                 is_verification_required=False,
                 unit_label=unit_str,

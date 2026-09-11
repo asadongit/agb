@@ -87,6 +87,10 @@ export function useBillingManagement({
   const [deliveryCharge, setDeliveryCharge] = useState<number>(0);
   const [handlingCharge, setHandlingCharge] = useState<number>(0);
   const [draftCartItems, setDraftCartItems] = useState<DraftCartItem[]>([]);
+  const [isInterstate, setIsInterstate] = useState<boolean>(false);
+  const [placeOfSupply, setPlaceOfSupply] = useState<string>("");
+  const [customerGstin, setCustomerGstin] = useState<string>("");
+  const [customerLegalName, setCustomerLegalName] = useState<string>("");
 
   // Discount Modal State
   const [discountModalOpen, setDiscountModalOpen] = useState(false);
@@ -147,6 +151,10 @@ export function useBillingManagement({
         customer_name: customerName || null,
         customer_phone: customerPhone || null,
         customer_extra_detail: customerExtraDetail || null,
+        is_interstate: isInterstate,
+        place_of_supply: placeOfSupply || null,
+        customer_gstin: customerGstin || null,
+        customer_legal_name: customerLegalName || null,
         items: draftCartItems.map((item) => ({
           menu_item_id: item.menu_item_id || null,
           variant_id: item.variant_id || null,
@@ -157,6 +165,7 @@ export function useBillingManagement({
           unit_price: item.unit_price,
           mrp: item.mrp || null,
           tax_rate: item.tax_rate || null,
+          hsn_code: item.hsn_code || null,
           pricing_type: item.pricing_type || "RETAIL",
           is_complimentary: item.is_complimentary,
           selected_unit: item.selected_unit || null,
@@ -202,6 +211,10 @@ export function useBillingManagement({
     setSelectedTable(bill.basket_number || "WALK-IN");
     setCustomerName(bill.customer_name || "");
     setCustomerPhone(bill.customer_phone || "");
+    setIsInterstate(Boolean((bill as any).is_interstate));
+    setPlaceOfSupply((bill as any).place_of_supply || "");
+    setCustomerGstin((bill as any).customer_gstin || "");
+    setCustomerLegalName((bill as any).customer_legal_name || "");
     setDeliveryCharge(bill.delivery_charge || 0);
     setHandlingCharge(bill.handling_charge || 0);
     if (bill.items && bill.items.length > 0) {
@@ -217,6 +230,7 @@ export function useBillingManagement({
           unit_price: uPrice,
           mrp: uMrp,
           tax_rate: typeof it.tax_rate === "number" ? it.tax_rate : parseFloat(it.tax_rate) || null,
+          hsn_code: it.hsn_code || (it.menu_item && it.menu_item.hsn_code) || null,
           quantity: typeof it.quantity === "number" ? it.quantity : parseFloat(it.quantity) || 1,
           pricing_type: "RETAIL",
           is_complimentary: !!it.is_complimentary,
@@ -237,6 +251,10 @@ export function useBillingManagement({
     setSelectedTable(bill.basket_number || "WALK-IN");
     setCustomerName(bill.customer_name || "");
     setCustomerPhone(bill.customer_phone || "");
+    setIsInterstate(Boolean((bill as any).is_interstate));
+    setPlaceOfSupply((bill as any).place_of_supply || "");
+    setCustomerGstin((bill as any).customer_gstin || "");
+    setCustomerLegalName((bill as any).customer_legal_name || "");
     setDeliveryCharge(bill.delivery_charge || 0);
     setHandlingCharge(bill.handling_charge || 0);
     if (bill.items && bill.items.length > 0) {
@@ -252,6 +270,7 @@ export function useBillingManagement({
           unit_price: uPrice,
           mrp: uMrp,
           tax_rate: typeof it.tax_rate === "number" ? it.tax_rate : parseFloat(it.tax_rate) || null,
+          hsn_code: it.hsn_code || (it.menu_item && it.menu_item.hsn_code) || null,
           quantity: typeof it.quantity === "number" ? it.quantity : parseFloat(it.quantity) || 1,
           pricing_type: "RETAIL",
           is_complimentary: !!it.is_complimentary,
@@ -394,6 +413,10 @@ export function useBillingManagement({
     setCustomerName("");
     setCustomerPhone("");
     setCustomerExtraDetail("");
+    setIsInterstate(false);
+    setPlaceOfSupply("");
+    setCustomerGstin("");
+    setCustomerLegalName("");
     setDeliveryCharge(0);
     setHandlingCharge(0);
     setDraftCartItems([]);
@@ -469,6 +492,14 @@ export function useBillingManagement({
     setCustomerPhone,
     customerExtraDetail,
     setCustomerExtraDetail,
+    isInterstate,
+    setIsInterstate,
+    placeOfSupply,
+    setPlaceOfSupply,
+    customerGstin,
+    setCustomerGstin,
+    customerLegalName,
+    setCustomerLegalName,
     deliveryCharge,
     setDeliveryCharge,
     handlingCharge,

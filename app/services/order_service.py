@@ -107,6 +107,7 @@ async def create_order(
             item_name=item_name,
             tax_rate=tax_rate,
             tax_category=tax_category,
+            hsn_code=getattr(m_item, "hsn_code", None) or (getattr(inv_item, "hsn_code", None) if inv_item else None),
         )
         order_items.append(order_item)
         total += unit_price * item_req.quantity

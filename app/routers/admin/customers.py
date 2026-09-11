@@ -60,7 +60,19 @@ async def create_customer_route(
     db: DBSession,
 ):
     """Register a new customer for current outlet."""
-    cust = await create_customer(db, current_user.outlet_id, data.name, data.phone, data.extra_detail)
+    cust = await create_customer(
+        db,
+        current_user.outlet_id,
+        data.name,
+        data.phone,
+        data.extra_detail,
+        gstin=data.gstin,
+        legal_name=data.legal_name,
+        state_code=data.state_code,
+        address=data.address,
+        city=data.city,
+        state=data.state,
+    )
 
     await log_action(
         db,
@@ -69,7 +81,7 @@ async def create_customer_route(
         "CREATE",
         "Customer",
         str(cust.id),
-        details={"name": cust.name, "phone": cust.phone},
+        details={"name": cust.name, "phone": cust.phone, "gstin": cust.gstin},
     )
 
     return cust
@@ -82,7 +94,7 @@ async def update_customer_route(
     current_user: RequireAdmin,
     db: DBSession,
 ):
-    """Update a customer's details (name, phone) for current outlet."""
+    """Update a customer's details (name, phone, GST, address, city, state) for current outlet."""
     cust = await update_customer(
         db,
         current_user.outlet_id,
@@ -90,6 +102,12 @@ async def update_customer_route(
         name=data.name,
         phone=data.phone,
         extra_detail=data.extra_detail,
+        gstin=data.gstin,
+        legal_name=data.legal_name,
+        state_code=data.state_code,
+        address=data.address,
+        city=data.city,
+        state=data.state,
     )
 
     await log_action(
@@ -99,7 +117,7 @@ async def update_customer_route(
         "UPDATE",
         "Customer",
         str(cust.id),
-        details={"name": cust.name, "phone": cust.phone},
+        details={"name": cust.name, "phone": cust.phone, "gstin": cust.gstin},
     )
 
     return cust

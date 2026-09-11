@@ -46,6 +46,12 @@ class Customer(Base, TimestampMixin):
         Numeric(10, 2), nullable=False, server_default="0.00", default=Decimal("0.00")
     )
     extra_detail: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    gstin: Mapped[str | None] = mapped_column(String(50), nullable=True, index=True)
+    legal_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    state_code: Mapped[str | None] = mapped_column(String(10), nullable=True)
+    address: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    city: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    state: Mapped[str | None] = mapped_column(String(100), nullable=True)
 
     # Relationships
     outlet: Mapped[Outlet] = relationship(

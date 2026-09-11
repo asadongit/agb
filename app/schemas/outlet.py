@@ -53,6 +53,7 @@ class OutletCreate(StrictSchema):
     loyalty_redemption_tiers: list[LoyaltyTier] = Field(default_factory=list)
     loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"), ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
+    interstate_mode: str = "OFF"
 
 
 class OutletUpdate(StrictSchema):
@@ -87,6 +88,7 @@ class OutletUpdate(StrictSchema):
     loyalty_redemption_tiers: list[LoyaltyTier] | None = None
     loyalty_max_bill_percentage: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
+    interstate_mode: str | None = None
 
 
 class OutletResponse(BaseResponse):
@@ -122,6 +124,7 @@ class OutletResponse(BaseResponse):
     loyalty_redemption_tiers: list[LoyaltyTier] = Field(default_factory=list)
     loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"))
     invoice_terms_conditions: str | None = None
+    interstate_mode: str = "OFF"
     created_at: datetime
     updated_at: datetime
 

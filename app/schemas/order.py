@@ -65,6 +65,7 @@ class OrderItemResponse(BaseResponse):
     is_complimentary: bool = False
     tax_rate: Decimal | None = Decimal("0.00")
     tax_category: str | None = "GST 0%"
+    hsn_code: str | None = None
     mrp: Decimal | None = None
 
 
@@ -85,6 +86,8 @@ class OrderResponse(BaseResponse):
     updated_at: datetime
     delivery_charge: Decimal = Decimal("0.00")
     handling_charge: Decimal = Decimal("0.00")
+    is_interstate: bool = False
+    place_of_supply: str | None = None
     credit_applied: Decimal = Decimal("0.00")
     debit_applied: Decimal = Decimal("0.00")
     credit_awarded: Decimal = Decimal("0.00")

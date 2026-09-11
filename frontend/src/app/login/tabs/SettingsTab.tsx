@@ -265,6 +265,22 @@ export function SettingsTab({
               </label>
 
               <label className="block space-y-1 mt-3">
+                <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Inter-State GST (IGST) Mode</span>
+                <select
+                  value={restaurantForm.interstate_mode || "OFF"}
+                  onChange={(event) => setRestaurantForm((current) => ({ ...current, interstate_mode: event.target.value as any }))}
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3 py-2 text-sm text-[var(--text-primary)]"
+                >
+                  <option value="OFF">Disabled / Local Only (Default - Strict Intra-State CGST + SGST only)</option>
+                  <option value="PER_BILL">Per-Bill Selection (Local walk-in default, allow IGST toggle per order)</option>
+                  <option value="ALWAYS_ON">Always Inter-State (IGST 100% on every bill - e.g. Central Out-of-State Fulfillment Hub)</option>
+                </select>
+                <span className="text-[10px] text-[var(--text-muted)] block">
+                  Controls how GST is collected on customer invoices and reported to your CA for GSTR-1 filings.
+                </span>
+              </label>
+
+              <label className="block space-y-1 mt-3">
                 <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Bill QR URL</span>
                 <input
                   type="url"

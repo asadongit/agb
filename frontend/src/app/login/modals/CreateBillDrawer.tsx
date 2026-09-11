@@ -21,6 +21,7 @@ export type DraftCartItem = {
   unit_price: number;
   mrp?: number | null;
   tax_rate?: number | null;
+  hsn_code?: string | null;
   quantity: number;
   pricing_type?: "RETAIL" | "WHOLESALE";
   is_complimentary: boolean;
@@ -43,6 +44,15 @@ export const getUnallocatedBatchStock = (
   return Math.max(0, nominalStock - alreadyAllocated);
 };
 
+export const getUnitFactor = (
+  item: AdminMenuItem | undefined,
+  selectedUnit: string | null | undefined
+): number => {
+  if (!item || !selectedUnit || selectedUnit === (item.unit_label || "piece")) return 1;
+  const altUnit = (item.alternate_units as any[])?.find((au: any) => au.unit_label === selectedUnit);
+  return altUnit ? (Number(altUnit.conversion_factor) || 1) : 1;
+};
+
 type CreateBillDrawerProps = {
   isOpen: boolean;
   onClose: () => void;
@@ -58,6 +68,14 @@ type CreateBillDrawerProps = {
   setCustomerPhone: (phone: string) => void;
   customerExtraDetail: string;
   setCustomerExtraDetail: (detail: string) => void;
+  isInterstate?: boolean;
+  setIsInterstate?: (v: boolean) => void;
+  placeOfSupply?: string;
+  setPlaceOfSupply?: (v: string) => void;
+  customerGstin?: string;
+  setCustomerGstin?: (v: string) => void;
+  customerLegalName?: string;
+  setCustomerLegalName?: (v: string) => void;
   handleCreateBill: (instantPayment: boolean) => Promise<void>;
   eveningPriceActive?: boolean;
   restaurant?: import("../adminTypes").RestaurantProfile | null;
@@ -195,6 +213,14 @@ export function CreateBillDrawer({
   setCustomerPhone,
   customerExtraDetail,
   setCustomerExtraDetail,
+  isInterstate,
+  setIsInterstate,
+  placeOfSupply,
+  setPlaceOfSupply,
+  customerGstin,
+  setCustomerGstin,
+  customerLegalName,
+  setCustomerLegalName,
   handleCreateBill,
   eveningPriceActive = false,
   restaurant,
@@ -208,8 +234,25 @@ export function CreateBillDrawer({
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const [pricingMode, setPricingMode] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
 
+  // B2B GST details expansion state
+  const [showB2bFields, setShowB2bFields] = useState(false);
+  useEffect(() => {
+    if (customerGstin || customerLegalName) {
+      setShowB2bFields(true);
+    }
+  }, [customerGstin, customerLegalName]);
+
+  // If outlet mode is ALWAYS_ON, ensure isInterstate is set; if OFF, ensure isInterstate is false
+  useEffect(() => {
+    if (restaurant?.interstate_mode === "ALWAYS_ON" && setIsInterstate && !isInterstate) {
+      setIsInterstate(true);
+    } else if ((!restaurant?.interstate_mode || restaurant?.interstate_mode === "OFF") && setIsInterstate && isInterstate) {
+      setIsInterstate(false);
+    }
+  }, [restaurant?.interstate_mode, setIsInterstate, isInterstate]);
+
   // Customer Auto-suggest & Analytics state
-  const [customerSuggestions, setCustomerSuggestions] = useState<{ name: string; phone: string }[]>([]);
+  const [customerSuggestions, setCustomerSuggestions] = useState<{ name: string; phone: string; gstin?: string; legal_name?: string; state_code?: string }[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [highlightedSuggestionIndex, setHighlightedSuggestionIndex] = useState(-1);
   const [customerAnalytics, setCustomerAnalytics] = useState<CustomerAnalytics | null>(null);
@@ -274,17 +317,32 @@ export function CreateBillDrawer({
 
       const newItems: DraftCartItem[] = allocations.map((alloc) => {
         const b = alloc.batch;
-        const altPrice = !baseItem.is_custom_price && b.retail_price ? Number(b.retail_price) : baseItem.unit_price;
-        const altMrp = !baseItem.is_custom_price && b.mrp ? Number(b.mrp) : baseItem.mrp;
+        const orig = menuItems.find((m) => m.id === baseItem.menu_item_id);
+        const factor = getUnitFactor(orig, baseItem.selected_unit);
+
+        const baseBatchPrice = !baseItem.is_custom_price && b.retail_price != null
+          ? Number(b.retail_price)
+          : (baseItem.base_unit_price ?? baseItem.unit_price);
+        const baseBatchMrp = !baseItem.is_custom_price && b.mrp != null
+          ? Number(b.mrp)
+          : (baseItem.base_mrp ?? baseItem.mrp ?? baseBatchPrice);
+
+        const altPrice = !baseItem.is_custom_price
+          ? (factor > 0 ? baseBatchPrice / factor : baseBatchPrice)
+          : baseItem.unit_price;
+        const altMrp = !baseItem.is_custom_price
+          ? (factor > 0 ? Math.max(baseBatchMrp / factor, altPrice) : Math.max(baseBatchMrp, altPrice))
+          : baseItem.mrp;
+
         return {
           ...baseItem,
           quantity: alloc.quantity,
           selected_batch_id: b.id,
           selected_batch_number: b.batch_number,
           unit_price: altPrice,
-          base_unit_price: altPrice,
+          base_unit_price: baseBatchPrice,
           mrp: altMrp,
-          base_mrp: altMrp,
+          base_mrp: baseBatchMrp,
           is_custom_price: baseItem.is_custom_price,
           allow_oversell: alloc.allowOversell,
         };
@@ -383,8 +441,20 @@ export function CreateBillDrawer({
 
       // Allow oversell: Instant inline split
       const cleanName = ci.item_name.replace(/\[Oversold Backorder\]/gi, "").trim();
-      const latestPrice = !ci.is_custom_price && curBatch?.retail_price ? Number(curBatch.retail_price) : ci.unit_price;
-      const latestMrp = !ci.is_custom_price && curBatch?.mrp ? Number(curBatch.mrp) : ci.mrp;
+      const factor = getUnitFactor(orig, ci.selected_unit);
+      const baseCurPrice = !ci.is_custom_price && curBatch?.retail_price != null
+        ? Number(curBatch.retail_price)
+        : (ci.base_unit_price ?? ci.unit_price);
+      const baseCurMrp = !ci.is_custom_price && curBatch?.mrp != null
+        ? Number(curBatch.mrp)
+        : (ci.base_mrp ?? ci.mrp ?? baseCurPrice);
+
+      const latestPrice = !ci.is_custom_price
+        ? (factor > 0 ? baseCurPrice / factor : baseCurPrice)
+        : ci.unit_price;
+      const latestMrp = !ci.is_custom_price
+        ? (factor > 0 ? Math.max(baseCurMrp / factor, latestPrice) : Math.max(baseCurMrp, latestPrice))
+        : ci.mrp;
 
       if (availableQty > 0) {
         const excess = newQty - availableQty;
@@ -395,9 +465,9 @@ export function CreateBillDrawer({
           selected_batch_id: curBatch.id,
           selected_batch_number: curBatch.batch_number,
           unit_price: latestPrice,
-          base_unit_price: latestPrice,
+          base_unit_price: baseCurPrice,
           mrp: latestMrp,
-          base_mrp: latestMrp,
+          base_mrp: baseCurMrp,
           allow_oversell: false,
         };
         const line2 = {
@@ -407,9 +477,9 @@ export function CreateBillDrawer({
           selected_batch_id: null,
           selected_batch_number: curBatch?.batch_number ?? null,
           unit_price: latestPrice,
-          base_unit_price: latestPrice,
+          base_unit_price: baseCurPrice,
           mrp: latestMrp,
-          base_mrp: latestMrp,
+          base_mrp: baseCurMrp,
           allow_oversell: true,
         };
         setDraftCartItems((prev) => {
@@ -432,9 +502,9 @@ export function CreateBillDrawer({
                   selected_batch_id: null,
                   selected_batch_number: curBatch?.batch_number ?? null,
                   unit_price: latestPrice,
-                  base_unit_price: latestPrice,
+                  base_unit_price: baseCurPrice,
                   mrp: latestMrp,
-                  base_mrp: latestMrp,
+                  base_mrp: baseCurMrp,
                   allow_oversell: true,
                 }
               : item
@@ -487,8 +557,20 @@ export function CreateBillDrawer({
         existingNbIdx >= 0 ? existingNbIdx : -1
       );
 
-      const batchPrice = !currentItem.is_custom_price && nb.retail_price ? Number(nb.retail_price) : currentItem.unit_price;
-      const batchMrp = !currentItem.is_custom_price && nb.mrp ? Number(nb.mrp) : currentItem.mrp;
+      const factorNb = getUnitFactor(orig, currentItem.selected_unit);
+      const baseNbPrice = !currentItem.is_custom_price && nb.retail_price != null
+        ? Number(nb.retail_price)
+        : (currentItem.base_unit_price ?? currentItem.unit_price);
+      const baseNbMrp = !currentItem.is_custom_price && nb.mrp != null
+        ? Number(nb.mrp)
+        : (currentItem.base_mrp ?? currentItem.mrp ?? baseNbPrice);
+
+      const batchPrice = !currentItem.is_custom_price
+        ? (factorNb > 0 ? baseNbPrice / factorNb : baseNbPrice)
+        : currentItem.unit_price;
+      const batchMrp = !currentItem.is_custom_price
+        ? (factorNb > 0 ? Math.max(baseNbMrp / factorNb, batchPrice) : Math.max(baseNbMrp, batchPrice))
+        : currentItem.mrp;
 
       if (isLast && excessToDistribute > nbAvail) {
         // Latest batch takes up to nbAvail, remaining is oversold backorder
@@ -505,9 +587,9 @@ export function CreateBillDrawer({
               selected_batch_id: nb.id,
               selected_batch_number: nb.batch_number,
               unit_price: batchPrice,
-              base_unit_price: batchPrice,
+              base_unit_price: baseNbPrice,
               mrp: batchMrp,
-              base_mrp: batchMrp,
+              base_mrp: baseNbMrp,
               quantity: normalTake,
               allow_oversell: false,
             });
@@ -527,9 +609,9 @@ export function CreateBillDrawer({
             selected_batch_id: null,
             selected_batch_number: nb.batch_number,
             unit_price: batchPrice,
-            base_unit_price: batchPrice,
+            base_unit_price: baseNbPrice,
             mrp: batchMrp,
-            base_mrp: batchMrp,
+            base_mrp: baseNbMrp,
             allow_oversell: true,
           });
           splitSummaryMessages.push(`+${storewideDeficit} as [Oversold Backorder] (₹${batchPrice.toFixed(2)})`);
@@ -553,9 +635,9 @@ export function CreateBillDrawer({
           selected_batch_id: nb.id,
           selected_batch_number: nb.batch_number,
           unit_price: batchPrice,
-          base_unit_price: batchPrice,
+          base_unit_price: baseNbPrice,
           mrp: batchMrp,
-          base_mrp: batchMrp,
+          base_mrp: baseNbMrp,
           quantity: takeQty,
           allow_oversell: false,
         });
@@ -658,6 +740,15 @@ export function CreateBillDrawer({
       } else {
         setCustomerExtraDetail("");
       }
+      if ((data as any).gstin && setCustomerGstin) {
+        setCustomerGstin((data as any).gstin);
+      }
+      if ((data as any).legal_name && setCustomerLegalName) {
+        setCustomerLegalName((data as any).legal_name);
+      }
+      if ((data as any).state_code && setPlaceOfSupply) {
+        setPlaceOfSupply((data as any).state_code);
+      }
     } catch {
       /* ignore */
     } finally {
@@ -677,7 +768,7 @@ export function CreateBillDrawer({
 
     if (val.trim().length >= 2) {
       try {
-        const data = await apiRequest<{ name: string; phone: string }[]>(`/api/admin/customers?search=${encodeURIComponent(val.trim())}`);
+        const data = await apiRequest<{ name: string; phone: string; gstin?: string; legal_name?: string; state_code?: string }[]>(`/api/admin/customers?search=${encodeURIComponent(val.trim())}`);
         setCustomerSuggestions(data);
         setShowSuggestions(true);
       } catch {
@@ -816,6 +907,7 @@ export function CreateBillDrawer({
               unit_price: itemPriceNum,
               mrp: mrpNum,
               tax_rate: taxRateNum,
+              hsn_code: (match as any)?.hsn_code || null,
               quantity: scannedQuantity,
               is_complimentary: false,
               selected_unit: match!.unit_label || "piece",
@@ -896,6 +988,7 @@ export function CreateBillDrawer({
           unit_price: variantPriceNum,
           mrp: itemMrpNum,
           tax_rate: itemTaxRateNum,
+          hsn_code: (item as any)?.hsn_code || null,
           quantity: qty,
           pricing_type: pricingMode,
           is_complimentary: false,
@@ -1320,6 +1413,9 @@ export function CreateBillDrawer({
                           const s = customerSuggestions[highlightedSuggestionIndex];
                           setCustomerPhone(s.phone);
                           setCustomerName(s.name);
+                          if (s.gstin && setCustomerGstin) setCustomerGstin(s.gstin);
+                          if (s.legal_name && setCustomerLegalName) setCustomerLegalName(s.legal_name);
+                          if (s.state_code && setPlaceOfSupply) setPlaceOfSupply(s.state_code);
                           setShowSuggestions(false);
                           setHighlightedSuggestionIndex(-1);
                           void fetchCustomerAnalytics(s.phone);
@@ -1348,6 +1444,9 @@ export function CreateBillDrawer({
                           onClick={() => {
                             setCustomerPhone(s.phone);
                             setCustomerName(s.name);
+                            if (s.gstin && setCustomerGstin) setCustomerGstin(s.gstin);
+                            if (s.legal_name && setCustomerLegalName) setCustomerLegalName(s.legal_name);
+                            if (s.state_code && setPlaceOfSupply) setPlaceOfSupply(s.state_code);
                             setShowSuggestions(false);
                             setHighlightedSuggestionIndex(-1);
                             void fetchCustomerAnalytics(s.phone);
@@ -1390,6 +1489,94 @@ export function CreateBillDrawer({
                     className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-base text-[var(--text-primary)] focus:border-sky-500 focus:outline-none"
                   />
                 </div>
+              </div>
+
+              {/* GST Compliance & Inter-State Bar */}
+              <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-2.5 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                  <div className="flex items-center gap-3">
+                    {/* Inter-State / IGST Switch */}
+                    {restaurant?.interstate_mode === "ALWAYS_ON" ? (
+                      <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400 font-bold text-xs">
+                        <span>🏛️</span> IGST Active (Inter-State Outlet Mode)
+                      </span>
+                    ) : restaurant?.interstate_mode === "PER_BILL" ? (
+                      <label className="flex items-center gap-2 cursor-pointer select-none font-medium text-[var(--text-primary)] hover:text-amber-400 transition-colors">
+                        <input
+                          type="checkbox"
+                          checked={!!isInterstate}
+                          onChange={(e) => setIsInterstate?.(e.target.checked)}
+                          className="rounded border-[var(--border-strong)] text-amber-500 focus:ring-amber-500/30 h-4 w-4"
+                        />
+                        <span className="flex items-center gap-1">
+                          <span>🌐</span> Inter-State Sale (IGST)
+                        </span>
+                        {isInterstate && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-300 font-bold border border-amber-500/40">
+                            IGST 100%
+                          </span>
+                        )}
+                      </label>
+                    ) : null}
+                  </div>
+
+                  {/* B2B Toggle */}
+                  <button
+                    type="button"
+                    onClick={() => setShowB2bFields(!showB2bFields)}
+                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                      showB2bFields || customerGstin
+                        ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                        : "bg-[var(--bg-surface-elevated)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    <span>🏢</span>
+                    {showB2bFields || customerGstin ? "B2B GST Details Active" : "+ Add B2B GSTIN (Tax Invoice)"}
+                  </button>
+                </div>
+
+                {/* Collapsible B2B Fields */}
+                {(showB2bFields || customerGstin) && (
+                  <div className="pt-2 border-t border-[var(--border-subtle)] grid grid-cols-1 sm:grid-cols-3 gap-2.5 animate-fadeIn">
+                    <div>
+                      <label className="block text-[11px] font-semibold text-indigo-300 mb-0.5">
+                        Customer GSTIN (15 Digits)
+                      </label>
+                      <input
+                        type="text"
+                        maxLength={15}
+                        placeholder="e.g. 01AAAAA0000A1Z5"
+                        value={customerGstin || ""}
+                        onChange={(e) => setCustomerGstin?.(e.target.value.toUpperCase().trim())}
+                        className="w-full rounded-lg border border-indigo-500/30 bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-xs font-mono text-[var(--text-primary)] focus:border-indigo-400 focus:outline-none uppercase"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-indigo-300 mb-0.5">
+                        Legal Business Name
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. Acme Retail Pvt Ltd"
+                        value={customerLegalName || ""}
+                        onChange={(e) => setCustomerLegalName?.(e.target.value)}
+                        className="w-full rounded-lg border border-indigo-500/30 bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-xs text-[var(--text-primary)] focus:border-indigo-400 focus:outline-none"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-semibold text-indigo-300 mb-0.5">
+                        Place of Supply
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="e.g. 01-Jammu and Kashmir"
+                        value={placeOfSupply || ""}
+                        onChange={(e) => setPlaceOfSupply?.(e.target.value)}
+                        className="w-full rounded-lg border border-indigo-500/30 bg-[var(--bg-surface-elevated)] px-2.5 py-1 text-xs text-[var(--text-primary)] focus:border-indigo-400 focus:outline-none"
+                      />
+                    </div>
+                  </div>
+                )}
               </div>
 
               {/* Customer Purchase Volume & Insights Banner */}
@@ -1521,8 +1708,18 @@ export function CreateBillDrawer({
                                 onChange={(e) => {
                                   const chosenBatch = originalItem.active_batches?.find((b) => b.id === e.target.value);
                                   if (!chosenBatch) return;
-                                  const newPrice = !ci.is_custom_price && chosenBatch.retail_price ? Number(chosenBatch.retail_price) : ci.unit_price;
-                                  const newMrp = !ci.is_custom_price && chosenBatch.mrp ? Number(chosenBatch.mrp) : ci.mrp;
+
+                                  const factor = getUnitFactor(originalItem, ci.selected_unit);
+                                  const baseBatchPrice = chosenBatch.retail_price != null
+                                    ? Number(chosenBatch.retail_price)
+                                    : (ci.base_unit_price ?? ci.unit_price);
+                                  const baseBatchMrp = chosenBatch.mrp != null
+                                    ? Number(chosenBatch.mrp)
+                                    : (ci.base_mrp ?? ci.mrp ?? baseBatchPrice);
+
+                                  const newPrice = factor > 0 ? baseBatchPrice / factor : baseBatchPrice;
+                                  const newMrp = factor > 0 ? Math.max(baseBatchMrp / factor, newPrice) : Math.max(baseBatchMrp, newPrice);
+
                                   setDraftCartItems((prev) =>
                                     prev.map((item, i) => {
                                       if (i !== idx) return item;
@@ -1531,9 +1728,10 @@ export function CreateBillDrawer({
                                         selected_batch_id: chosenBatch.id,
                                         selected_batch_number: chosenBatch.batch_number,
                                         unit_price: newPrice,
-                                        base_unit_price: newPrice,
+                                        base_unit_price: baseBatchPrice,
                                         mrp: newMrp,
-                                        base_mrp: newMrp,
+                                        base_mrp: baseBatchMrp,
+                                        is_custom_price: false,
                                         allow_oversell: false,
                                       };
                                     })
@@ -1550,9 +1748,12 @@ export function CreateBillDrawer({
                               >
                                 {originalItem.active_batches.map((b) => {
                                   const unallocated = getUnallocatedBatchStock(b.id, Number(b.remaining_quantity), draftCartItems, idx);
+                                  const factor = getUnitFactor(originalItem, ci.selected_unit);
+                                  const bBasePrice = Number(b.retail_price ?? originalItem.price);
+                                  const bDisplayPrice = factor > 0 ? bBasePrice / factor : bBasePrice;
                                   return (
                                     <option key={b.id} value={b.id}>
-                                      Lot: {b.batch_number} · ₹{Number(b.retail_price ?? originalItem.price).toFixed(2)} ({unallocated} left){b.is_oldest ? " (oldest)" : ""}
+                                      Lot: {b.batch_number} · ₹{bDisplayPrice.toFixed(2)} ({unallocated} left){b.is_oldest ? " (oldest)" : ""}
                                     </option>
                                   );
                                 })}
@@ -1574,13 +1775,14 @@ export function CreateBillDrawer({
                           <CartItemPriceInput
                             initialPrice={ci.unit_price}
                             onPriceChange={(newPrice) => {
+                              const factor = getUnitFactor(originalItem, ci.selected_unit);
                               setDraftCartItems((prev) =>
                                 prev.map((item, i) =>
                                   i === idx
                                     ? {
                                         ...item,
                                         unit_price: newPrice,
-                                        base_unit_price: newPrice,
+                                        base_unit_price: factor > 0 ? newPrice * factor : newPrice,
                                         is_custom_price: true,
                                       }
                                     : item
@@ -1645,8 +1847,7 @@ export function CreateBillDrawer({
                           value={ci.selected_unit || originalItem.unit_label || "piece"}
                           onChange={(e) => {
                             const newUnit = e.target.value;
-                            const altUnit = (originalItem.alternate_units as any[])?.find((au: any) => au.unit_label === newUnit);
-                            const factor = (newUnit !== (originalItem.unit_label || "piece") && altUnit) ? Number(altUnit.conversion_factor) || 1 : 1;
+                            const factor = getUnitFactor(originalItem, newUnit);
                             
                             const basePrice = ci.base_unit_price ?? ci.unit_price;
                             const baseMrp = ci.base_mrp ?? ci.mrp ?? basePrice;

@@ -91,6 +91,7 @@ export function useAnalyticsManagement({
   const [cashDenomData, setCashDenomData] = useState<CashDenominationResponse | null>(null);
   const [paymentMixData, setPaymentMixData] = useState<PaymentMixResponse | null>(null);
   const [taxSummaryData, setTaxSummaryData] = useState<TaxSummaryResponse | null>(null);
+  const [gstr1HsnData, setGstr1HsnData] = useState<import("@/types").Gstr1HsnSummaryResponse | null>(null);
   const [discountData, setDiscountData] = useState<DiscountReportResponse | null>(null);
   const [dayBookData, setDayBookData] = useState<DayBookResponse | null>(null);
   const [abandonedCartData, setAbandonedCartData] = useState<AbandonedCartStatsResponse | null>(null);
@@ -304,8 +305,12 @@ export function useAnalyticsManagement({
         setBillProfitData(res);
       }
       if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "tax_summary") {
-        const res = await apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params}`);
+        const [res, hsnRes] = await Promise.all([
+          apiRequest<TaxSummaryResponse>(`/api/analytics/tax-summary?${params}`),
+          apiRequest<import("@/types").Gstr1HsnSummaryResponse>(`/api/analytics/gstr1-hsn-summary?${params}`).catch(() => null),
+        ]);
         setTaxSummaryData(res);
+        setGstr1HsnData(hsnRes);
       }
       if (activeFinancialSubTab === "master_view" || activeFinancialSubTab === "cash_denominations") {
         const res = await apiRequest<CashDenominationResponse>(`/api/analytics/cash-denominations?${params}`);
@@ -387,6 +392,7 @@ export function useAnalyticsManagement({
     profitData, 
     billProfitData, 
     taxSummaryData, 
+    gstr1HsnData,
     cashDenomData,
     outletEarningsData,
     // Day Book

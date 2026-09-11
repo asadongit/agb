@@ -48,6 +48,7 @@ export function useSettingsManagement({
     loyalty_max_bill_percentage: "100.00",
     invoice_terms_conditions: "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
     weighing_scale_barcode_format: "21_5I_5W_GRAMS",
+    interstate_mode: "OFF",
   });
   const [isSavingRestaurant, setIsSavingRestaurant] = useState(false);
 
@@ -85,6 +86,7 @@ export function useSettingsManagement({
           : "100.00",
         invoice_terms_conditions: restaurant.invoice_terms_conditions || "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
         weighing_scale_barcode_format: restaurant.weighing_scale_barcode_format || "21_5I_5W_GRAMS",
+        interstate_mode: (restaurant as any).interstate_mode || "OFF",
       });
     }
   }, [restaurant]);
@@ -124,6 +126,7 @@ export function useSettingsManagement({
         loyalty_max_bill_percentage: restaurantForm.loyalty_max_bill_percentage?.trim() ? parseFloat(restaurantForm.loyalty_max_bill_percentage) : 100,
         invoice_terms_conditions: restaurantForm.invoice_terms_conditions?.trim() || null,
         weighing_scale_barcode_format: restaurantForm.weighing_scale_barcode_format || null,
+        interstate_mode: restaurantForm.interstate_mode || "OFF",
       };
 
       const updated = await apiRequest<RestaurantProfile>(

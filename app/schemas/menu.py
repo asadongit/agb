@@ -40,6 +40,7 @@ class MenuItemCreate(StrictSchema):
     evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0, decimal_places=2)
+    hsn_code: str | None = Field(None, max_length=20)
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = Field(default="piece", min_length=1, max_length=50)
     alternate_units: list[dict] = Field(default_factory=list)
@@ -52,7 +53,7 @@ class MenuItemCreate(StrictSchema):
             return None
         return v
 
-    @field_validator("barcode", "description", "image_url", "offer_label", "tax_category", mode="before")
+    @field_validator("barcode", "description", "image_url", "offer_label", "tax_category", "hsn_code", mode="before")
     @classmethod
     def empty_string_to_none(cls, v):
         if v == "" or (isinstance(v, str) and not v.strip()):
@@ -79,6 +80,7 @@ class MenuItemUpdate(StrictSchema):
     evening_price: Decimal | None = Field(None, ge=0, decimal_places=2)
     tax_category: str | None = Field(None, max_length=100)
     tax_rate: Decimal | None = Field(None, ge=0, decimal_places=2)
+    hsn_code: str | None = Field(None, max_length=20)
     pricing_mode: PricingModeEnum | None = None
     unit_label: str | None = Field(None, min_length=1, max_length=50)
     alternate_units: list[dict] | None = None
@@ -91,7 +93,7 @@ class MenuItemUpdate(StrictSchema):
             return None
         return v
 
-    @field_validator("barcode", "description", "image_url", "offer_label", "tax_category", mode="before")
+    @field_validator("barcode", "description", "image_url", "offer_label", "tax_category", "hsn_code", mode="before")
     @classmethod
     def empty_string_to_none(cls, v):
         if v == "" or (isinstance(v, str) and not v.strip()):
@@ -120,6 +122,7 @@ class MenuItemResponse(BaseResponse):
     evening_price: Decimal | None = None
     tax_category: str | None = "GST 0%"
     tax_rate: Decimal | None = Decimal("0.00")
+    hsn_code: str | None = None
     pricing_mode: PricingModeEnum = PricingModeEnum.FIXED_UNIT
     unit_label: str = "piece"
     alternate_units: list[dict] = Field(default_factory=list)

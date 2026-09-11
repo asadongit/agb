@@ -84,6 +84,7 @@ export interface RestaurantProfile {
   loyalty_redemption_tiers?: { min_points: number; max_points?: number | null; discount_percentage: number }[];
   loyalty_max_bill_percentage?: string | number;
   invoice_terms_conditions?: string | null;
+  interstate_mode?: "OFF" | "PER_BILL" | "ALWAYS_ON";
   created_at?: string;
   updated_at?: string;
 }
@@ -118,6 +119,7 @@ export interface RestaurantFormState {
   loyalty_redemption_tiers: { min_points: number; max_points?: number | null; discount_percentage: number }[];
   loyalty_max_bill_percentage: string;
   invoice_terms_conditions: string;
+  interstate_mode: "OFF" | "PER_BILL" | "ALWAYS_ON";
 }
 
 export type AdminCategory = import("@/types").Category;
@@ -166,6 +168,7 @@ export interface MenuItemFormState {
   mrp: string;
   tax_category: string;
   tax_rate: string;
+  hsn_code?: string;
   pricing_mode: PricingMode;
   unit_label: string;
   alternate_units: Array<{unit_label: string; conversion_factor: number}>;

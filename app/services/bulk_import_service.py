@@ -195,6 +195,7 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
             wholesale_price = wholesale_price_raw.quantize(Decimal("1"), rounding=ROUND_HALF_UP) if wholesale_price_raw is not None else None
             tax_category = _get_val(row, "tax_category", "GST 0%")
             tax_rate = _get_decimal(row, "tax_rate", Decimal("0.00"))
+            hsn_code = _get_val(row, "hsn_code") or _get_val(row, "hsn")
             shelf_life_alert_hrs_raw = _get_val(row, "shelf_life_alert_hrs")
             shelf_life_alert_hrs = int(shelf_life_alert_hrs_raw) if shelf_life_alert_hrs_raw else None
             
@@ -235,6 +236,14 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                 )
             )
             inv_item = res.scalars().first()
+            if not inv_item and barcode:
+                res_bc = await db.execute(
+                    select(InventoryItem).where(
+                        InventoryItem.outlet_id == outlet_id,
+                        InventoryItem.barcode == barcode
+                    )
+                )
+                inv_item = res_bc.scalars().first()
             
             if inv_item:
                 inv_item.name = name
@@ -263,6 +272,8 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     inv_item.barcode = barcode
                 if alternate_units:
                     inv_item.alternate_units = alternate_units
+                if hsn_code:
+                    inv_item.hsn_code = str(hsn_code).strip()
                 updated_count += 1
             else:
                 if initial_qty is not None and initial_qty > Decimal("0.000"):
@@ -292,6 +303,7 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     tax_rate=tax_rate,
                     shelf_life_alert_hrs=shelf_life_alert_hrs,
                     alternate_units=alternate_units or [],
+                    hsn_code=str(hsn_code).strip() if hsn_code else None,
                     is_active=True,
                 )
                 db.add(inv_item)
@@ -354,6 +366,16 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                 )
             )
             menu_item = mi_res.scalars().first()
+            if not menu_item:
+                mi_name_res = await db.execute(
+                    select(MenuItem).where(
+                        MenuItem.outlet_id == outlet_id,
+                        MenuItem.name.ilike(name)
+                    )
+                )
+                menu_item = mi_name_res.scalars().first()
+                if menu_item:
+                    menu_item.inventory_item_id = inv_item.id
             
             # Determine price: selling_price > mrp > cost_per_unit > 0
             final_price = selling_price if selling_price is not None else (mrp if mrp is not None else cost_per_unit)
@@ -372,6 +394,8 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     menu_item.alternate_units = alternate_units
                 if barcode:
                     menu_item.barcode = barcode
+                if hsn_code:
+                    menu_item.hsn_code = str(hsn_code).strip()
             else:
                 menu_item = MenuItem(
                     id=uuid.uuid4(),
@@ -385,6 +409,7 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     wholesale_price=wholesale_price,
                     tax_category=tax_category,
                     tax_rate=tax_rate,
+                    hsn_code=str(hsn_code).strip() if hsn_code else None,
                     is_available=True,
                     is_verification_required=False,
                     pricing_mode=PricingModeEnum.FIXED_UNIT,
@@ -394,6 +419,16 @@ async def import_inventory(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                 db.add(menu_item)
                 
             await db.flush()
+            if inv_item and (selling_price is not None or mrp is not None or wholesale_price is not None):
+                from app.services.inventory_service import sync_oldest_batch_prices_from_item
+                await sync_oldest_batch_prices_from_item(
+                    db,
+                    inv_item.id,
+                    outlet_id,
+                    retail_price=selling_price,
+                    mrp=mrp,
+                    wholesale_price=wholesale_price,
+                )
             
         except Exception as e:
             skipped_count += 1
@@ -442,6 +477,7 @@ async def import_menu_items(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: 
             offer_label = _get_val(row, "offer_label")
             tax_category = _get_val(row, "tax_category", "GST 0%")
             tax_rate = _get_decimal(row, "tax_rate", Decimal("0.00"))
+            hsn_code = _get_val(row, "hsn_code") or _get_val(row, "hsn")
             
             pm_str = _get_val(row, "pricing_mode", "FIXED_UNIT")
             try:
@@ -492,6 +528,8 @@ async def import_menu_items(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: 
                 menu_item.is_on_offer = is_on_offer
                 menu_item.tax_category = tax_category
                 menu_item.tax_rate = tax_rate
+                if hsn_code:
+                    menu_item.hsn_code = str(hsn_code).strip()
                 menu_item.pricing_mode = pricing_mode
                 menu_item.unit_label = unit_label
                 if alternate_units:
@@ -516,6 +554,7 @@ async def import_menu_items(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: 
                     is_on_offer=is_on_offer,
                     tax_category=tax_category,
                     tax_rate=tax_rate,
+                    hsn_code=str(hsn_code).strip() if hsn_code else None,
                     pricing_mode=pricing_mode,
                     unit_label=unit_label,
                     alternate_units=alternate_units,
@@ -526,6 +565,27 @@ async def import_menu_items(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: 
                 created_count += 1
                 
             await db.flush()
+            if menu_item and menu_item.inventory_item_id:
+                inv_res = await db.execute(
+                    select(InventoryItem).where(InventoryItem.id == menu_item.inventory_item_id)
+                )
+                inv_obj = inv_res.scalar_one_or_none()
+                if inv_obj:
+                    if price is not None:
+                        inv_obj.retail_price = price
+                    if mrp is not None:
+                        inv_obj.mrp = mrp
+                    if wholesale_price is not None:
+                        inv_obj.wholesale_price = wholesale_price
+                    from app.services.inventory_service import sync_oldest_batch_prices_from_item
+                    await sync_oldest_batch_prices_from_item(
+                        db,
+                        inv_obj.id,
+                        outlet_id,
+                        retail_price=price,
+                        mrp=mrp,
+                        wholesale_price=wholesale_price,
+                    )
             
         except Exception as e:
             skipped_count += 1
@@ -578,6 +638,12 @@ async def import_customers(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     pass
                     
             historical_spend = _get_decimal(row, "historical_spend", Decimal("0.00"))
+            gstin = _get_val(row, "gstin")
+            legal_name = _get_val(row, "legal_name")
+            state_code = _get_val(row, "state_code")
+            address = _get_val(row, "address")
+            city = _get_val(row, "city")
+            state = _get_val(row, "state")
             
             # 1. Upsert Customer
             cust_res = await db.execute(
@@ -591,6 +657,18 @@ async def import_customers(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
             if customer:
                 customer.name = name
                 customer.loyalty_points = loyalty_points
+                if gstin:
+                    customer.gstin = str(gstin).strip().upper()
+                if legal_name:
+                    customer.legal_name = str(legal_name).strip()
+                if state_code:
+                    customer.state_code = str(state_code).strip()
+                if address:
+                    customer.address = str(address).strip()
+                if city:
+                    customer.city = str(city).strip()
+                if state:
+                    customer.state = str(state).strip()
                 updated_count += 1
             else:
                 customer = Customer(
@@ -598,7 +676,13 @@ async def import_customers(db: AsyncSession, outlet_id: uuid.UUID, file_bytes: b
                     outlet_id=outlet_id,
                     name=name,
                     phone=phone,
-                    loyalty_points=loyalty_points
+                    loyalty_points=loyalty_points,
+                    gstin=str(gstin).strip().upper() if gstin else None,
+                    legal_name=str(legal_name).strip() if legal_name else None,
+                    state_code=str(state_code).strip() if state_code else None,
+                    address=str(address).strip() if address else None,
+                    city=str(city).strip() if city else None,
+                    state=str(state).strip() if state else None,
                 )
                 db.add(customer)
                 created_count += 1

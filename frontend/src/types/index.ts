@@ -32,6 +32,7 @@ export type MenuItem = components["schemas"]["MenuItemResponse"] & {
   current_stock?: number | string | null;
   allow_oversell?: boolean;
   is_out_of_stock?: boolean;
+  hsn_code?: string | null;
 };
 
 export type Category = components["schemas"]["CategoryResponse"] & {
@@ -134,10 +135,18 @@ export type WastageReason =
 export type InventoryItem = components["schemas"]["InventoryItemResponse"] & {
   alternate_units?: Array<{ unit_label: string; conversion_factor: number }>;
   allow_oversell?: boolean;
+  hsn_code?: string | null;
+  latest_batch_date?: string | null;
 };
 
 export type Customer = components["schemas"]["CustomerResponse"] & {
   credit_balance?: number;
+  gstin?: string | null;
+  legal_name?: string | null;
+  state_code?: string | null;
+  address?: string | null;
+  city?: string | null;
+  state?: string | null;
 };
 
 export type StockIntake = components["schemas"]["StockIntakeResponse"];
@@ -269,12 +278,17 @@ export type ManualBillItem = components["schemas"]["BillItemResponse"] & {
   selected_batch_id?: string | null;
   selected_batch_number?: string | null;
   cost_price?: number | null;
+  hsn_code?: string | null;
 };
 
 export type ManualBill = Omit<components["schemas"]["BillResponse"], "items"> & {
   items: ManualBillItem[];
   credit_applied?: number;
   debit_applied?: number;
+  is_interstate?: boolean;
+  place_of_supply?: string | null;
+  customer_gstin?: string | null;
+  customer_legal_name?: string | null;
 };
 
 export type DiscountApproval = components["schemas"]["DiscountApprovalResponse"];
@@ -326,6 +340,31 @@ export type PaymentMixResponse = components["schemas"]["PaymentMixResponse"];
 
 export type TaxSlabRow = components["schemas"]["TaxSlabRow"];
 export type TaxSummaryResponse = components["schemas"]["TaxSummaryResponse"];
+
+export interface Gstr1HsnItem {
+  hsn_code: string;
+  description: string;
+  uqc: string;
+  total_quantity: number;
+  total_value: number;
+  taxable_value: number;
+  tax_rate: number;
+  cgst_amount: number;
+  sgst_amount: number;
+  igst_amount: number;
+  cess_amount: number;
+}
+
+export interface Gstr1HsnSummaryResponse {
+  from_date: string;
+  to_date: string;
+  total_value: number;
+  total_taxable_value: number;
+  total_cgst: number;
+  total_sgst: number;
+  total_igst: number;
+  items: Gstr1HsnItem[];
+}
 
 export type DiscountSummary = components["schemas"]["DiscountSummary"];
 export type DiscountByType = components["schemas"]["DiscountByType"];

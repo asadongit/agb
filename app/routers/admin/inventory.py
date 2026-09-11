@@ -9,7 +9,7 @@ import uuid
 from datetime import datetime
 
 from fastapi import APIRouter, HTTPException, Query, status
-from sqlalchemy import func, select, literal_column
+from sqlalchemy import func, select, literal_column, case
 from sqlalchemy.orm import selectinload
 
 from app.dependencies import DBSession, RequireAdmin, outlet_scoped_query
@@ -70,9 +70,31 @@ async def list_inventory_items(
     search: str | None = None,
 ):
     """List ingredient master items for current outlet."""
-    stmt = select(InventoryItem).where(
-        InventoryItem.outlet_id == current_user.outlet_id,
-        InventoryItem.is_active == True,  # noqa: E712
+    batch_subq = (
+        select(
+            StockIntake.item_id,
+            func.max(func.coalesce(StockIntake.created_at, StockIntake.intake_date)).label("latest_batch_date"),
+        )
+        .where(StockIntake.outlet_id == current_user.outlet_id)
+        .group_by(StockIntake.item_id)
+        .subquery()
+    )
+
+    effective_latest = case(
+        (batch_subq.c.latest_batch_date > InventoryItem.created_at, batch_subq.c.latest_batch_date),
+        else_=InventoryItem.created_at,
+    )
+
+    stmt = (
+        select(
+            InventoryItem,
+            batch_subq.c.latest_batch_date,
+        )
+        .outerjoin(batch_subq, InventoryItem.id == batch_subq.c.item_id)
+        .where(
+            InventoryItem.outlet_id == current_user.outlet_id,
+            InventoryItem.is_active == True,  # noqa: E712
+        )
     )
 
     if low_stock_only:
@@ -86,9 +108,14 @@ async def list_inventory_items(
     if search:
         stmt = stmt.where(InventoryItem.name.ilike(f"%{search.strip()}%"))
 
-    stmt = stmt.order_by(InventoryItem.name)
+    stmt = stmt.order_by(effective_latest.desc(), InventoryItem.name.asc())
     result = await db.execute(stmt)
-    return result.scalars().all()
+    rows = result.all()
+    items = []
+    for inv_item, latest_b_date in rows:
+        inv_item.latest_batch_date = latest_b_date
+        items.append(inv_item)
+    return items
 
 
 @router.post("/items", response_model=InventoryItemResponse, status_code=status.HTTP_201_CREATED)
@@ -476,6 +503,7 @@ async def scan_onboard_item(
         wholesale_price=data.wholesale_price,
         shelf_life_alert_hrs=data.shelf_life_alert_hrs,
         alternate_units=data.alternate_units,
+        hsn_code=data.hsn_code,
     )
 
     await log_action(
@@ -484,6 +512,7 @@ async def scan_onboard_item(
         details=data.model_dump(mode="json"),
     )
 
+    item.latest_batch_date = intake.created_at or intake.intake_date
     return item
 
 

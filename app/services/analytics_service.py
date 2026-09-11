@@ -11,6 +11,7 @@ from app.core.datetime_utils import ensure_naive_utc
 
 from sqlalchemy import Float, Integer, String, cast, func, select, text, case
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import selectinload
 
 from app.models.enums import OrderStatusEnum, StockChangeTypeEnum
 from app.models.inventory_item import InventoryItem
@@ -71,6 +72,8 @@ from app.schemas.analytics import (
     PaymentMixResponse,
     TaxSlabRow,
     TaxSummaryResponse,
+    Gstr1HsnItem,
+    Gstr1HsnSummaryResponse,
     DiscountSummary,
     DiscountByType,
     DiscountApprovalStats,
@@ -1652,9 +1655,14 @@ async def get_tax_summary(
     tot_tax = 0.0
     
     for r in rows:
-        taxable = float(r.taxable or 0)
+        gross_val = float(r.taxable or 0)
         rate = float(r.rate or 0)
-        collected = taxable * (rate / 100.0)
+        if rate > 0:
+            taxable = gross_val / (1.0 + (rate / 100.0))
+            collected = gross_val - taxable
+        else:
+            taxable = gross_val
+            collected = 0.0
         
         tot_taxable += taxable
         tot_tax += collected
@@ -1676,6 +1684,452 @@ async def get_tax_summary(
         total_tax_collected=round(tot_tax, 2),
         slabs=slabs
     )
+
+
+def _normalize_uqc(unit_str: str | None) -> str:
+    if not unit_str:
+        return "PCS"
+    u = unit_str.strip().lower()
+    if u in ("kg", "kgs", "kilogram", "kilograms"):
+        return "KGS"
+    if u in ("g", "gm", "gms", "gram", "grams"):
+        return "GMS"
+    if u in ("l", "ltr", "litre", "liter", "litres", "liters"):
+        return "LTR"
+    if u in ("ml", "millilitre", "milliliter"):
+        return "MLT"
+    if u in ("pc", "pcs", "piece", "pieces"):
+        return "PCS"
+    if u in ("box", "boxes"):
+        return "BOX"
+    if u in ("pack", "packs", "pkt", "pkts", "packet", "packets"):
+        return "PAC"
+    if u in ("doz", "dozen"):
+        return "DOZ"
+    if u in ("bag", "bags"):
+        return "BAG"
+    if u in ("can", "cans"):
+        return "CAN"
+    if u in ("btl", "bottle", "bottles"):
+        return "BTL"
+    return "OTH"
+
+
+async def get_gstr1_hsn_summary(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    from_dt: datetime,
+    to_dt: datetime,
+) -> Gstr1HsnSummaryResponse:
+    """GSTR-1 Table 12 HSN Summary grouped by HSN code, tax rate, and statutory UQC."""
+    stmt = (
+        select(
+            func.coalesce(OrderItem.hsn_code, "OTHER").label("hsn"),
+            func.coalesce(OrderItem.tax_rate, 0.0).label("rate"),
+            func.coalesce(OrderItem.selected_unit, "piece").label("unit"),
+            Order.is_interstate.label("is_interstate"),
+            func.max(OrderItem.item_name).label("sample_name"),
+            func.sum(OrderItem.quantity).label("total_qty"),
+            func.sum(OrderItem.line_total).label("taxable_amt"),
+        )
+        .select_from(OrderItem)
+        .join(Order, OrderItem.order_id == Order.id)
+        .where(
+            Order.outlet_id == outlet_id,
+            Order.created_at >= from_dt,
+            Order.created_at <= to_dt,
+            Order.status.in_(SETTLED_STATUSES),
+        )
+        .group_by("hsn", "rate", "unit", Order.is_interstate)
+        .order_by("hsn", "rate")
+    )
+    res = await db.execute(stmt)
+    rows = res.all()
+
+    grouped: dict[tuple[str, float, str], dict[str, Any]] = {}
+    total_val = 0.0
+    total_taxable = 0.0
+    total_cgst = 0.0
+    total_sgst = 0.0
+    total_igst = 0.0
+
+    for r in rows:
+        hsn = str(r.hsn or "OTHER").strip()
+        rate = float(r.rate or 0.0)
+        uqc = _normalize_uqc(r.unit)
+        key = (hsn, rate, uqc)
+
+        qty = float(r.total_qty or 0.0)
+        gross_val = float(r.taxable_amt or 0.0)
+        is_interstate = bool(r.is_interstate)
+
+        if rate > 0.0:
+            taxable = gross_val / (1.0 + (rate / 100.0))
+            tot_tax = gross_val - taxable
+        else:
+            taxable = gross_val
+            tot_tax = 0.0
+
+        if is_interstate:
+            igst = tot_tax
+            cgst = 0.0
+            sgst = 0.0
+        else:
+            igst = 0.0
+            cgst = tot_tax / 2.0
+            sgst = tot_tax / 2.0
+
+        item_total_val = gross_val
+
+        total_val += item_total_val
+        total_taxable += taxable
+        total_cgst += cgst
+        total_sgst += sgst
+        total_igst += igst
+
+        if key not in grouped:
+            grouped[key] = {
+                "hsn_code": hsn,
+                "description": r.sample_name or "Goods",
+                "uqc": uqc,
+                "total_quantity": 0.0,
+                "total_value": 0.0,
+                "taxable_value": 0.0,
+                "tax_rate": rate,
+                "cgst_amount": 0.0,
+                "sgst_amount": 0.0,
+                "igst_amount": 0.0,
+                "cess_amount": 0.0,
+            }
+
+        grouped[key]["total_quantity"] += qty
+        grouped[key]["total_value"] += item_total_val
+        grouped[key]["taxable_value"] += taxable
+        grouped[key]["cgst_amount"] += cgst
+        grouped[key]["sgst_amount"] += sgst
+        grouped[key]["igst_amount"] += igst
+
+    items = [
+        Gstr1HsnItem(
+            hsn_code=v["hsn_code"],
+            description=v["description"],
+            uqc=v["uqc"],
+            total_quantity=round(v["total_quantity"], 3),
+            total_value=round(v["total_value"], 2),
+            taxable_value=round(v["taxable_value"], 2),
+            tax_rate=v["tax_rate"],
+            cgst_amount=round(v["cgst_amount"], 2),
+            sgst_amount=round(v["sgst_amount"], 2),
+            igst_amount=round(v["igst_amount"], 2),
+            cess_amount=0.0,
+        )
+        for v in grouped.values()
+    ]
+
+    return Gstr1HsnSummaryResponse(
+        from_date=from_dt.isoformat(),
+        to_date=to_dt.isoformat(),
+        total_value=round(total_val, 2),
+        total_taxable_value=round(total_taxable, 2),
+        total_cgst=round(total_cgst, 2),
+        total_sgst=round(total_sgst, 2),
+        total_igst=round(total_igst, 2),
+        items=items,
+    )
+
+
+async def generate_ca_excel_report(
+    db: AsyncSession,
+    outlet_id: uuid.UUID,
+    from_dt: datetime,
+    to_dt: datetime,
+) -> tuple[bytes, str]:
+    """
+    Generate a Chartered Accountant (CA) compliant multi-sheet Excel workbook with:
+    1. HSN_Summary_T12 (GSTR-1 Table 12 HSN Summary)
+    2. GSTR3B_Liability (Outward Taxable Supplies Summary for Form GSTR-3B Table 3.1)
+    3. B2B_Register (Registered buyer invoices for ITC claims)
+    4. B2C_Summary (Unregistered consumer supplies by Place of Supply and Tax Rate)
+    """
+    import io
+    from openpyxl import Workbook
+    from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+    from openpyxl.utils import get_column_letter
+
+    wb = Workbook()
+
+    # Style definitions
+    header_fill = PatternFill(start_color="1E3A8A", end_color="1E3A8A", fill_type="solid")
+    header_font = Font(name="Calibri", size=11, bold=True, color="FFFFFF")
+    total_fill = PatternFill(start_color="E2E8F0", end_color="E2E8F0", fill_type="solid")
+    total_font = Font(name="Calibri", size=11, bold=True)
+    thin_border = Border(
+        left=Side(style="thin", color="CBD5E1"),
+        right=Side(style="thin", color="CBD5E1"),
+        top=Side(style="thin", color="CBD5E1"),
+        bottom=Side(style="thin", color="CBD5E1"),
+    )
+
+    def style_header_row(ws, col_count: int, row_idx: int = 1):
+        for col in range(1, col_count + 1):
+            c = ws.cell(row=row_idx, column=col)
+            c.fill = header_fill
+            c.font = header_font
+            c.alignment = Alignment(horizontal="center", vertical="center", wrap_text=True)
+            c.border = thin_border
+        ws.row_dimensions[row_idx].height = 28
+
+    def auto_fit_columns(ws):
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            col_letter = get_column_letter(col[0].column)
+            ws.column_dimensions[col_letter].width = max(max_len + 4, 12)
+
+    # -------------------------------------------------------------
+    # 1. HSN_Summary_T12
+    # -------------------------------------------------------------
+    ws_hsn = wb.active
+    ws_hsn.title = "HSN_Summary_T12"
+    hsn_headers = [
+        "HSN / SAC", "Description", "UQC", "Total Quantity", "Total Value (INR)",
+        "Taxable Value (INR)", "Rate (%)", "IGST (INR)", "CGST (INR)", "SGST (INR)", "Cess (INR)"
+    ]
+    ws_hsn.append(hsn_headers)
+    style_header_row(ws_hsn, len(hsn_headers))
+
+    hsn_data = await get_gstr1_hsn_summary(db, outlet_id, from_dt, to_dt)
+    for it in hsn_data.items:
+        ws_hsn.append([
+            it.hsn_code,
+            it.description,
+            it.uqc,
+            it.total_quantity,
+            it.total_value,
+            it.taxable_value,
+            it.tax_rate,
+            it.igst_amount,
+            it.cgst_amount,
+            it.sgst_amount,
+            it.cess_amount,
+        ])
+
+    # Add Total Row
+    tot_row_idx = len(hsn_data.items) + 2
+    ws_hsn.append([
+        "TOTAL", "", "", "",
+        hsn_data.total_value,
+        hsn_data.total_taxable_value,
+        "",
+        hsn_data.total_igst,
+        hsn_data.total_cgst,
+        hsn_data.total_sgst,
+        0.00,
+    ])
+    for col in range(1, len(hsn_headers) + 1):
+        cell = ws_hsn.cell(row=tot_row_idx, column=col)
+        cell.fill = total_fill
+        cell.font = total_font
+        cell.border = thin_border
+    auto_fit_columns(ws_hsn)
+
+    # -------------------------------------------------------------
+    # Fetch all settled orders with items and customers
+    # -------------------------------------------------------------
+    orders_stmt = (
+        select(Order)
+        .options(selectinload(Order.items), selectinload(Order.customer))
+        .where(
+            Order.outlet_id == outlet_id,
+            Order.created_at >= from_dt,
+            Order.created_at <= to_dt,
+            Order.status.in_(SETTLED_STATUSES),
+        )
+        .order_by(Order.created_at)
+    )
+    orders_res = await db.execute(orders_stmt)
+    orders = orders_res.scalars().all()
+
+    # -------------------------------------------------------------
+    # 2. GSTR3B_Liability
+    # -------------------------------------------------------------
+    ws_gstr3b = wb.create_sheet(title="GSTR3B_Liability")
+    gstr3b_headers = [
+        "Nature of Supplies (GSTR-3B Table 3.1)", "Total Taxable Value (INR)",
+        "Integrated Tax (INR)", "Central Tax (INR)", "State/UT Tax (INR)", "Cess (INR)"
+    ]
+    ws_gstr3b.append(gstr3b_headers)
+    style_header_row(ws_gstr3b, len(gstr3b_headers))
+
+    intra_taxable = 0.0
+    intra_cgst = 0.0
+    intra_sgst = 0.0
+
+    inter_taxable = 0.0
+    inter_igst = 0.0
+
+    exempt_taxable = 0.0
+
+    b2b_rows = []
+    b2c_map = {}  # key: (place_of_supply, is_interstate, tax_rate) -> dict
+
+    for order in orders:
+        is_inter = bool(order.is_interstate)
+        pos = order.place_of_supply or "Local"
+        has_b2b_gstin = bool(order.customer and order.customer.gstin and order.customer.gstin.strip())
+
+        for item in order.items:
+            gross = float(item.line_total or 0.0)
+            rate = float(item.tax_rate or 0.0)
+
+            if rate == 0.0:
+                taxable = gross
+                exempt_taxable += taxable
+                cgst = 0.0
+                sgst = 0.0
+                igst = 0.0
+            elif is_inter:
+                taxable = gross / (1.0 + (rate / 100.0))
+                tot_tax = gross - taxable
+                inter_taxable += taxable
+                igst = tot_tax
+                inter_igst += igst
+                cgst = 0.0
+                sgst = 0.0
+            else:
+                taxable = gross / (1.0 + (rate / 100.0))
+                tot_tax = gross - taxable
+                intra_taxable += taxable
+                cgst = tot_tax / 2.0
+                sgst = tot_tax / 2.0
+                intra_cgst += cgst
+                intra_sgst += sgst
+                igst = 0.0
+
+            tot_inv = gross
+
+            if has_b2b_gstin:
+                b2b_rows.append([
+                    order.basket_number or str(order.id)[:8],
+                    order.created_at.strftime("%Y-%m-%d %H:%M") if order.created_at else "",
+                    order.customer.legal_name or order.customer.name,
+                    order.customer.gstin,
+                    pos,
+                    "Inter-State" if is_inter else "Intra-State",
+                    round(tot_inv, 2),
+                    round(taxable, 2),
+                    rate,
+                    round(igst, 2),
+                    round(cgst, 2),
+                    round(sgst, 2),
+                ])
+            else:
+                b2c_key = (pos, is_inter, rate)
+                if b2c_key not in b2c_map:
+                    b2c_map[b2c_key] = {
+                        "pos": pos,
+                        "supply_type": "Inter-State" if is_inter else "Intra-State",
+                        "rate": rate,
+                        "taxable": 0.0,
+                        "cgst": 0.0,
+                        "sgst": 0.0,
+                        "igst": 0.0,
+                        "total": 0.0,
+                    }
+                b2c_map[b2c_key]["taxable"] += taxable
+                b2c_map[b2c_key]["cgst"] += cgst
+                b2c_map[b2c_key]["sgst"] += sgst
+                b2c_map[b2c_key]["igst"] += igst
+                b2c_map[b2c_key]["total"] += tot_inv
+
+    ws_gstr3b.append([
+        "3.1(a) Outward Taxable Supplies (other than zero rated, nil rated & exempted) - Intra-State",
+        round(intra_taxable, 2),
+        0.00,
+        round(intra_cgst, 2),
+        round(intra_sgst, 2),
+        0.00,
+    ])
+    ws_gstr3b.append([
+        "3.1(a) Outward Taxable Supplies (other than zero rated, nil rated & exempted) - Inter-State",
+        round(inter_taxable, 2),
+        round(inter_igst, 2),
+        0.00,
+        0.00,
+        0.00,
+    ])
+    ws_gstr3b.append([
+        "3.1(c) Other Outward Supplies (Nil rated, Exempted - GST 0%)",
+        round(exempt_taxable, 2),
+        0.00,
+        0.00,
+        0.00,
+        0.00,
+    ])
+
+    tot_taxable_all = intra_taxable + inter_taxable + exempt_taxable
+    ws_gstr3b.append([
+        "TOTAL OUTWARD SUPPLIES",
+        round(tot_taxable_all, 2),
+        round(inter_igst, 2),
+        round(intra_cgst, 2),
+        round(intra_sgst, 2),
+        0.00,
+    ])
+    for col in range(1, len(gstr3b_headers) + 1):
+        cell = ws_gstr3b.cell(row=5, column=col)
+        cell.fill = total_fill
+        cell.font = total_font
+        cell.border = thin_border
+    auto_fit_columns(ws_gstr3b)
+
+    # -------------------------------------------------------------
+    # 3. B2B_Register
+    # -------------------------------------------------------------
+    ws_b2b = wb.create_sheet(title="B2B_Register")
+    b2b_headers = [
+        "Invoice / Bill No", "Invoice Date", "Customer Legal / Trade Name",
+        "Customer GSTIN", "Place of Supply", "Supply Type", "Invoice Value (INR)",
+        "Taxable Value (INR)", "Tax Rate (%)", "IGST (INR)", "CGST (INR)", "SGST (INR)"
+    ]
+    ws_b2b.append(b2b_headers)
+    style_header_row(ws_b2b, len(b2b_headers))
+
+    for row in b2b_rows:
+        ws_b2b.append(row)
+    if not b2b_rows:
+        ws_b2b.append(["No B2B registered customer invoices in this period."])
+    auto_fit_columns(ws_b2b)
+
+    # -------------------------------------------------------------
+    # 4. B2C_Summary
+    # -------------------------------------------------------------
+    ws_b2c = wb.create_sheet(title="B2C_Summary")
+    b2c_headers = [
+        "Place of Supply", "Supply Type", "Tax Rate (%)", "Taxable Value (INR)",
+        "Central Tax (CGST)", "State Tax (SGST)", "Integrated Tax (IGST)", "Total Invoice Value (INR)"
+    ]
+    ws_b2c.append(b2c_headers)
+    style_header_row(ws_b2c, len(b2c_headers))
+
+    for item in sorted(b2c_map.values(), key=lambda x: (x["pos"], x["supply_type"], x["rate"])):
+        ws_b2c.append([
+            item["pos"],
+            item["supply_type"],
+            item["rate"],
+            round(item["taxable"], 2),
+            round(item["cgst"], 2),
+            round(item["sgst"], 2),
+            round(item["igst"], 2),
+            round(item["total"], 2),
+        ])
+    if not b2c_map:
+        ws_b2c.append(["No B2C unregistered customer supplies in this period."])
+    auto_fit_columns(ws_b2c)
+
+    buf = io.BytesIO()
+    wb.save(buf)
+    filename = f"CA_GST_Report_{from_dt.strftime('%Y%m%d')}_{to_dt.strftime('%Y%m%d')}.xlsx"
+    return buf.getvalue(), filename
 
 
 async def get_discount_report(

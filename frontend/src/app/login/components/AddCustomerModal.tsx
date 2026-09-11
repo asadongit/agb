@@ -6,7 +6,13 @@ import { UserPlus, X } from "lucide-react";
 interface AddCustomerModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onAddCustomer: (name: string, phone: string) => Promise<void>;
+  onAddCustomer: (
+    name: string,
+    phone: string,
+    address?: string,
+    city?: string,
+    state?: string
+  ) => Promise<void>;
 }
 
 export function AddCustomerModal({
@@ -16,6 +22,9 @@ export function AddCustomerModal({
 }: AddCustomerModalProps) {
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -31,9 +40,18 @@ export function AddCustomerModal({
     try {
       setIsSubmitting(true);
       setError(null);
-      await onAddCustomer(name.trim(), phone.trim());
+      await onAddCustomer(
+        name.trim(),
+        phone.trim(),
+        address.trim() || undefined,
+        city.trim() || undefined,
+        state.trim() || undefined
+      );
       setName("");
       setPhone("");
+      setAddress("");
+      setCity("");
+      setState("");
       onClose();
     } catch (err: any) {
       setError(err?.message || "Failed to add customer.");
@@ -102,6 +120,46 @@ export function AddCustomerModal({
               onChange={(e) => setPhone(e.target.value)}
               className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs font-mono text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
             />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+              Address (Optional)
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 123 Main St, Apartment 4B"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                City (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Mumbai"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                State (Optional)
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Maharashtra"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+              />
+            </div>
           </div>
 
           <div className="flex items-center justify-end gap-2 pt-2 border-t border-[var(--border-subtle)]">

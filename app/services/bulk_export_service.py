@@ -122,6 +122,7 @@ async def export_inventory(db: AsyncSession, outlet_id: uuid.UUID, format: Expor
             "Margin Type": item.margin_type.value if item.margin_type else "",
             "Supplier": "",
             "Expiry Date": "",
+            "HSN Code": item.hsn_code or "",
             "Tax Category": item.tax_category,
             "Tax Rate": float(item.tax_rate) if item.tax_rate is not None else "",
             "Reorder Threshold": float(item.reorder_threshold) if item.reorder_threshold is not None else "",
@@ -142,14 +143,14 @@ async def export_inventory(db: AsyncSession, outlet_id: uuid.UUID, format: Expor
                 "Initial Qty": "", "Sorted Qty": "", "Total Billed": "",
                 "Cost Per Unit": formula_J, "MRP Margin Pct": "", "Retail Margin Pct": "", "Wholesale Margin Pct": "",
                 "MRP": formula_N, "Retail Price": formula_O, "Wholesale Price": formula_P,
-                "Margin Type": "", "Supplier": "", "Expiry Date": "", "Tax Category": "", "Tax Rate": "",
+                "Margin Type": "", "Supplier": "", "Expiry Date": "", "HSN Code": "", "Tax Category": "", "Tax Rate": "",
                 "Reorder Threshold": "", "Shelf Life Alert Hrs": "", "Current Stock": ""
             })
         
     df = pd.DataFrame(data)
     # Ensure columns match even if empty
     if df.empty:
-        df = pd.DataFrame(columns=["Name", "Barcode", "Unit", "Alt Unit Label", "Alt Unit Conversion Factor", "Category", "Initial Qty", "Sorted Qty", "Total Billed", "Cost Per Unit", "MRP Margin Pct", "Retail Margin Pct", "Wholesale Margin Pct", "MRP", "Retail Price", "Wholesale Price", "Margin Type", "Supplier", "Expiry Date", "Tax Category", "Tax Rate", "Reorder Threshold", "Shelf Life Alert Hrs", "Current Stock"])
+        df = pd.DataFrame(columns=["Name", "Barcode", "Unit", "Alt Unit Label", "Alt Unit Conversion Factor", "Category", "Initial Qty", "Sorted Qty", "Total Billed", "Cost Per Unit", "MRP Margin Pct", "Retail Margin Pct", "Wholesale Margin Pct", "MRP", "Retail Price", "Wholesale Price", "Margin Type", "Supplier", "Expiry Date", "HSN Code", "Tax Category", "Tax Rate", "Reorder Threshold", "Shelf Life Alert Hrs", "Current Stock"])
         
     return _format_dataframe(df, format, "inventory_export", "Inventory Export")
 
@@ -178,6 +179,7 @@ async def export_menu_items(db: AsyncSession, outlet_id: uuid.UUID, format: Expo
             "Offer Label": item.offer_label or "",
             "Tax Category": item.tax_category,
             "Tax Rate": str(item.tax_rate),
+            "HSN Code": item.hsn_code or "",
             "Pricing Mode": item.pricing_mode.value,
             "Unit Label": item.unit_label,
             "Alt Unit Label": item.alternate_units[0]["unit_label"] if item.alternate_units else "",
@@ -187,7 +189,7 @@ async def export_menu_items(db: AsyncSession, outlet_id: uuid.UUID, format: Expo
         
     df = pd.DataFrame(data)
     if df.empty:
-        df = pd.DataFrame(columns=["Name", "Category", "Price", "Barcode", "Description", "MRP", "Wholesale Price", "Evening Price", "Offer Price", "Offer Label", "Tax Category", "Tax Rate", "Pricing Mode", "Unit Label", "Alt Unit Label", "Alt Unit Conversion Factor", "Is Available"])
+        df = pd.DataFrame(columns=["Name", "Category", "Price", "Barcode", "Description", "MRP", "Wholesale Price", "Evening Price", "Offer Price", "Offer Label", "Tax Category", "Tax Rate", "HSN Code", "Pricing Mode", "Unit Label", "Alt Unit Label", "Alt Unit Conversion Factor", "Is Available"])
         
     return _format_dataframe(df, format, "menu_items_export", "Menu Items Export")
 
@@ -234,6 +236,12 @@ async def export_customers(db: AsyncSession, outlet_id: uuid.UUID, format: Expor
         data.append({
             "Phone": customer.phone,
             "Name": customer.name,
+            "GSTIN": customer.gstin or "",
+            "Legal Name": customer.legal_name or "",
+            "State Code": customer.state_code or "",
+            "Address": customer.address or "",
+            "City": customer.city or "",
+            "State": customer.state or "",
             "Loyalty Points": str(customer.loyalty_points),
             "Total Orders": str(total_orders),
             "Total Spent": str(total_spent),
@@ -242,6 +250,6 @@ async def export_customers(db: AsyncSession, outlet_id: uuid.UUID, format: Expor
         
     df = pd.DataFrame(data)
     if df.empty:
-        df = pd.DataFrame(columns=["Phone", "Name", "Loyalty Points", "Total Orders", "Total Spent", "Historical Spend"])
+        df = pd.DataFrame(columns=["Phone", "Name", "GSTIN", "Legal Name", "State Code", "Address", "City", "State", "Loyalty Points", "Total Orders", "Total Spent", "Historical Spend"])
         
     return _format_dataframe(df, format, "customers_export", "Customers Export")

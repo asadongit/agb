@@ -145,7 +145,7 @@ async def download_template(
             "Category", "Initial Qty", "Sorted Qty", "Total Billed", "Cost Per Unit",
             "MRP Margin Pct", "Retail Margin Pct", "Wholesale Margin Pct",
             "MRP", "Retail Price", "Wholesale Price", "Margin Type", "Supplier",
-            "Expiry Date", "Tax Category", "Tax Rate", "Reorder Threshold",
+            "Expiry Date", "HSN Code", "Tax Category", "Tax Rate", "Reorder Threshold",
             "Shelf Life Alert Hrs", "Current Stock"
         ]
         
@@ -202,11 +202,11 @@ async def download_template(
         cols = [
             "Name", "Category", "Price", "Barcode", "Description", "MRP",
             "Wholesale Price", "Evening Price", "Offer Price", "Offer Label",
-            "Tax Category", "Tax Rate", "Pricing Mode", "Unit Label",
+            "Tax Category", "Tax Rate", "HSN Code", "Pricing Mode", "Unit Label",
             "Alt Unit Label", "Alt Unit Conversion Factor", "Is Available"
         ]
     elif entity == "customers":
-        cols = ["Phone", "Name", "Loyalty Points", "Historical Spend"]
+        cols = ["Phone", "Name", "GSTIN", "Legal Name", "State Code", "Address", "City", "State", "Loyalty Points", "Historical Spend"]
     else:
         raise HTTPException(status_code=404, detail="Unknown entity. Use 'inventory', 'menu-items', or 'customers'.")
         

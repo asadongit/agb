@@ -8,7 +8,15 @@ interface EditCustomerModalProps {
   isOpen: boolean;
   onClose: () => void;
   customer: Customer | null;
-  onEditCustomer: (id: string, name: string, phone: string, extraDetail: string) => Promise<void>;
+  onEditCustomer: (
+    id: string,
+    name: string,
+    phone: string,
+    extraDetail: string,
+    address?: string,
+    city?: string,
+    state?: string
+  ) => Promise<void>;
 }
 
 export function EditCustomerModal({
@@ -20,6 +28,9 @@ export function EditCustomerModal({
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [extraDetail, setExtraDetail] = useState("");
+  const [address, setAddress] = useState("");
+  const [city, setCity] = useState("");
+  const [state, setState] = useState("");
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -28,6 +39,9 @@ export function EditCustomerModal({
       setName(customer.name || "");
       setPhone(customer.phone || "");
       setExtraDetail(customer.extra_detail || "");
+      setAddress(customer.address || "");
+      setCity(customer.city || "");
+      setState(customer.state || "");
     }
   }, [customer]);
 
@@ -43,7 +57,15 @@ export function EditCustomerModal({
     try {
       setIsSubmitting(true);
       setError(null);
-      await onEditCustomer(customer.id, name.trim(), phone.trim(), extraDetail.trim());
+      await onEditCustomer(
+        customer.id,
+        name.trim(),
+        phone.trim(),
+        extraDetail.trim(),
+        address.trim() || undefined,
+        city.trim() || undefined,
+        state.trim() || undefined
+      );
       onClose();
     } catch (err: any) {
       setError(err?.message || "Failed to edit customer.");
@@ -66,7 +88,7 @@ export function EditCustomerModal({
                 Edit Customer Account
               </h3>
               <p className="text-[11px] text-[var(--text-muted)]">
-                Update name and phone number for {customer.name}.
+                Update name, phone, address and details for {customer.name}.
               </p>
             </div>
           </div>
@@ -116,13 +138,53 @@ export function EditCustomerModal({
 
           <div>
             <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
-              Extra Detail
+              Address
+            </label>
+            <input
+              type="text"
+              placeholder="e.g. 123 Main St, Apartment 4B"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                City
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Mumbai"
+                value={city}
+                onChange={(e) => setCity(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                State
+              </label>
+              <input
+                type="text"
+                placeholder="e.g. Maharashtra"
+                value={state}
+                onChange={(e) => setState(e.target.value)}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none"
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+              Extra Detail / Notes
             </label>
             <textarea
-              placeholder="e.g. Address, Notes"
+              placeholder="e.g. Delivery instructions, notes"
               value={extraDetail}
               onChange={(e) => setExtraDetail(e.target.value)}
-              rows={3}
+              rows={2}
               className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2.5 text-xs text-[var(--text-primary)] focus:border-purple-500 focus:outline-none resize-none"
             />
           </div>

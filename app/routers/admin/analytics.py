@@ -339,6 +339,41 @@ async def get_tax_summary_endpoint(
     return await get_tax_summary(db, target_outlet_id, from_dt, to_dt)
 
 
+@router.get("/gstr1-hsn-summary", response_model=Gstr1HsnSummaryResponse)
+async def get_gstr1_hsn_summary_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    """GSTR-1 Table 12 HSN/SAC Summary with UQC, Quantities, and Tax Breakup."""
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    return await get_gstr1_hsn_summary(db, target_outlet_id, from_dt, to_dt)
+
+
+@router.get("/ca-export")
+async def get_ca_export_endpoint(
+    current_user: RequireAdmin,
+    db: DBSession,
+    from_date: str | None = Query(None),
+    to_date: str | None = Query(None),
+):
+    """Download 1-Click Multi-Sheet Chartered Accountant (CA) GST Compliance Workbook (.xlsx)."""
+    target_outlet_id = current_user.outlet_id
+    if not target_outlet_id:
+        raise HTTPException(status_code=400, detail="outlet_id required")
+    from_dt, to_dt = _parse_date_range(from_date, to_date)
+    file_bytes, filename = await generate_ca_excel_report(db, target_outlet_id, from_dt, to_dt)
+    return Response(
+        content=file_bytes,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
+
+
 @router.get("/discount-report", response_model=DiscountReportResponse)
 async def get_discount_report_endpoint(
     current_user: RequireAdmin,

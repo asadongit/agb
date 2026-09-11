@@ -37,6 +37,7 @@ interface BarcodeRegisterModalProps {
     expiry_date?: string;
     shelf_life_alert_hrs?: number;
     supplier_id?: string;
+    hsn_code?: string;
     alternate_units?: Array<{ unit_label: string; conversion_factor: number }>;
   }) => Promise<void>;
 }
@@ -79,6 +80,7 @@ export function BarcodeRegisterModal({
   const [taxCategory, setTaxCategory] = useState("GST 0%");
   const [taxRate, setTaxRate] = useState("0");
   const [customTaxRate, setCustomTaxRate] = useState("");
+  const [hsnCode, setHsnCode] = useState("");
 
   const [batchNumber, setBatchNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
@@ -163,6 +165,7 @@ export function BarcodeRegisterModal({
 
     if (itm.tax_category) setTaxCategory(itm.tax_category);
     if (itm.tax_rate != null) setTaxRate(String(itm.tax_rate));
+    if ((itm as any).hsn_code) setHsnCode((itm as any).hsn_code);
     if (itm.shelf_life_alert_hrs != null) setShelfLifeAlertHrs(String(itm.shelf_life_alert_hrs));
     const supp = (itm as any).supplier_id || (itm as any).batches?.[0]?.supplier_id || "";
     if (supp) setSupplierId(supp);
@@ -199,6 +202,7 @@ export function BarcodeRegisterModal({
         setMrpExact("");
         setRetailExact("");
         setWholesaleExact("");
+        setHsnCode("");
       }
       setCategorySearch("");
       setIsCategoryDropdownOpen(false);
@@ -352,6 +356,7 @@ export function BarcodeRegisterModal({
         wholesale_margin_pct: wholesaleMarginPct.trim() ? parseFloat(wholesaleMarginPct) : undefined,
         tax_category: taxCategory === "Custom" ? `GST ${finalTaxRate}%` : taxCategory,
         tax_rate: finalTaxRate,
+        hsn_code: hsnCode.trim() || undefined,
         batch_number: batchNumber.trim() || undefined,
         expiry_date: expiryDate ? new Date(expiryDate).toISOString() : undefined,
         shelf_life_alert_hrs: shelfLifeAlertHrs.trim() ? parseInt(shelfLifeAlertHrs, 10) : undefined,
@@ -875,36 +880,52 @@ export function BarcodeRegisterModal({
             </div>
           )}
 
-          {/* Tax Category (GST Rate %) */}
-          <div>
-            <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
-              Tax Category (GST %)
-            </label>
-            <div className="grid grid-cols-2 gap-2">
-              <select
-                value={taxCategory}
-                onChange={(e) => handleTaxCategoryChange(e.target.value)}
-                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
-              >
-                <option value="GST 0%">GST 0% (Exempt)</option>
-                <option value="GST 5%">GST 5%</option>
-                <option value="GST 12%">GST 12%</option>
-                <option value="GST 18%">GST 18%</option>
-                <option value="GST 28%">GST 28%</option>
-                <option value="Custom">Custom Tax Rate...</option>
-              </select>
+          {/* Tax Category (GST Rate %) & HSN/SAC Code */}
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                Tax Category (GST %)
+              </label>
+              <div className="flex gap-2">
+                <select
+                  value={taxCategory}
+                  onChange={(e) => handleTaxCategoryChange(e.target.value)}
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
+                >
+                  <option value="GST 0%">GST 0% (Exempt)</option>
+                  <option value="GST 5%">GST 5%</option>
+                  <option value="GST 12%">GST 12%</option>
+                  <option value="GST 18%">GST 18%</option>
+                  <option value="GST 28%">GST 28%</option>
+                  <option value="Custom">Custom Tax Rate...</option>
+                </select>
 
-              {taxCategory === "Custom" && (
-                <input
-                  type="number"
-                  step="0.01"
-                  min="0"
-                  placeholder="Custom GST %"
-                  value={customTaxRate}
-                  onChange={(e) => setCustomTaxRate(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
-                />
-              )}
+                {taxCategory === "Custom" && (
+                  <input
+                    type="number"
+                    step="0.01"
+                    min="0"
+                    placeholder="Custom GST %"
+                    value={customTaxRate}
+                    onChange={(e) => setCustomTaxRate(e.target.value)}
+                    className="w-24 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-2.5 py-2 text-xs font-mono text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
+                  />
+                )}
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1">
+                HSN / SAC Code
+              </label>
+              <input
+                type="text"
+                maxLength={8}
+                placeholder="e.g. 2106 or 1006"
+                value={hsnCode}
+                onChange={(e) => setHsnCode(e.target.value.trim())}
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 text-xs font-mono text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
+              />
             </div>
           </div>
 

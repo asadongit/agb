@@ -116,8 +116,13 @@ def _format_bill_response(order: Order) -> BillResponse:
                 "line_total": l_total,
                 "selected_batch_id": batch_id_str,
                 "selected_batch_number": batch_num_str,
+                "hsn_code": getattr(item, "hsn_code", None),
             }
         )
+
+    cust_obj = order.__dict__.get("customer")
+    cust_gstin = getattr(cust_obj, "gstin", None) if cust_obj else None
+    cust_legal = getattr(cust_obj, "legal_name", None) if cust_obj else None
 
     return BillResponse(
         id=str(order.id),
@@ -125,6 +130,8 @@ def _format_bill_response(order: Order) -> BillResponse:
         basket_number=order.basket_number,
         customer_name=order.customer_name,
         customer_phone=order.customer_phone,
+        customer_gstin=cust_gstin,
+        customer_legal_name=cust_legal,
         status=order.status.value if hasattr(order.status, "value") else str(order.status),
         source=order.source or "manual",
         subtotal_amount=float(order.subtotal_amount or order.total_amount or 0.0),
@@ -132,6 +139,8 @@ def _format_bill_response(order: Order) -> BillResponse:
         handling_charge=float(order.handling_charge) if getattr(order, 'handling_charge', None) is not None else 0.0,
         tax_amount=float(order.tax_amount or 0.0),
         total_amount=float(order.total_amount) if order.total_amount is not None else 0.0,
+        is_interstate=bool(getattr(order, "is_interstate", False)),
+        place_of_supply=getattr(order, "place_of_supply", None),
         credit_applied=float(order.credit_applied) if getattr(order, "credit_applied", None) is not None else 0.0,
         debit_applied=float(order.debit_applied) if getattr(order, "debit_applied", None) is not None else 0.0,
         credit_awarded=float(order.credit_awarded) if getattr(order, "credit_awarded", None) is not None else 0.0,
@@ -341,6 +350,7 @@ async def list_bills_endpoint(
         .options(
             selectinload(Order.items).selectinload(OrderItem.menu_item).selectinload(MenuItem.inventory_item),
             selectinload(Order.items).selectinload(OrderItem.selected_batch),
+            selectinload(Order.customer),
         )
         .where(Order.outlet_id == current_user.outlet_id)
     )
@@ -418,6 +428,7 @@ async def get_bill_endpoint(
         .options(
             selectinload(Order.items).selectinload(OrderItem.menu_item).selectinload(MenuItem.inventory_item),
             selectinload(Order.items).selectinload(OrderItem.selected_batch),
+            selectinload(Order.customer),
         )
         .where(
             Order.id == bill_id,

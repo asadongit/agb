@@ -33,6 +33,7 @@ class InventoryItemCreate(StrictSchema):
     wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
+    hsn_code: str | None = Field(None, max_length=20)
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
     alternate_units: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
     allow_oversell: bool = True
@@ -55,6 +56,7 @@ class InventoryItemUpdate(StrictSchema):
     wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(None, max_length=100)
     tax_rate: Decimal | None = Field(None, ge=0)
+    hsn_code: str | None = Field(None, max_length=20)
     is_active: bool | None = None
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
     alternate_units: Optional[List[Dict[str, Any]]] = None
@@ -81,9 +83,11 @@ class InventoryItemResponse(BaseResponse):
     wholesale_margin_pct: Decimal | None = None
     tax_category: str | None = "GST 0%"
     tax_rate: Decimal | None = Decimal("0.00")
+    hsn_code: str | None = None
     is_active: bool
     shelf_life_alert_hrs: int | None = None
     allow_oversell: bool = True
+    latest_batch_date: datetime | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -157,6 +161,7 @@ class ScanOnboardRequest(StrictSchema):
     wholesale_margin_pct: Decimal | None = Field(None, ge=0)
     tax_category: str | None = Field(default="GST 0%", max_length=100)
     tax_rate: Decimal | None = Field(default=Decimal("0.00"), ge=0)
+    hsn_code: str | None = Field(None, max_length=20)
     reorder_threshold: Decimal = Field(default=Decimal("5.000"), ge=0)
     batch_number: str | None = Field(None, max_length=100)
     expiry_date: datetime | None = None
@@ -165,7 +170,7 @@ class ScanOnboardRequest(StrictSchema):
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
     alternate_units: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
-    @field_validator("barcode", "tax_category", mode="before")
+    @field_validator("barcode", "tax_category", "hsn_code", mode="before")
     @classmethod
     def clean_empty_barcode(cls, v: Any) -> Any:
         if isinstance(v, str) and not v.strip():

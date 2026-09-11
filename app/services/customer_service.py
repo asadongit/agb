@@ -64,6 +64,12 @@ async def list_customers(
             "name": c.name,
             "phone": c.phone,
             "extra_detail": c.extra_detail,
+            "gstin": c.gstin,
+            "legal_name": c.legal_name,
+            "state_code": c.state_code,
+            "address": c.address,
+            "city": c.city,
+            "state": c.state,
             "total_orders": orders_count,
             "total_spent": spent,
             "loyalty_points": c.loyalty_points,
@@ -80,6 +86,12 @@ async def create_customer(
     name: str,
     phone: str,
     extra_detail: str | None = None,
+    gstin: str | None = None,
+    legal_name: str | None = None,
+    state_code: str | None = None,
+    address: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
 ) -> Customer:
     """Create a new customer or return existing customer if phone matches."""
     clean_phone = phone.strip()
@@ -96,6 +108,18 @@ async def create_customer(
         cust.name = clean_name
         if extra_detail is not None:
             cust.extra_detail = extra_detail
+        if gstin is not None:
+            cust.gstin = gstin.strip().upper() if gstin else None
+        if legal_name is not None:
+            cust.legal_name = legal_name.strip() if legal_name else None
+        if state_code is not None:
+            cust.state_code = state_code.strip() if state_code else None
+        if address is not None:
+            cust.address = address.strip() if address else None
+        if city is not None:
+            cust.city = city.strip() if city else None
+        if state is not None:
+            cust.state = state.strip() if state else None
         await db.flush()
         await db.refresh(cust)
         return cust
@@ -106,6 +130,12 @@ async def create_customer(
         name=clean_name,
         phone=clean_phone,
         extra_detail=extra_detail,
+        gstin=gstin.strip().upper() if gstin else None,
+        legal_name=legal_name.strip() if legal_name else None,
+        state_code=state_code.strip() if state_code else None,
+        address=address.strip() if address else None,
+        city=city.strip() if city else None,
+        state=state.strip() if state else None,
     )
     db.add(cust)
     await db.flush()
@@ -120,8 +150,14 @@ async def update_customer(
     name: str | None = None,
     phone: str | None = None,
     extra_detail: str | None = None,
+    gstin: str | None = None,
+    legal_name: str | None = None,
+    state_code: str | None = None,
+    address: str | None = None,
+    city: str | None = None,
+    state: str | None = None,
 ) -> Customer:
-    """Update a customer's details (name, phone)."""
+    """Update a customer's details (name, phone, GST info, address, city, state)."""
     res = await db.execute(
         select(Customer).where(
             Customer.id == customer_id,
@@ -136,6 +172,18 @@ async def update_customer(
         cust.name = name
     if extra_detail is not None:
         cust.extra_detail = extra_detail
+    if gstin is not None:
+        cust.gstin = gstin.strip().upper() if gstin else None
+    if legal_name is not None:
+        cust.legal_name = legal_name.strip() if legal_name else None
+    if state_code is not None:
+        cust.state_code = state_code.strip() if state_code else None
+    if address is not None:
+        cust.address = address.strip() if address else None
+    if city is not None:
+        cust.city = city.strip() if city else None
+    if state is not None:
+        cust.state = state.strip() if state else None
     if phone is not None:
         # Check if new phone is already taken by another customer
         if phone != cust.phone:

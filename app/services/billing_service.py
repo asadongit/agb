@@ -74,6 +74,8 @@ async def create_manual_bill(
             name=data.customer_name or "POS Customer",
             phone=data.customer_phone,
             extra_detail=data.customer_extra_detail,
+            gstin=getattr(data, "customer_gstin", None),
+            legal_name=getattr(data, "customer_legal_name", None),
         )
         cust_id = cust.id
 
@@ -98,6 +100,8 @@ async def create_manual_bill(
         subtotal_amount=Decimal("0.00"),
         total_amount=Decimal("0.00"),
         discount_status="NONE",
+        is_interstate=bool(getattr(data, "is_interstate", False)),
+        place_of_supply=getattr(data, "place_of_supply", None),
     )
     
     # Inherit discount if replacing a bill
@@ -222,6 +226,8 @@ async def create_manual_bill(
             except Exception:
                 batch_uuid = None
 
+        resolved_hsn = item_in.hsn_code or getattr(menu_item, "hsn_code", None) or (getattr(target_inv, "hsn_code", None) if target_inv else None)
+
         order_item = OrderItem(
             id=uuid.uuid4(),
             order_id=order.id,
@@ -235,6 +241,7 @@ async def create_manual_bill(
             mrp=item_mrp,
             tax_rate=item_tax_rate,
             tax_category=menu_item.tax_category or "GST 0%",
+            hsn_code=resolved_hsn,
             is_complimentary=item_in.is_complimentary,
             line_total=item_subtotal if not item_in.is_complimentary else Decimal("0.00"),
         )
@@ -313,6 +320,11 @@ async def update_manual_bill(
     if data.basket_number is not None:
         order.basket_number = data.basket_number
 
+    if hasattr(data, "is_interstate") and data.is_interstate is not None:
+        order.is_interstate = bool(data.is_interstate)
+    if hasattr(data, "place_of_supply") and data.place_of_supply is not None:
+        order.place_of_supply = data.place_of_supply
+
     if data.customer_phone and data.customer_phone.strip():
         from app.services.customer_service import create_customer
         cust = await create_customer(
@@ -321,6 +333,8 @@ async def update_manual_bill(
             name=data.customer_name or order.customer_name or "POS Customer",
             phone=data.customer_phone,
             extra_detail=getattr(data, "customer_extra_detail", None),
+            gstin=getattr(data, "customer_gstin", None),
+            legal_name=getattr(data, "customer_legal_name", None),
         )
         order.customer_id = cust.id
         order.customer_phone = cust.phone
@@ -437,6 +451,8 @@ async def update_manual_bill(
                 except Exception:
                     batch_uuid = None
 
+            resolved_hsn = item_in.hsn_code or (menu_item.hsn_code if menu_item else None) or (target_inv.hsn_code if target_inv else None)
+
             order_item = OrderItem(
                 id=uuid.uuid4(),
                 order_id=order.id,
@@ -450,6 +466,7 @@ async def update_manual_bill(
                 mrp=item_mrp,
                 tax_rate=item_tax_rate,
                 tax_category=(menu_item.tax_category if menu_item else None) or "GST 0%",
+                hsn_code=resolved_hsn,
                 is_complimentary=item_in.is_complimentary,
                 line_total=item_subtotal if not item_in.is_complimentary else Decimal("0.00"),
             )
@@ -538,10 +555,12 @@ def _apply_item_level_complimentary(db: AsyncSession, order: Order, item_quantit
                     variant_id=item.variant_id,
                     item_name=item.item_name,
                     quantity=float(comp_qty),
+                    selected_unit=item.selected_unit,
                     unit_price=item.unit_price,
                     mrp=item.mrp,
                     tax_rate=item.tax_rate,
                     tax_category=item.tax_category,
+                    hsn_code=item.hsn_code,
                     is_complimentary=True,
                     line_total=Decimal("0.00")
                 )

@@ -429,6 +429,31 @@ class TaxSummaryResponse(BaseResponse):
     slabs: list[TaxSlabRow]
 
 
+class Gstr1HsnItem(BaseResponse):
+    hsn_code: str
+    description: str
+    uqc: str
+    total_quantity: float
+    total_value: float
+    taxable_value: float
+    tax_rate: float
+    cgst_amount: float
+    sgst_amount: float
+    igst_amount: float
+    cess_amount: float = 0.0
+
+
+class Gstr1HsnSummaryResponse(BaseResponse):
+    from_date: str
+    to_date: str
+    total_value: float
+    total_taxable_value: float
+    total_cgst: float
+    total_sgst: float
+    total_igst: float
+    items: list[Gstr1HsnItem]
+
+
 class DiscountSummary(StrictSchema):
     total_orders_with_discount: int
     total_discount_amount: float
