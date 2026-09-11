@@ -206,6 +206,14 @@ export default function AdminDashboardPage() {
     }
   );
 
+  const refreshCatalogAndInventory = useCallback(() => {
+    void menuState.loadCategoriesAndMenuItems();
+    if (canManageInventory) {
+      void inventoryState.fetchItems();
+      void inventoryState.fetchBatches();
+    }
+  }, [menuState.loadCategoriesAndMenuItems, canManageInventory, inventoryState.fetchItems, inventoryState.fetchBatches]);
+
   const ordersState = useOrdersManagement({
     accessToken,
     restaurant,
@@ -213,13 +221,7 @@ export default function AdminDashboardPage() {
     loadDashboard,
     setNotice,
     setError,
-    onCatalogUpdated: () => {
-      void menuState.loadCategoriesAndMenuItems();
-      if (canManageInventory) {
-        void inventoryState.fetchItems();
-        void inventoryState.fetchBatches();
-      }
-    },
+    onCatalogUpdated: refreshCatalogAndInventory,
   });
 
   const billingState = useBillingManagement({
@@ -228,13 +230,7 @@ export default function AdminDashboardPage() {
     apiRequest,
     setNotice,
     setError,
-    onBillSettled: () => {
-      void menuState.loadCategoriesAndMenuItems();
-      if (canManageInventory) {
-        void inventoryState.fetchItems();
-        void inventoryState.fetchBatches();
-      }
-    },
+    onBillSettled: refreshCatalogAndInventory,
   });
 
   const analyticsState = useAnalyticsManagement({
@@ -631,6 +627,7 @@ export default function AdminDashboardPage() {
             }}
             catalogCategories={menuState.categories}
             authToken={accessToken || undefined}
+            restaurant={restaurant}
           />
         )}
 
@@ -688,13 +685,6 @@ export default function AdminDashboardPage() {
       <CreateBillDrawer
         isOpen={billingState.createBillModalOpen}
         onClose={billingState.handleCloseCreateBillDrawer}
-        onRefreshCatalog={() => {
-          void menuState.loadCategoriesAndMenuItems();
-          if (canManageInventory) {
-            void inventoryState.fetchItems();
-            void inventoryState.fetchBatches();
-          }
-        }}
         inventoryItems={inventoryState.items}
         menuItems={menuState.menuItems}
         variantsByItem={menuState.variantsByItem}

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type {
   AdminCategory,
   AdminMenuItem,
@@ -27,6 +27,10 @@ export function useMenuManagement({
   setError,
   enabled = true,
 }: UseMenuManagementProps) {
+  const setErrorRef = useRef(setError);
+  setErrorRef.current = setError;
+  const setNoticeRef = useRef(setNotice);
+  setNoticeRef.current = setNotice;
   const [categories, setCategories] = useState<AdminCategory[]>([]);
   const [menuItems, setMenuItems] = useState<AdminMenuItem[]>([]);
   const [variantsByItem, setVariantsByItem] = useState<Record<string, AdminVariant[]>>({});
@@ -72,11 +76,11 @@ export function useMenuManagement({
       setVariantsByItem(vMap);
     } catch (err: any) {
       if (isAuthError(err)) return;
-      if (setError) setError(err?.message || "Failed to load menu data");
+      if (setErrorRef.current) setErrorRef.current(err?.message || "Failed to load menu data");
     } finally {
       setIsLoadingMenu(false);
     }
-  }, [accessToken, apiRequest, enabled, setError]);
+  }, [accessToken, apiRequest, enabled]);
 
   useEffect(() => {
     if (enabled) {

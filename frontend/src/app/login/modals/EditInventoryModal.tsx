@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   X,
   Edit,
@@ -89,7 +89,8 @@ export function EditInventoryModal({
   const [retailPrice, setRetailPrice] = useState("");
   const [wholesalePrice, setWholesalePrice] = useState("");
   const [reorderThreshold, setReorderThreshold] = useState("5");
-  const [shelfLifeAlertHrs, setShelfLifeAlertHrs] = useState("");
+  const [shelfLifeValue, setShelfLifeValue] = useState("");
+  const [shelfLifeUnit, setShelfLifeUnit] = useState<"DAYS" | "HOURS">("DAYS");
   const [allowOversell, setAllowOversell] = useState(true);
   const [alternateUnits, setAlternateUnits] = useState<
     Array<{ unit_label: string; conversion_factor: number }>
@@ -135,11 +136,18 @@ export function EditInventoryModal({
           ? String(item.reorder_threshold)
           : "5"
       );
-      setShelfLifeAlertHrs(
-        item.shelf_life_alert_hrs !== undefined && item.shelf_life_alert_hrs !== null
-          ? String(item.shelf_life_alert_hrs)
-          : ""
-      );
+      if (item.shelf_life_alert_hrs !== undefined && item.shelf_life_alert_hrs !== null && item.shelf_life_alert_hrs > 0) {
+        if (item.shelf_life_alert_hrs % 24 === 0) {
+          setShelfLifeUnit("DAYS");
+          setShelfLifeValue(String(item.shelf_life_alert_hrs / 24));
+        } else {
+          setShelfLifeUnit("HOURS");
+          setShelfLifeValue(String(item.shelf_life_alert_hrs));
+        }
+      } else {
+        setShelfLifeValue("");
+        setShelfLifeUnit("DAYS");
+      }
       setAllowOversell(item.allow_oversell ?? true);
       setAlternateUnits(
         Array.isArray(item.alternate_units) ? [...item.alternate_units] : []
@@ -149,6 +157,33 @@ export function EditInventoryModal({
   }, [item]);
 
   if (!isOpen || !item) return null;
+
+  const handleShelfLifeUnitChange = (newUnit: "DAYS" | "HOURS") => {
+    if (newUnit === shelfLifeUnit) return;
+    const val = parseFloat(shelfLifeValue);
+    if (!isNaN(val) && val > 0) {
+      if (newUnit === "DAYS") {
+        const days = parseFloat((val / 24).toFixed(2));
+        setShelfLifeValue(String(days));
+      } else {
+        const hrs = Math.round(val * 24);
+        setShelfLifeValue(String(hrs));
+      }
+    }
+    setShelfLifeUnit(newUnit);
+  };
+
+  const shelfLifeEquivalentHint = useMemo(() => {
+    const val = parseFloat(shelfLifeValue);
+    if (isNaN(val) || val <= 0) return null;
+    if (shelfLifeUnit === "DAYS") {
+      const hrs = Math.round(val * 24);
+      return `≈ ${hrs} hr${hrs === 1 ? "" : "s"}`;
+    } else {
+      const days = parseFloat((val / 24).toFixed(2));
+      return `≈ ${days} day${days === 1 ? "" : "s"}`;
+    }
+  }, [shelfLifeValue, shelfLifeUnit]);
 
   const handleTaxCategoryChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const cat = e.target.value;
@@ -217,7 +252,13 @@ export function EditInventoryModal({
         retail_price: retailPrice ? parseFloat(retailPrice) : null,
         wholesale_price: wholesalePrice ? parseFloat(wholesalePrice) : null,
         reorder_threshold: reorderThreshold ? parseFloat(reorderThreshold) : 0,
-        shelf_life_alert_hrs: shelfLifeAlertHrs ? parseInt(shelfLifeAlertHrs, 10) : null,
+        shelf_life_alert_hrs: (() => {
+          const parsed = parseFloat(shelfLifeValue);
+          if (!isNaN(parsed) && parsed > 0) {
+            return shelfLifeUnit === "DAYS" ? Math.max(1, Math.round(parsed * 24)) : Math.max(1, Math.round(parsed));
+          }
+          return null;
+        })(),
         allow_oversell: allowOversell,
         alternate_units: cleanedAltUnits,
       });
@@ -592,20 +633,56 @@ export function EditInventoryModal({
                 />
               </div>
 
-              {/* Shelf Life Alert (Hrs) */}
+              {/* Shelf Life Alert */}
               <div>
-                <label className="block text-[11px] font-semibold text-[var(--text-muted)] mb-1">
-                  Shelf Life (Hrs)
-                </label>
-                <input
-                  type="number"
-                  step="1"
-                  min="1"
-                  value={shelfLifeAlertHrs}
-                  onChange={(e) => setShelfLifeAlertHrs(e.target.value)}
-                  placeholder="Optional"
-                  className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] focus:border-amber-400 focus:outline-none"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-semibold text-[var(--text-muted)] flex items-center gap-1">
+                    <span>Shelf Life</span>
+                    {shelfLifeEquivalentHint && (
+                      <span className="text-[10px] text-amber-400 font-mono font-normal">
+                        ({shelfLifeEquivalentHint})
+                      </span>
+                    )}
+                  </label>
+                  <div className="inline-flex rounded-md p-0.5 bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleShelfLifeUnitChange("DAYS")}
+                      className={`px-1.5 py-0.5 rounded transition ${
+                        shelfLifeUnit === "DAYS"
+                          ? "bg-amber-500 text-black font-bold shadow-xs"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShelfLifeUnitChange("HOURS")}
+                      className={`px-1.5 py-0.5 rounded transition ${
+                        shelfLifeUnit === "HOURS"
+                          ? "bg-amber-500 text-black font-bold shadow-xs"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Hrs
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step={shelfLifeUnit === "DAYS" ? "any" : "1"}
+                    value={shelfLifeValue}
+                    onChange={(e) => setShelfLifeValue(e.target.value)}
+                    placeholder={shelfLifeUnit === "DAYS" ? "e.g. 2 or 0.5" : "e.g. 48"}
+                    className="w-full rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface)] px-2.5 py-1.5 pr-11 font-mono text-xs text-[var(--text-primary)] focus:border-amber-400 focus:outline-none"
+                  />
+                  <span className="absolute right-2.5 top-1.5 text-[10px] font-mono text-[var(--text-muted)]">
+                    {shelfLifeUnit === "DAYS" ? "days" : "hrs"}
+                  </span>
+                </div>
               </div>
 
               {/* Allow Oversell Toggle */}

@@ -1,7 +1,8 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import { Barcode, CheckCircle2, Package, Sparkles, X, Building2, Plus, Search, Percent, Trash2 } from "lucide-react";
 import type { InventoryUnit, InventoryItem, Supplier } from "@/types";
 import { formatLocalDate } from "@/lib/api";
+import { parseBarcodeMask, generateItemPlu } from "../barcodeUtils";
 
 interface BarcodeRegisterModalProps {
   isOpen: boolean;
@@ -11,6 +12,7 @@ interface BarcodeRegisterModalProps {
   items?: InventoryItem[];
   suppliers?: Supplier[];
   prefillItem?: InventoryItem | null;
+  scaleBarcodeFormat?: string | null;
   onOpenAddSupplierModal?: () => void;
   onSuccess: (itemName: string, stock: string) => void;
   onboardItem: (data: {
@@ -50,6 +52,7 @@ export function BarcodeRegisterModal({
   items = [],
   suppliers = [],
   prefillItem,
+  scaleBarcodeFormat,
   onOpenAddSupplierModal,
   onSuccess,
   onboardItem,
@@ -84,7 +87,8 @@ export function BarcodeRegisterModal({
 
   const [batchNumber, setBatchNumber] = useState("");
   const [expiryDate, setExpiryDate] = useState("");
-  const [shelfLifeAlertHrs, setShelfLifeAlertHrs] = useState("");
+  const [shelfLifeValue, setShelfLifeValue] = useState("");
+  const [shelfLifeUnit, setShelfLifeUnit] = useState<"DAYS" | "HOURS">("DAYS");
 
   // Margin States
   const [marginType, setMarginType] = useState<"MARKUP" | "MARGIN">("MARKUP");
@@ -166,7 +170,18 @@ export function BarcodeRegisterModal({
     if (itm.tax_category) setTaxCategory(itm.tax_category);
     if (itm.tax_rate != null) setTaxRate(String(itm.tax_rate));
     if ((itm as any).hsn_code) setHsnCode((itm as any).hsn_code);
-    if (itm.shelf_life_alert_hrs != null) setShelfLifeAlertHrs(String(itm.shelf_life_alert_hrs));
+    if (itm.shelf_life_alert_hrs != null && itm.shelf_life_alert_hrs > 0) {
+      if (itm.shelf_life_alert_hrs % 24 === 0) {
+        setShelfLifeUnit("DAYS");
+        setShelfLifeValue(String(itm.shelf_life_alert_hrs / 24));
+      } else {
+        setShelfLifeUnit("HOURS");
+        setShelfLifeValue(String(itm.shelf_life_alert_hrs));
+      }
+    } else {
+      setShelfLifeValue("");
+      setShelfLifeUnit("DAYS");
+    }
     const supp = (itm as any).supplier_id || (itm as any).batches?.[0]?.supplier_id || "";
     if (supp) setSupplierId(supp);
     if ((itm as any).alternate_units && Array.isArray((itm as any).alternate_units)) {
@@ -212,10 +227,38 @@ export function BarcodeRegisterModal({
       setCustomTaxRate("");
       setBatchNumber(`BAT-${formatLocalDate().replace(/-/g, "")}-${Math.random().toString(36).substring(2, 6).toUpperCase()}`);
       setExpiryDate("");
-      setShelfLifeAlertHrs("");
+      setShelfLifeValue("");
+      setShelfLifeUnit("DAYS");
       setError(null);
     }
   }, [isOpen, barcode, categories, prefillItem]);
+
+  const handleShelfLifeUnitChange = (newUnit: "DAYS" | "HOURS") => {
+    if (newUnit === shelfLifeUnit) return;
+    const val = parseFloat(shelfLifeValue);
+    if (!isNaN(val) && val > 0) {
+      if (newUnit === "DAYS") {
+        const days = parseFloat((val / 24).toFixed(2));
+        setShelfLifeValue(String(days));
+      } else {
+        const hrs = Math.round(val * 24);
+        setShelfLifeValue(String(hrs));
+      }
+    }
+    setShelfLifeUnit(newUnit);
+  };
+
+  const shelfLifeEquivalentHint = useMemo(() => {
+    const val = parseFloat(shelfLifeValue);
+    if (isNaN(val) || val <= 0) return null;
+    if (shelfLifeUnit === "DAYS") {
+      const hrs = Math.round(val * 24);
+      return `≈ ${hrs} hr${hrs === 1 ? "" : "s"}`;
+    } else {
+      const days = parseFloat((val / 24).toFixed(2));
+      return `≈ ${days} day${days === 1 ? "" : "s"}`;
+    }
+  }, [shelfLifeValue, shelfLifeUnit]);
 
   // Recalculate cost_per_unit dynamically when totalBilledAmount, sortedQuantity, or initialStock changes
   useEffect(() => {
@@ -359,7 +402,13 @@ export function BarcodeRegisterModal({
         hsn_code: hsnCode.trim() || undefined,
         batch_number: batchNumber.trim() || undefined,
         expiry_date: expiryDate ? new Date(expiryDate).toISOString() : undefined,
-        shelf_life_alert_hrs: shelfLifeAlertHrs.trim() ? parseInt(shelfLifeAlertHrs, 10) : undefined,
+        shelf_life_alert_hrs: (() => {
+          const parsed = parseFloat(shelfLifeValue);
+          if (!isNaN(parsed) && parsed > 0) {
+            return shelfLifeUnit === "DAYS" ? Math.max(1, Math.round(parsed * 24)) : Math.max(1, Math.round(parsed));
+          }
+          return undefined;
+        })(),
         supplier_id: supplierId || undefined,
         alternate_units: alternateUnits.filter((u) => u.unit_label.trim() && u.conversion_factor > 0),
       });
@@ -416,13 +465,15 @@ export function BarcodeRegisterModal({
             <button
               type="button"
               onClick={() => {
-                // Generate a random 5-digit numerical PLU (10000 - 99999)
-                const plu = Math.floor(10000 + Math.random() * 90000).toString();
+                const mask = parseBarcodeMask(scaleBarcodeFormat);
+                const existingCodes = items.map((it) => it.barcode).filter((b): b is string => Boolean(b));
+                const plu = generateItemPlu(mask.itemCodeLength, existingCodes);
                 setCustomBarcode(plu);
               }}
-              className="text-[10px] text-[var(--accent-brand)] font-bold hover:underline bg-[var(--accent-brand)]/10 px-2 py-0.5 rounded-lg transition"
+              className="text-[10px] text-[var(--accent-brand)] font-bold hover:underline bg-[var(--accent-brand)]/10 px-2 py-0.5 rounded-lg transition cursor-pointer"
+              title={`Generate ${parseBarcodeMask(scaleBarcodeFormat).itemCodeLength}-digit PLU for active scale mask (${parseBarcodeMask(scaleBarcodeFormat).pattern})`}
             >
-              Generate Internal Barcode
+              Generate Internal Barcode ({parseBarcodeMask(scaleBarcodeFormat).itemCodeLength} digits)
             </button>
           </label>
           <input
@@ -1006,17 +1057,54 @@ export function BarcodeRegisterModal({
                 />
               </div>
               <div>
-                <label className="block text-[11px] font-medium text-[var(--text-muted)] mb-1 text-red-400">
-                  Shelf Life Alert (Hrs)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  placeholder="Optional"
-                  value={shelfLifeAlertHrs}
-                  onChange={(e) => setShelfLifeAlertHrs(e.target.value)}
-                  className="w-full rounded-lg border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 text-xs font-mono text-red-300 focus:border-red-500 focus:outline-none placeholder:text-red-900/50"
-                />
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-[11px] font-medium text-red-400 flex items-center gap-1">
+                    Shelf Life Alert
+                    {shelfLifeEquivalentHint && (
+                      <span className="text-[10px] text-red-300/80 font-mono font-normal">
+                        ({shelfLifeEquivalentHint})
+                      </span>
+                    )}
+                  </label>
+                  <div className="inline-flex rounded-md p-0.5 bg-[var(--bg-surface)] border border-red-500/20 text-[10px]">
+                    <button
+                      type="button"
+                      onClick={() => handleShelfLifeUnitChange("DAYS")}
+                      className={`px-1.5 py-0.5 rounded transition ${
+                        shelfLifeUnit === "DAYS"
+                          ? "bg-red-500 text-white font-bold shadow-xs"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Days
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleShelfLifeUnitChange("HOURS")}
+                      className={`px-1.5 py-0.5 rounded transition ${
+                        shelfLifeUnit === "HOURS"
+                          ? "bg-red-500 text-white font-bold shadow-xs"
+                          : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      Hrs
+                    </button>
+                  </div>
+                </div>
+                <div className="relative">
+                  <input
+                    type="number"
+                    min="0"
+                    step={shelfLifeUnit === "DAYS" ? "any" : "1"}
+                    placeholder={shelfLifeUnit === "DAYS" ? "e.g. 2 or 0.5" : "e.g. 48"}
+                    value={shelfLifeValue}
+                    onChange={(e) => setShelfLifeValue(e.target.value)}
+                    className="w-full rounded-lg border border-red-500/30 bg-red-500/5 px-2.5 py-1.5 pr-11 text-xs font-mono text-red-300 focus:border-red-500 focus:outline-none placeholder:text-red-900/50"
+                  />
+                  <span className="absolute right-2.5 top-1.5 text-[10px] font-mono font-semibold text-red-400/70 pointer-events-none">
+                    {shelfLifeUnit === "DAYS" ? "days" : "hrs"}
+                  </span>
+                </div>
               </div>
             </div>
           </div>

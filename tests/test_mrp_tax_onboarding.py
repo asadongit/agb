@@ -78,3 +78,84 @@ async def test_onboard_with_total_billed_and_sorted_qty_calculator(client: Async
     assert deact_menu["is_on_offer"] is False
     assert deact_menu["offer_price"] is None
     assert deact_menu["offer_label"] == None
+
+
+@pytest.mark.asyncio
+async def test_onboard_item_with_multiple_existing_linked_menu_items(client: AsyncClient, db_session: AsyncSession):
+    """Verify that scan-onboard does not crash with MultipleResultsFound when multiple MenuItems link to the same InventoryItem."""
+    import uuid
+    from decimal import Decimal
+    from app.models.category import Category
+    from app.models.inventory_item import InventoryItem
+    from app.models.menu_item import MenuItem
+    from app.models.enums import InventoryUnitEnum
+
+    outlet = await create_test_outlet(db_session, slug="multi-menu-outlet", name="Multi Menu Outlet")
+    admin = await create_test_user(db_session, outlet, email="admin@multimenu.com", role=RoleEnum.OUTLET_ADMIN)
+    headers = get_auth_headers(admin, outlet)
+
+    # 1. Create a category
+    cat = Category(id=uuid.uuid4(), outlet_id=outlet.id, name="Produce", display_order=0)
+    db_session.add(cat)
+
+    # 2. Create an InventoryItem
+    inv = InventoryItem(
+        id=uuid.uuid4(),
+        outlet_id=outlet.id,
+        name="Fresh Tomato",
+        barcode="8909999999999",
+        unit=InventoryUnitEnum.KG,
+        category="Produce",
+        current_stock=Decimal("10.0"),
+        cost_per_unit=Decimal("20.0"),
+        retail_price=Decimal("30.0"),
+    )
+    db_session.add(inv)
+
+    # 3. Create TWO MenuItems linking to the exact same inventory item
+    mi1 = MenuItem(
+        id=uuid.uuid4(),
+        outlet_id=outlet.id,
+        category_id=cat.id,
+        inventory_item_id=inv.id,
+        name="Fresh Tomato (Loose)",
+        barcode="8909999999999",
+        price=Decimal("30.0"),
+        is_available=True,
+    )
+    mi2 = MenuItem(
+        id=uuid.uuid4(),
+        outlet_id=outlet.id,
+        category_id=cat.id,
+        inventory_item_id=inv.id,
+        name="Fresh Tomato (Pack)",
+        barcode="8909999999998",
+        price=Decimal("32.0"),
+        is_available=True,
+    )
+    db_session.add_all([mi1, mi2])
+    await db_session.commit()
+
+    # 4. Inward / Scan-onboard the item again with new stock and selling price
+    payload = {
+        "barcode": "8909999999999",
+        "name": "Fresh Tomato",
+        "category": "Produce",
+        "unit": "kg",
+        "initial_stock": 50.0,
+        "cost_per_unit": 22.0,
+        "selling_price": 35.0,
+        "mrp": 40.0,
+    }
+    resp = await client.post("/api/admin/inventory/scan-onboard", json=payload, headers=headers)
+    # Must succeed with 201, NOT fail with 500 MultipleResultsFound!
+    assert resp.status_code == 201
+    data = resp.json()
+    assert float(data["current_stock"]) == 60.0  # 10 + 50
+
+    # 5. Verify both linked menu items had pricing synchronized without crashing
+    await db_session.refresh(mi1)
+    await db_session.refresh(mi2)
+    assert float(mi1.price) == 35.0
+    assert float(mi2.price) == 35.0
+

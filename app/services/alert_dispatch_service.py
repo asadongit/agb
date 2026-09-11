@@ -82,10 +82,20 @@ def build_alert_email_html(
         """
 
     if shelf_hrs:
+        try:
+            hrs_val = float(shelf_hrs)
+            if hrs_val >= 24 and hrs_val % 24 == 0:
+                shelf_display = f"{int(hrs_val // 24)} days ({int(hrs_val)} hrs)"
+            elif hrs_val >= 24:
+                shelf_display = f"{hrs_val / 24:.1f} days ({int(hrs_val)} hrs)"
+            else:
+                shelf_display = f"{int(hrs_val)} hours"
+        except Exception:
+            shelf_display = f"{shelf_hrs} hours"
         rows_html += f"""
         <tr style="border-bottom: 1px solid #27272a;">
             <td style="padding: 10px 0; color: #a1a1aa; font-size: 13px;">Shelf Life Threshold</td>
-            <td style="padding: 10px 0; color: #38bdf8; font-weight: 600; font-size: 13px; text-align: right;">{shelf_hrs} hours</td>
+            <td style="padding: 10px 0; color: #38bdf8; font-weight: 600; font-size: 13px; text-align: right;">{shelf_display}</td>
         </tr>
         """
 

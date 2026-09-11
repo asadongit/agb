@@ -1554,7 +1554,7 @@ async def onboard_scanned_item(
                 Category.name.ilike(category.strip()),
             )
         )
-        cat_row = cat_res.scalar_one_or_none()
+        cat_row = cat_res.scalars().first()
         if not cat_row:
             cat_row = Category(
                 id=uuid.uuid4(),
@@ -1571,24 +1571,68 @@ async def onboard_scanned_item(
             MenuItem.inventory_item_id == item.id,
         )
         mi_res = await db.execute(mi_stmt)
-        menu_item = mi_res.scalar_one_or_none()
+        menu_items = list(mi_res.scalars().all())
+
+        # If not linked by inventory_item_id, check by barcode or item name
+        if not menu_items:
+            if clean_barcode:
+                mi_bc_res = await db.execute(
+                    select(MenuItem).where(
+                        MenuItem.outlet_id == outlet_id,
+                        MenuItem.barcode == clean_barcode,
+                    )
+                )
+                menu_items = list(mi_bc_res.scalars().all())
+            if not menu_items:
+                mi_name_res = await db.execute(
+                    select(MenuItem).where(
+                        MenuItem.outlet_id == outlet_id,
+                        MenuItem.name.ilike(name.strip()),
+                    )
+                )
+                menu_items = list(mi_name_res.scalars().all())
+
+            # Link them to this inventory item if unlinked
+            for mi in menu_items:
+                if not mi.inventory_item_id:
+                    mi.inventory_item_id = item.id
+
         unit_str = unit.value.lower() if hasattr(unit, "value") else str(unit).lower()
 
-        if menu_item:
-            menu_item.name = name.strip()
-            menu_item.category_id = cat_row.id
-            menu_item.price = selling_price
-            menu_item.mrp = mrp
-            menu_item.wholesale_price = wholesale_price
-            menu_item.tax_category = tax_category
-            menu_item.tax_rate = tax_rate
-            menu_item.unit_label = unit_str
-            if alternate_units is not None:
-                menu_item.alternate_units = alternate_units
+        if menu_items:
+            # Find the primary matching MenuItem (prefer exact barcode match, then exact name match, then first)
+            primary_mi = None
             if clean_barcode:
-                menu_item.barcode = clean_barcode
+                for mi in menu_items:
+                    if mi.barcode and mi.barcode.strip() == clean_barcode.strip():
+                        primary_mi = mi
+                        break
+            if not primary_mi:
+                for mi in menu_items:
+                    if mi.name and mi.name.strip().lower() == name.strip().lower():
+                        primary_mi = mi
+                        break
+            if not primary_mi:
+                primary_mi = menu_items[0]
+
+            # Update all linked menu items with updated pricing & category so POS catalog is synchronized
+            for mi in menu_items:
+                mi.category_id = cat_row.id
+                mi.price = selling_price
+                mi.mrp = mrp
+                mi.wholesale_price = wholesale_price
+                mi.tax_category = tax_category
+                mi.tax_rate = tax_rate
+                mi.unit_label = unit_str
+                if alternate_units is not None:
+                    mi.alternate_units = alternate_units
+
+            # Update primary matching item with name, barcode, and HSN
+            primary_mi.name = name.strip()
+            if clean_barcode:
+                primary_mi.barcode = clean_barcode
             if hsn_code is not None:
-                menu_item.hsn_code = hsn_code.strip() if hsn_code else None
+                primary_mi.hsn_code = hsn_code.strip() if hsn_code else None
         else:
             menu_item = MenuItem(
                 id=uuid.uuid4(),

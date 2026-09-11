@@ -412,7 +412,7 @@ export function BatchHistoryDrawer({
                               ~{new Date(new Date(b.intake_date).getTime() + item.shelf_life_alert_hrs * 3600 * 1000).toLocaleDateString("en-IN", {
                                 day: "2-digit",
                                 month: "short",
-                              })} ({item.shelf_life_alert_hrs}h)
+                              })} ({item.shelf_life_alert_hrs >= 24 && item.shelf_life_alert_hrs % 24 === 0 ? `${item.shelf_life_alert_hrs / 24}d` : `${item.shelf_life_alert_hrs}h`})
                             </span>
                           ) : (
                             <span className="text-[var(--text-muted)]">—</span>

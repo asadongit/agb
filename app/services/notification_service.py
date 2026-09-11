@@ -183,8 +183,9 @@ async def sync_shelf_life_notifications(db: AsyncSession, outlet_id: uuid.UUID) 
                 "shelf_life_alert_hrs": alert_hrs,
             }
             
+            threshold_label = f"{alert_hrs // 24}d ({alert_hrs}h)" if alert_hrs >= 24 and alert_hrs % 24 == 0 else f"{alert_hrs}h"
             title = f"{item.name} — Shelf Life Reached"
-            message = f"The item shelf life has reached ({alert_hrs}h threshold) and its current count is {float(intake.remaining_quantity)} {item.unit}."
+            message = f"The item shelf life has reached ({threshold_label} threshold) and its current count is {float(intake.remaining_quantity)} {item.unit}."
             
             existing_stmt = select(Notification).where(
                 Notification.outlet_id == outlet_id,

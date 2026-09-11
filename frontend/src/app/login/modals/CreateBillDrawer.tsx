@@ -80,7 +80,6 @@ type CreateBillDrawerProps = {
   eveningPriceActive?: boolean;
   restaurant?: import("../adminTypes").RestaurantProfile | null;
   onQuickEditOffer?: (itemId: string, updates: Partial<AdminMenuItem>) => Promise<void>;
-  onRefreshCatalog?: () => void;
   inventoryItems?: { id: string; current_stock?: number | string | null }[];
 };
 
@@ -227,17 +226,10 @@ export function CreateBillDrawer({
   eveningPriceActive = false,
   restaurant,
   onQuickEditOffer,
-  onRefreshCatalog,
   inventoryItems,
 }: CreateBillDrawerProps) {
   const { isAdminRole } = useAdminAuth();
   const isPrivileged = isAdminRole;
-
-  useEffect(() => {
-    if (isOpen && onRefreshCatalog) {
-      onRefreshCatalog();
-    }
-  }, [isOpen, onRefreshCatalog]);
 
   const inventoryStockMap = useMemo(() => {
     const map = new Map<string, number>();

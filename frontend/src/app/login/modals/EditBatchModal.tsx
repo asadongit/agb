@@ -77,7 +77,8 @@ export function EditBatchModal({
   const [batchNumber, setBatchNumber] = useState("");
   const [intakeDateLocal, setIntakeDateLocal] = useState("");
   const [expiryDateLocal, setExpiryDateLocal] = useState("");
-  const [shelfLifeHrs, setShelfLifeHrs] = useState<string>("");
+  const [shelfLifeValue, setShelfLifeValue] = useState<string>("");
+  const [shelfLifeUnit, setShelfLifeUnit] = useState<"DAYS" | "HOURS">("DAYS");
   const [supplierId, setSupplierId] = useState<string>("");
   const [notes, setNotes] = useState("");
   const [mrp, setMrp] = useState<string>("");
@@ -92,9 +93,18 @@ export function EditBatchModal({
       setBatchNumber(batch.batch_number || "");
       setIntakeDateLocal(toLocalDateTimeString(batch.intake_date));
       setExpiryDateLocal(toLocalDateString(batch.expiry_date));
-      setShelfLifeHrs(
-        batch.shelf_life_alert_hrs != null ? String(batch.shelf_life_alert_hrs) : ""
-      );
+      if (batch.shelf_life_alert_hrs != null && batch.shelf_life_alert_hrs > 0) {
+        if (batch.shelf_life_alert_hrs % 24 === 0) {
+          setShelfLifeUnit("DAYS");
+          setShelfLifeValue(String(batch.shelf_life_alert_hrs / 24));
+        } else {
+          setShelfLifeUnit("HOURS");
+          setShelfLifeValue(String(batch.shelf_life_alert_hrs));
+        }
+      } else {
+        setShelfLifeValue("");
+        setShelfLifeUnit("DAYS");
+      }
       setSupplierId(batch.supplier_id || "");
       setNotes(batch.notes || "");
 
@@ -108,6 +118,33 @@ export function EditBatchModal({
       setError(null);
     }
   }, [batch, item]);
+
+  const handleShelfLifeUnitChange = (newUnit: "DAYS" | "HOURS") => {
+    if (newUnit === shelfLifeUnit) return;
+    const val = parseFloat(shelfLifeValue);
+    if (!isNaN(val) && val > 0) {
+      if (newUnit === "DAYS") {
+        const days = parseFloat((val / 24).toFixed(2));
+        setShelfLifeValue(String(days));
+      } else {
+        const hrs = Math.round(val * 24);
+        setShelfLifeValue(String(hrs));
+      }
+    }
+    setShelfLifeUnit(newUnit);
+  };
+
+  const shelfLifeEquivalentHint = useMemo(() => {
+    const val = parseFloat(shelfLifeValue);
+    if (isNaN(val) || val <= 0) return null;
+    if (shelfLifeUnit === "DAYS") {
+      const hrs = Math.round(val * 24);
+      return `≈ ${hrs} hr${hrs === 1 ? "" : "s"}`;
+    } else {
+      const days = parseFloat((val / 24).toFixed(2));
+      return `≈ ${days} day${days === 1 ? "" : "s"}`;
+    }
+  }, [shelfLifeValue, shelfLifeUnit]);
 
   // Live Time-Reference Evaluation
   const timeDiagnostics = useMemo(() => {
@@ -128,10 +165,13 @@ export function EditBatchModal({
         effectiveExpiryTime = expDate.getTime();
         expirySource = "CALENDAR";
       }
-    } else if (shelfLifeHrs && !isNaN(parseFloat(shelfLifeHrs))) {
-      const hrs = parseFloat(shelfLifeHrs);
-      effectiveExpiryTime = arrivalTime + hrs * 3600 * 1000;
-      expirySource = "SHELF_LIFE";
+    } else if (shelfLifeValue && !isNaN(parseFloat(shelfLifeValue))) {
+      const rawNum = parseFloat(shelfLifeValue);
+      const hrs = shelfLifeUnit === "DAYS" ? rawNum * 24 : rawNum;
+      if (hrs > 0) {
+        effectiveExpiryTime = arrivalTime + hrs * 3600 * 1000;
+        expirySource = "SHELF_LIFE";
+      }
     }
 
     let isExpired = false;
@@ -157,7 +197,7 @@ export function EditBatchModal({
       isExpiringSoon,
       remainingDays: Math.ceil(remainingHrs / 24),
     };
-  }, [intakeDateLocal, expiryDateLocal, shelfLifeHrs]);
+  }, [intakeDateLocal, expiryDateLocal, shelfLifeValue, shelfLifeUnit]);
 
   if (!isOpen || !batch) return null;
 
@@ -204,8 +244,11 @@ export function EditBatchModal({
         payload.expiry_date = null;
       }
 
-      if (shelfLifeHrs.trim()) {
-        payload.shelf_life_alert_hrs = parseInt(shelfLifeHrs.trim(), 10) || null;
+      const parsedShelfLife = parseFloat(shelfLifeValue);
+      if (!isNaN(parsedShelfLife) && parsedShelfLife > 0) {
+        payload.shelf_life_alert_hrs = shelfLifeUnit === "DAYS"
+          ? Math.max(1, Math.round(parsedShelfLife * 24))
+          : Math.max(1, Math.round(parsedShelfLife));
       } else {
         payload.shelf_life_alert_hrs = null;
       }
@@ -302,7 +345,7 @@ export function EditBatchModal({
               {timeDiagnostics.expirySource === "CALENDAR"
                 ? `Anchored to Calendar Expiry: ${expiryDateLocal}`
                 : timeDiagnostics.expirySource === "SHELF_LIFE"
-                ? `Anchored to Physical Arrival + ${shelfLifeHrs}h shelf life`
+                ? `Anchored to Physical Arrival + ${shelfLifeValue}${shelfLifeUnit === "DAYS" ? "d" : "h"} shelf life`
                 : "No expiry configured (Non-perishable lot)."}
             </p>
           </div>
@@ -374,24 +417,54 @@ export function EditBatchModal({
               />
             </div>
 
-            {/* Shelf Life Alert Hours */}
+            {/* Shelf Life Alert */}
             <div>
-              <label className="block text-xs font-semibold text-[var(--text-primary)] mb-1 flex items-center justify-between">
-                <span>Shelf Life Alert (Hours)</span>
-                <span className="text-[10px] text-[var(--text-muted)]">(From Arrival)</span>
-              </label>
+              <div className="flex items-center justify-between mb-1">
+                <label className="text-xs font-semibold text-[var(--text-primary)] flex items-center gap-1">
+                  <span>Shelf Life Alert</span>
+                  {shelfLifeEquivalentHint && (
+                    <span className="text-[10px] text-amber-400 font-mono font-normal">
+                      ({shelfLifeEquivalentHint})
+                    </span>
+                  )}
+                </label>
+                <div className="inline-flex rounded-md p-0.5 bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[10px]">
+                  <button
+                    type="button"
+                    onClick={() => handleShelfLifeUnitChange("DAYS")}
+                    className={`px-1.5 py-0.5 rounded transition ${
+                      shelfLifeUnit === "DAYS"
+                        ? "bg-amber-500 text-black font-bold shadow-xs"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    Days
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleShelfLifeUnitChange("HOURS")}
+                    className={`px-1.5 py-0.5 rounded transition ${
+                      shelfLifeUnit === "HOURS"
+                        ? "bg-amber-500 text-black font-bold shadow-xs"
+                        : "text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                    }`}
+                  >
+                    Hrs
+                  </button>
+                </div>
+              </div>
               <div className="relative">
                 <input
                   type="number"
-                  min="1"
-                  step="1"
-                  value={shelfLifeHrs}
-                  onChange={(e) => setShelfLifeHrs(e.target.value)}
-                  placeholder="e.g. 48 for 2 days"
+                  min="0"
+                  step={shelfLifeUnit === "DAYS" ? "any" : "1"}
+                  value={shelfLifeValue}
+                  onChange={(e) => setShelfLifeValue(e.target.value)}
+                  placeholder={shelfLifeUnit === "DAYS" ? "e.g. 2 or 0.5" : "e.g. 48"}
                   className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-2 pr-12 font-mono text-xs text-[var(--text-primary)] focus:border-amber-500 focus:outline-none"
                 />
                 <span className="absolute right-3 top-2 text-xs text-[var(--text-muted)] font-mono">
-                  hrs
+                  {shelfLifeUnit === "DAYS" ? "days" : "hrs"}
                 </span>
               </div>
             </div>

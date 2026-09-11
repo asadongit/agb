@@ -69,6 +69,7 @@ import { EditBatchModal } from "../modals/EditBatchModal";
 import { EditInventoryModal } from "../modals/EditInventoryModal";
 import { parseUTCDate } from "../adminUtils";
 import type { InventoryTabType, ScanFeedItem } from "../hooks/useInventoryManagement";
+import type { RestaurantProfile } from "../adminTypes";
 
 export type BatchSortOption =
   | "recent"           // Default: Most recent arrival
@@ -178,6 +179,7 @@ interface InventoryTabProps {
   openEditItemModal?: (item: InventoryItem) => void;
   closeEditItemModal?: () => void;
   updateInventoryItem?: (itemId: string, data: any) => Promise<any>;
+  restaurant?: RestaurantProfile | null;
 }
 
 export function InventoryTab({
@@ -241,6 +243,7 @@ export function InventoryTab({
   openEditItemModal: propOpenEditItemModal,
   closeEditItemModal: propCloseEditItemModal,
   updateInventoryItem,
+  restaurant,
 }: InventoryTabProps) {
   const [searchQuery, setSearchQuery] = useState("");
   const [supplierSearchQuery, setSupplierSearchQuery] = useState("");
@@ -1327,7 +1330,10 @@ export function InventoryTab({
                               {shelfLifeHours != null && (
                                 <span className="inline-flex items-center gap-0.5 text-[10px] font-semibold text-amber-400 bg-amber-500/10 px-1.5 py-0.2 rounded border border-amber-500/20">
                                   <Hourglass className="h-2.5 w-2.5" />
-                                  {shelfLifeHours}h shelf life
+                                  {shelfLifeHours >= 24 && shelfLifeHours % 24 === 0
+                                    ? `${shelfLifeHours / 24}d (${shelfLifeHours}h)`
+                                    : `${shelfLifeHours}h`}{" "}
+                                  shelf life
                                 </span>
                               )}
                             </div>
@@ -1747,6 +1753,7 @@ export function InventoryTab({
         items={items}
         suppliers={suppliers}
         prefillItem={prefillItem}
+        scaleBarcodeFormat={restaurant?.weighing_scale_barcode_format}
         onOpenAddSupplierModal={() => setIsAddSupplierModalOpen?.(true)}
         onSuccess={(name, stock) => {
           console.log(`Registered ${name} with initial stock ${stock}`);
@@ -1880,6 +1887,7 @@ export function InventoryTab({
           setSelectedPrintItem(null);
         }}
         item={selectedPrintItem}
+        restaurant={restaurant}
       />
 
       {/* Delete Inventory Item Confirmation Modal */}
