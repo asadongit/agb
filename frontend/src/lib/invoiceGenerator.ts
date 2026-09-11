@@ -190,7 +190,100 @@ export async function generateA4InvoicePDF(
 
   currentY = billedY + 2;
 
-  // 3. ITEMS TABLE
+  // 3. ITEMS TABLE (Consolidates identical items for single-line customer presentation, matching thermal receipt behavior)
+  const rawItems = order.items || [];
+  interface ConsolidatedInvoiceItem {
+    menu_item_id?: string;
+    name: string;
+    basePrice: number;
+    effectiveRate: number;
+    mrp: number;
+    taxRate: number;
+    hsnCode: string;
+    isComplimentary: boolean;
+    quantity: number;
+    cleanUnit: string;
+  }
+
+  const consolidatedItems: ConsolidatedInvoiceItem[] = [];
+  const itemConsolidationMap = new Map<string, ConsolidatedInvoiceItem>();
+
+  for (const item of rawItems) {
+    let rawDishName = item.item_name || "Unknown Item";
+    if (menuItemsMap && item.menu_item_id && menuItemsMap[item.menu_item_id]) {
+      const mi = menuItemsMap[item.menu_item_id];
+      if (!rawDishName || rawDishName === "Unknown Item") rawDishName = mi.name;
+    }
+
+    // Strip internal cashier POS tags such as [Oversold Backorder] or Lot # from customer invoice
+    const cleanDishName = rawDishName
+      .replace(/\[Oversold Backorder\]/gi, "")
+      .replace(/\(Oversold\)/gi, "")
+      .replace(/Lot\s*#[A-Za-z0-9_-]+/gi, "")
+      .trim() || "Item";
+
+    const basePrice = parseFloat(String(item.unit_price)) || 0;
+    const isComplimentary =
+      (item as any).is_complimentary === true ||
+      (item as any).is_complimentary === 1 ||
+      (item as any).is_complimentary === "true" ||
+      (item as any).is_complimentary === "1";
+    const effectiveRate = isComplimentary ? 0 : basePrice;
+
+    // Resolve MRP, Tax, HSN
+    let mrpNum = item.mrp ? parseFloat(String(item.mrp)) : undefined;
+    let taxRateStr = (item as any).tax_rate ?? (item as any).item_tax_rate ?? null;
+    let hsnCode = (item as any).hsn_code || (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id] as any)?.hsn_code) || "-";
+
+    if (menuItemsMap && item.menu_item_id && menuItemsMap[item.menu_item_id]) {
+      const mi = menuItemsMap[item.menu_item_id];
+      if (taxRateStr === null && mi.tax_rate != null) {
+        taxRateStr = String(mi.tax_rate);
+      }
+      if ((!hsnCode || hsnCode === "-") && (mi as any).hsn_code) {
+        hsnCode = (mi as any).hsn_code;
+      }
+    }
+
+    const mrp = mrpNum && !isNaN(mrpNum) ? mrpNum : basePrice;
+    const taxRate = taxRateStr ? parseFloat(String(taxRateStr)) : 0;
+    const qty = item.quantity ? parseFloat(String(item.quantity)) : 1;
+
+    const rawUnit =
+      (item as any).selected_unit ||
+      (item as any).unit ||
+      (item as any).unit_label ||
+      (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id]?.unit_label || (menuItemsMap[item.menu_item_id] as any)?.unit)) ||
+      "";
+    const cleanUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
+
+    // Merge key: identity of item + price + unit + complimentary + tax rate + hsn
+    const key = `${item.menu_item_id || cleanDishName}|${effectiveRate.toFixed(2)}|${cleanUnit}|${isComplimentary}|${taxRate.toFixed(2)}|${hsnCode}`;
+
+    if (itemConsolidationMap.has(key)) {
+      const existing = itemConsolidationMap.get(key)!;
+      existing.quantity += qty;
+      if (mrp > existing.mrp) {
+        existing.mrp = mrp;
+      }
+    } else {
+      const copy: ConsolidatedInvoiceItem = {
+        menu_item_id: item.menu_item_id,
+        name: cleanDishName,
+        basePrice,
+        effectiveRate,
+        mrp,
+        taxRate,
+        hsnCode,
+        isComplimentary,
+        quantity: qty,
+        cleanUnit,
+      };
+      itemConsolidationMap.set(key, copy);
+      consolidatedItems.push(copy);
+    }
+  }
+
   const tableData: any[] = [];
   let totalMrpVal = 0;
   let totalSellingSubtotal = 0;
@@ -207,40 +300,17 @@ export async function generateA4InvoicePDF(
   }
   const hsnGroups: Record<string, HsnBreakdownItem> = {};
 
-  order.items.forEach((item, index) => {
-    let name = item.item_name || "Unknown Item";
-    let basePrice = parseFloat(String(item.unit_price)) || 0;
-    
-    // Resolve MRP, Tax, HSN
-    let mrpNum = item.mrp ? parseFloat(String(item.mrp)) : undefined;
-    let taxRateStr = (item as any).tax_rate ?? (item as any).item_tax_rate ?? null;
-    let hsnCode = (item as any).hsn_code || (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id] as any)?.hsn_code) || "-";
-    
-    if (menuItemsMap && item.menu_item_id && menuItemsMap[item.menu_item_id]) {
-      const mi = menuItemsMap[item.menu_item_id];
-      if (!name || name === "Unknown Item") name = mi.name;
-      if (taxRateStr === null && mi.tax_rate != null) {
-        taxRateStr = String(mi.tax_rate);
-      }
-      if ((!hsnCode || hsnCode === "-") && (mi as any).hsn_code) {
-        hsnCode = (mi as any).hsn_code;
-      }
-    }
+  consolidatedItems.forEach((cItem, index) => {
+    const { name, basePrice, effectiveRate, mrp, taxRate, hsnCode, isComplimentary, quantity: qty, cleanUnit } = cItem;
 
-    const mrp = mrpNum && !isNaN(mrpNum) ? mrpNum : basePrice;
-    const taxRate = taxRateStr ? parseFloat(String(taxRateStr)) : 0;
-    const isComplimentary = (item as any).is_complimentary === true || (item as any).is_complimentary === 1 || (item as any).is_complimentary === "true" || (item as any).is_complimentary === "1";
-    
-    const qty = item.quantity ? parseFloat(String(item.quantity)) : 1;
-    let effectiveRate = isComplimentary ? 0 : basePrice;
-    
     // Reverse tax calc (Assuming prices are inclusive of tax)
     const baseAmount = effectiveRate / (1 + (taxRate / 100));
     const taxAmt = effectiveRate - baseAmount;
-    
+
     const lineBaseTotal = baseAmount * qty;
     const lineTaxTotal = taxAmt * qty;
     const lineTotal = effectiveRate * qty;
+
     // For the invoice totals, we calculate the full un-discounted value, and subtract the discount at the bottom
     totalMrpVal += mrp * qty;
     totalSellingSubtotal += basePrice * qty;
@@ -269,13 +339,6 @@ export async function generateA4InvoicePDF(
     hsnGroups[hsnKey].igst += itemIgst;
     hsnGroups[hsnKey].totalTax += lineTaxTotal;
 
-    const rawUnit =
-      (item as any).selected_unit ||
-      (item as any).unit ||
-      (item as any).unit_label ||
-      (menuItemsMap && item.menu_item_id && (menuItemsMap[item.menu_item_id]?.unit_label || (menuItemsMap[item.menu_item_id] as any)?.unit)) ||
-      "";
-    const cleanUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
     const qtyFormatted = qty % 1 === 0 ? qty.toFixed(0) : String(qty);
     const qtyStr = cleanUnit ? `${qtyFormatted} ${cleanUnit}` : qtyFormatted;
 
