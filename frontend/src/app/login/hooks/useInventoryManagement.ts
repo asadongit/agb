@@ -274,6 +274,11 @@ export function useInventoryManagement(
         supplier_id?: string | null;
         notes?: string | null;
         shelf_life_alert_hrs?: number | null;
+        mrp?: number | null;
+        retail_price?: number | null;
+        wholesale_price?: number | null;
+        alternate_units?: Array<{ unit_label: string; conversion_factor: number }> | null;
+        sync_catalog_price?: boolean;
       }
     ) => {
       try {

@@ -268,6 +268,11 @@ class BatchUpdateMetadataRequest(StrictSchema):
     supplier_id: uuid.UUID | None = None
     notes: str | None = Field(None, max_length=500)
     shelf_life_alert_hrs: int | None = Field(None, ge=1)
+    mrp: Decimal | None = None
+    retail_price: Decimal | None = None
+    wholesale_price: Decimal | None = None
+    alternate_units: list[dict[str, Any]] | None = None
+    sync_catalog_price: bool = False
 
 
 # ── Recipes & Stock Ledger ───────────────────────────────────────────────

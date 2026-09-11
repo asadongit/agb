@@ -586,7 +586,7 @@ async def update_batch_metadata_endpoint(
     db: DBSession,
 ):
     """
-    Update batch metadata (Tier A): batch number, expiry date, arrival timestamp, supplier, notes.
+    Update batch metadata & pricing: batch number, expiry date, arrival timestamp, supplier, notes, prices, alternate units.
     Preserves stock levels, ledger integrity, and strictly anchors shelf-life math to intake_date.
     """
     res = await update_batch_metadata(

@@ -608,35 +608,39 @@ export function BarcodeRegisterModal({
               <div className="space-y-2">
                 {alternateUnits.map((altUnit, idx) => (
                   <div key={idx} className="flex gap-2 items-center">
-                    <input
-                      type="text"
-                      placeholder="e.g. box, dozen, pair"
-                      value={altUnit.unit_label}
-                      onChange={(e) => {
-                        const newUnits = [...alternateUnits];
-                        newUnits[idx].unit_label = e.target.value;
-                        setAlternateUnits(newUnits);
-                      }}
-                      className="flex-1 min-w-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
-                    />
+                    <div className="flex items-center gap-1.5 shrink-0 px-2 py-1.5 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-lg">
+                      <span className="text-xs font-semibold text-[var(--text-primary)]">1</span>
+                      <span className="text-xs font-medium text-[var(--text-muted)] max-w-[60px] truncate" title={unit || "base"}>
+                        {unit || "base"}
+                      </span>
+                    </div>
                     <span className="text-xs font-bold text-[var(--text-muted)] shrink-0">=</span>
-                    <div className="flex items-center flex-1 min-w-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] focus-within:border-[var(--accent-brand)] overflow-hidden">
+                    
+                    <div className="flex items-center flex-1 min-w-0 gap-2">
                       <input
                         type="number"
                         step="any"
                         min="0.001"
-                        placeholder="qty"
+                        placeholder="factor"
                         value={altUnit.conversion_factor}
                         onChange={(e) => {
                           const newUnits = [...alternateUnits];
                           newUnits[idx].conversion_factor = parseFloat(e.target.value) || 1;
                           setAlternateUnits(newUnits);
                         }}
-                        className="w-full min-w-0 bg-transparent px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] focus:outline-none"
+                        className="w-16 shrink-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1.5 font-mono text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none text-center"
                       />
-                      <span className="shrink-0 px-2 py-1 text-xs font-medium text-[var(--text-muted)] bg-[var(--bg-surface-elevated)]/60 border-l border-[var(--border-subtle)] whitespace-nowrap">
-                        {unit || "base"}
-                      </span>
+                      <input
+                        type="text"
+                        placeholder="e.g. piece, box"
+                        value={altUnit.unit_label}
+                        onChange={(e) => {
+                          const newUnits = [...alternateUnits];
+                          newUnits[idx].unit_label = e.target.value;
+                          setAlternateUnits(newUnits);
+                        }}
+                        className="flex-1 min-w-0 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs text-[var(--text-primary)] focus:border-[var(--accent-brand)] focus:outline-none"
+                      />
                     </div>
                     <button
                       type="button"

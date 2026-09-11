@@ -301,3 +301,83 @@ async def test_tier_b_inward_correction_and_margin_recalculation(
     assert bad_res.status_code == 400
     assert "remaining in batch" in bad_res.json()["detail"]
 
+
+@pytest.mark.asyncio
+async def test_batch_pricing_and_alternate_units_metadata_update(
+    client: AsyncClient,
+    db_session: AsyncSession,
+):
+    """
+    Test updating batch pricing (MRP, Retail, Wholesale) and Alternate Units directly
+    via PATCH /api/admin/inventory/batches/{intake_id} with catalog synchronization.
+    """
+    outlet = await create_test_outlet(db_session, slug="batch-meta-outlet", name="Batch Meta Outlet")
+    user = await create_test_user(db_session, outlet, email="meta_admin@test.com")
+    await db_session.commit()
+    auth_headers = get_auth_headers(user, outlet)
+
+    # 1. Onboard item
+    onboard_res = await client.post(
+        "/api/admin/inventory/scan-onboard",
+        headers=auth_headers,
+        json={
+            "name": "Organic Bananas",
+            "category": "Fruits",
+            "unit": "dozen",
+            "initial_stock": 10,
+            "cost_per_unit": 40.00,
+            "selling_price": 50.00,
+            "batch_number": "BAT-BANANA-001",
+        },
+    )
+    assert onboard_res.status_code == 201
+    item_id = onboard_res.json()["id"]
+
+    batches = (await client.get("/api/admin/inventory/batches", headers=auth_headers)).json()
+    batch = next(b for b in batches if b["batch_number"] == "BAT-BANANA-001")
+
+    # 2. Update metadata: set MRP=60.00, retail=55.00, wholesale=48.00, and alternate units: 1 dozen = 12 piece
+    patch_res = await client.patch(
+        f"/api/admin/inventory/batches/{batch['id']}",
+        headers=auth_headers,
+        json={
+            "mrp": 60.00,
+            "retail_price": 55.00,
+            "wholesale_price": 48.00,
+            "alternate_units": [{"unit_label": "piece", "conversion_factor": 12.0}],
+            "sync_catalog_price": True,
+        },
+    )
+    assert patch_res.status_code == 200
+
+    # 3. Verify Item Master updated with new prices & alternate units
+    item_res = await client.get("/api/admin/inventory/items", headers=auth_headers)
+    assert item_res.status_code == 200
+    item_data = next(it for it in item_res.json() if it["id"] == item_id)
+    assert float(item_data["mrp"]) == 60.00
+    assert float(item_data["retail_price"]) == 55.00
+    assert float(item_data["wholesale_price"]) == 48.00
+    assert len(item_data["alternate_units"]) == 1
+    assert item_data["alternate_units"][0]["unit_label"] == "piece"
+    assert float(item_data["alternate_units"][0]["conversion_factor"]) == 12.0
+
+    # 4. Inward adjustment with explicit price overrides
+    adjust_res = await client.post(
+        f"/api/admin/inventory/batches/{batch['id']}/adjust",
+        headers=auth_headers,
+        json={
+            "adjustment_type": "INTAKE_CORRECTION",
+            "quantity_delta": 2.0,
+            "total_billed": 480.0,
+            "new_mrp": 65.00,
+            "new_retail_price": 58.00,
+            "new_wholesale_price": 50.00,
+            "sync_catalog_price": True,
+        },
+    )
+    assert adjust_res.status_code == 200
+    adj_item = next(it for it in (await client.get("/api/admin/inventory/items", headers=auth_headers)).json() if it["id"] == item_id)
+    assert float(adj_item["mrp"]) == 65.00
+    assert float(adj_item["retail_price"]) == 58.00
+    assert float(adj_item["wholesale_price"]) == 50.00
+

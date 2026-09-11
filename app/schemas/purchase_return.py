@@ -17,11 +17,14 @@ class BatchAdjustmentRequest(BaseModel):
     supplier_name: str | None = Field(default=None, description="Supplier name for return bill")
     return_rate: Decimal | None = Field(default=None, description="Custom unit cost rate for return bill")
     notes: str | None = Field(default=None, description="Optional staff notes")
-    # Tier B: Inward & Cost Correction fields
+    # Inward & Cost Correction fields
     new_total_quantity: Decimal | None = Field(default=None, description="New total inward quantity (if setting absolute total)")
     quantity_delta: Decimal | None = Field(default=None, description="Stock delta to apply (+ to append, - to reduce)")
     total_billed: Decimal | None = Field(default=None, description="Updated total invoice amount (recomputes unit_cost)")
     new_unit_cost: Decimal | None = Field(default=None, description="Directly override batch unit cost")
+    new_retail_price: Decimal | None = Field(default=None, description="Directly override batch retail price")
+    new_mrp: Decimal | None = Field(default=None, description="Directly override batch MRP")
+    new_wholesale_price: Decimal | None = Field(default=None, description="Directly override batch wholesale price")
     sync_catalog_price: bool = Field(default=True, description="Sync new cost & recalculate retail price/mrp on item & menu item")
 
 

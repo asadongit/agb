@@ -748,6 +748,20 @@ async def get_bill_profit(
     limit: int = 50,
     offset: int = 0
 ) -> BillProfitResponse:
+    # Accurate COGS subquery from StockLedger (which records exact unit-converted deductions and reconciled costs)
+    cogs_subq = (
+        select(
+            StockLedger.reference_order_id.label("order_id"),
+            func.sum(func.abs(StockLedger.quantity_change) * StockLedger.unit_cost_snapshot).label("ledger_cogs")
+        )
+        .where(
+            StockLedger.outlet_id == outlet_id,
+            StockLedger.change_type.in_([StockChangeTypeEnum.AUTO_DEDUCTION, StockChangeTypeEnum.OVERSOLD])
+        )
+        .group_by(StockLedger.reference_order_id)
+        .subquery()
+    )
+
     stmt = (
         select(
             Order.id,
@@ -758,21 +772,22 @@ async def get_bill_profit(
             Order.subtotal_amount,
             Order.discount_value,
             Order.total_amount,
-            func.count(OrderItem.id).label("items_count"),
-            func.sum(OrderItem.quantity * func.coalesce(StockIntake.unit_cost, InventoryItem.cost_per_unit, 0)).label("estimated_cogs")
+            func.count(OrderItem.id.distinct()).label("items_count"),
+            func.coalesce(cogs_subq.c.ledger_cogs, func.sum(OrderItem.quantity * func.coalesce(StockIntake.unit_cost, InventoryItem.cost_per_unit, 0)), 0).label("estimated_cogs")
         )
         .select_from(Order)
         .outerjoin(OrderItem, Order.id == OrderItem.order_id)
         .outerjoin(StockIntake, OrderItem.selected_batch_id == StockIntake.id)
         .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
         .outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id)
+        .outerjoin(cogs_subq, Order.id == cogs_subq.c.order_id)
         .where(
             Order.outlet_id == outlet_id,
             Order.created_at >= from_dt,
             Order.created_at <= to_dt,
             Order.status.in_(SETTLED_STATUSES),
         )
-        .group_by(Order.id)
+        .group_by(Order.id, cogs_subq.c.ledger_cogs)
         .order_by(Order.created_at.desc())
     )
     
@@ -792,13 +807,26 @@ async def get_bill_profit(
     tot_rev = float(tot_row[1]) if tot_row else 0.0
 
     # Also need global COGS
-    stmt_global_cogs = select(
-        func.sum(OrderItem.quantity * func.coalesce(StockIntake.unit_cost, InventoryItem.cost_per_unit, 0))
-    ).select_from(Order).outerjoin(OrderItem, Order.id == OrderItem.order_id).outerjoin(StockIntake, OrderItem.selected_batch_id == StockIntake.id).outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id).outerjoin(InventoryItem, MenuItem.inventory_item_id == InventoryItem.id).where(
-        Order.outlet_id == outlet_id,
-        Order.created_at >= from_dt,
-        Order.created_at <= to_dt,
-        Order.status.in_(SETTLED_STATUSES),
+    stmt_global_cogs = (
+        select(
+            func.coalesce(
+                func.sum(
+                    func.coalesce(
+                        cogs_subq.c.ledger_cogs,
+                        0.0
+                    )
+                ),
+                0.0
+            )
+        )
+        .select_from(Order)
+        .outerjoin(cogs_subq, Order.id == cogs_subq.c.order_id)
+        .where(
+            Order.outlet_id == outlet_id,
+            Order.created_at >= from_dt,
+            Order.created_at <= to_dt,
+            Order.status.in_(SETTLED_STATUSES),
+        )
     )
     res_global_cogs = await db.execute(stmt_global_cogs)
     tot_cogs = float(res_global_cogs.scalar() or 0.0)

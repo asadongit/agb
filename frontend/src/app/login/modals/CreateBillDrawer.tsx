@@ -1651,8 +1651,8 @@ export function CreateBillDrawer({
                             const basePrice = ci.base_unit_price ?? ci.unit_price;
                             const baseMrp = ci.base_mrp ?? ci.mrp ?? basePrice;
                             
-                            const newPrice = basePrice * factor;
-                            const newMrp = Math.max(baseMrp * factor, newPrice);
+                            const newPrice = factor > 0 ? basePrice / factor : basePrice;
+                            const newMrp = factor > 0 ? Math.max(baseMrp / factor, newPrice) : Math.max(baseMrp, newPrice);
 
                             setDraftCartItems((prev) =>
                               prev.map((item, i) =>

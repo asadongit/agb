@@ -106,7 +106,7 @@ def get_unit_conversion_multiplier(
                     try:
                         val = Decimal(str(cf))
                         if val > Decimal("0.000"):
-                            return val
+                            return Decimal("1.0") / val
                     except Exception:
                         pass
 
@@ -1882,13 +1882,16 @@ async def update_batch_metadata(
     data: BatchUpdateMetadataRequest,
 ) -> dict:
     """
-    Update batch metadata (Tier A):
+    Update batch metadata and pricing:
     - batch_number: Correct typos or manual lot codes.
     - expiry_date: Add, update, or clear expiration date.
     - intake_date: Backdate/correct true physical arrival timestamp.
     - supplier_id: Assign or change vendor.
     - notes: Lot remarks, storage bin/rack, temperature.
     - shelf_life_alert_hrs: Update shelf life alert hours on parent item.
+    - mrp, retail_price, wholesale_price: Update batch-specific price points.
+    - alternate_units: Configure/update secondary units on parent item if omitted at creation.
+    - sync_catalog_price: Sync new prices to parent Item Master & linked MenuItems for POS checkout.
 
     Maintains total stock level stability, ledger integrity, and strictly anchors
     shelf-life and FEFO calculations to the physical arrival timestamp (intake_date).
@@ -1928,6 +1931,67 @@ async def update_batch_metadata(
 
     if "shelf_life_alert_hrs" in fields_set and batch.item:
         batch.item.shelf_life_alert_hrs = data.shelf_life_alert_hrs
+
+    # Batch-level pricing updates
+    price_updated = False
+    if "mrp" in fields_set:
+        batch.mrp = data.mrp
+        price_updated = True
+    if "retail_price" in fields_set:
+        batch.retail_price = data.retail_price
+        price_updated = True
+    if "wholesale_price" in fields_set:
+        batch.wholesale_price = data.wholesale_price
+        price_updated = True
+
+    # Alternate units configuration on parent item
+    if "alternate_units" in fields_set and batch.item:
+        batch.item.alternate_units = data.alternate_units or []
+        from app.models.menu_item import MenuItem
+        mi_res = await db.execute(
+            select(MenuItem).where(
+                MenuItem.outlet_id == outlet_id,
+                MenuItem.inventory_item_id == batch.item_id,
+            )
+        )
+        for mi in mi_res.scalars().all():
+            mi.alternate_units = data.alternate_units or []
+        from app.services.menu_service import invalidate_outlet_menu
+        await invalidate_outlet_menu(db, outlet_id)
+
+    # Sync pricing to product catalog / POS checkout if requested
+    if getattr(data, "sync_catalog_price", False) and batch.item and price_updated:
+        if "retail_price" in fields_set and data.retail_price is not None:
+            batch.item.retail_price = data.retail_price
+        if "mrp" in fields_set and data.mrp is not None:
+            batch.item.mrp = data.mrp
+        if "wholesale_price" in fields_set and data.wholesale_price is not None:
+            batch.item.wholesale_price = data.wholesale_price
+
+        from app.models.menu_item import MenuItem
+        mi_res = await db.execute(
+            select(MenuItem).where(
+                MenuItem.outlet_id == outlet_id,
+                MenuItem.inventory_item_id == batch.item_id,
+            )
+        )
+        for mi in mi_res.scalars().all():
+            if "retail_price" in fields_set and data.retail_price is not None:
+                mi.price = data.retail_price
+            if "mrp" in fields_set and data.mrp is not None:
+                mi.mrp = data.mrp
+            if "wholesale_price" in fields_set and data.wholesale_price is not None:
+                mi.wholesale_price = data.wholesale_price
+
+        from app.services.menu_service import invalidate_outlet_menu
+        await invalidate_outlet_menu(db, outlet_id)
+        try:
+            from app.services.websocket_service import broadcast_catalog_updated
+            await broadcast_catalog_updated(outlet_id, reason="BATCH_PRICE_UPDATED", item_id=str(batch.item_id))
+        except Exception:
+            pass
+    elif price_updated:
+        await sync_item_prices_from_oldest_batch(db, batch.item_id, outlet_id)
 
     await db.commit()
 
@@ -2040,7 +2104,7 @@ async def adjust_batch_stock(
         )
 
     if adj_type == "INTAKE_CORRECTION":
-        # Tier B: Inward stock correction, appending stock, and margin/pricing recalculation
+        # Inward stock correction, appending stock, and margin/pricing recalculation
         is_oversold_reconcile = (
             batch.remaining_quantity < Decimal("0.000")
             or batch.quantity < Decimal("0.000")
@@ -2118,30 +2182,67 @@ async def adjust_batch_stock(
             else:
                 new_cost = batch.unit_cost
 
-        if getattr(data, "sync_catalog_price", True):
-            def calc_price(margin_pct: Decimal | None) -> Decimal | None:
-                if margin_pct is None or new_cost == Decimal("0.00"):
-                    return None
-                if item.margin_type == MarginTypeEnum.MARKUP:
-                    return (new_cost + (new_cost * margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
-                elif item.margin_type == MarginTypeEnum.MARGIN:
-                    if margin_pct >= Decimal("100"):
-                        return None
-                    return (new_cost / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+        def calc_price(margin_pct: Decimal | None) -> Decimal | None:
+            if margin_pct is None or new_cost == Decimal("0.00"):
                 return None
+            if item.margin_type == MarginTypeEnum.MARKUP:
+                return (new_cost + (new_cost * margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+            elif item.margin_type == MarginTypeEnum.MARGIN:
+                if margin_pct >= Decimal("100"):
+                    return None
+                return (new_cost / (Decimal("1") - margin_pct / Decimal("100"))).quantize(Decimal("0.01"))
+            return None
 
-            new_retail_price = calc_price(item.retail_margin_pct)
-            new_mrp = calc_price(item.mrp_margin_pct)
-            new_wholesale_price = calc_price(item.wholesale_margin_pct)
+        # Direct price overrides take priority, else fallback to margin formula
+        if getattr(data, "new_retail_price", None) is not None:
+            batch.retail_price = Decimal(str(data.new_retail_price))
+        else:
+            calc_retail = calc_price(item.retail_margin_pct)
+            if calc_retail is not None:
+                batch.retail_price = calc_retail
 
-            if new_retail_price is not None:
-                batch.retail_price = new_retail_price
-            if new_mrp is not None:
-                batch.mrp = new_mrp
-            if new_wholesale_price is not None:
-                batch.wholesale_price = new_wholesale_price
+        if getattr(data, "new_mrp", None) is not None:
+            batch.mrp = Decimal(str(data.new_mrp))
+        else:
+            calc_mrp = calc_price(item.mrp_margin_pct)
+            if calc_mrp is not None:
+                batch.mrp = calc_mrp
 
-            await sync_item_prices_from_oldest_batch(db, item.id, outlet_id)
+        if getattr(data, "new_wholesale_price", None) is not None:
+            batch.wholesale_price = Decimal(str(data.new_wholesale_price))
+        else:
+            calc_wholesale = calc_price(item.wholesale_margin_pct)
+            if calc_wholesale is not None:
+                batch.wholesale_price = calc_wholesale
+
+        if getattr(data, "sync_catalog_price", True):
+            item.cost_per_unit = new_cost
+            if batch.retail_price is not None:
+                item.retail_price = batch.retail_price
+            if batch.mrp is not None:
+                item.mrp = batch.mrp
+            if batch.wholesale_price is not None:
+                item.wholesale_price = batch.wholesale_price
+
+            from app.models.menu_item import MenuItem
+            menu_res = await db.execute(
+                select(MenuItem).where(MenuItem.inventory_item_id == item.id)
+            )
+            for mi in menu_res.scalars().all():
+                if batch.retail_price is not None:
+                    mi.price = batch.retail_price
+                if batch.mrp is not None:
+                    mi.mrp = batch.mrp
+                if batch.wholesale_price is not None:
+                    mi.wholesale_price = batch.wholesale_price
+
+            from app.services.menu_service import invalidate_outlet_menu
+            await invalidate_outlet_menu(db, outlet_id)
+            try:
+                from app.services.websocket_service import broadcast_catalog_updated
+                await broadcast_catalog_updated(outlet_id, reason="BATCH_PRICE_UPDATED", item_id=str(item.id))
+            except Exception:
+                pass
 
         ledger_entry = StockLedger(
             id=uuid.uuid4(),

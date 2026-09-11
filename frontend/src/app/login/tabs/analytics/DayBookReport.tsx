@@ -31,8 +31,12 @@ export function DayBookReport({ data }: { data: DayBookResponse | null }) {
         </div>
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs">
            <p className="text-xs text-[var(--text-muted)] uppercase font-bold">Total Inflow / Outflow</p>
-           <p className="text-xl font-bold mt-1 text-emerald-500 font-mono">+ ₹{(data.total_cash_in + data.total_sales).toFixed(2)}</p>
-           <p className="text-xl font-bold mt-1 text-rose-500 font-mono">- ₹{(data.total_cash_out + data.total_returns).toFixed(2)}</p>
+           <p className="text-xl font-bold mt-1 text-emerald-500 font-mono">
+             + ₹{(data.total_cash_in + data.total_sales).toFixed(2)}
+           </p>
+           <p className="text-xl font-bold mt-1 text-rose-500 font-mono">
+             - ₹{(data.total_cash_out + data.total_returns + (data.total_stock_intake_cost || 0)).toFixed(2)}
+           </p>
         </div>
         <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-4 shadow-xs">
            <p className="text-xs text-[var(--text-muted)] uppercase font-bold">Closing Balance</p>

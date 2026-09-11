@@ -326,14 +326,14 @@ export function BillProfitReport({ data, isLoading, restaurant }: Props) {
 
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
                       <p className="text-[10px] uppercase font-bold text-[var(--text-muted)]">Realized Profit</p>
-                      <p className="text-sm font-bold text-emerald-400 font-mono mt-0.5">
+                      <p className={`text-sm font-bold font-mono mt-0.5 ${selectedBillForView.summary.estimated_profit >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         ₹{selectedBillForView.summary.estimated_profit.toFixed(2)}
                       </p>
                     </div>
 
                     <div className="rounded-xl border border-[var(--border-subtle)] bg-[var(--bg-surface)] p-3">
                       <p className="text-[10px] uppercase font-bold text-[var(--text-muted)]">Profit Margin</p>
-                      <p className="text-sm font-bold text-emerald-400 font-mono mt-0.5">
+                      <p className={`text-sm font-bold font-mono mt-0.5 ${selectedBillForView.summary.margin_pct >= 0 ? "text-emerald-400" : "text-rose-400"}`}>
                         {selectedBillForView.summary.margin_pct.toFixed(1)}%
                       </p>
                     </div>

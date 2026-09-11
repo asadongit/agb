@@ -16,6 +16,7 @@ from app.models.category import Category
 from app.models.enums import PricingModeEnum
 from app.models.menu_item import MenuItem
 from app.models.menu_item_variant import MenuItemVariant
+from app.models.inventory_item import InventoryItem
 from app.schemas.menu import (
     MenuItemCreate,
     MenuItemResponse,
@@ -37,7 +38,6 @@ async def _populate_active_batches(db: DBSession, items: list[MenuItem]) -> None
         return
 
     from app.models.stock_intake import StockIntake
-    from app.models.inventory_item import InventoryItem
     from app.schemas.inventory import ItemBatchSummary
 
     inv_res = await db.execute(
@@ -202,6 +202,7 @@ async def create_menu_item(
         tax_rate=data.tax_rate,
         pricing_mode=data.pricing_mode,
         unit_label=data.unit_label,
+        alternate_units=data.alternate_units if hasattr(data, "alternate_units") else [],
         allow_oversell=data.allow_oversell if data.allow_oversell is not None else True,
     )
     db.add(item)
@@ -344,14 +345,20 @@ async def update_menu_item(
         item.pricing_mode = data.pricing_mode
     if "unit_label" in fields_set and data.unit_label is not None:
         item.unit_label = data.unit_label
+    if "alternate_units" in fields_set:
+        item.alternate_units = data.alternate_units
     if "allow_oversell" in fields_set and data.allow_oversell is not None:
         item.allow_oversell = data.allow_oversell
-        if item.inventory_item_id:
-            inv_res = await db.execute(
-                select(InventoryItem).where(InventoryItem.id == item.inventory_item_id)
-            )
-            inv_obj = inv_res.scalar_one_or_none()
-            if inv_obj:
+
+    if item.inventory_item_id and ("alternate_units" in fields_set or ("allow_oversell" in fields_set and data.allow_oversell is not None)):
+        inv_res = await db.execute(
+            select(InventoryItem).where(InventoryItem.id == item.inventory_item_id)
+        )
+        inv_obj = inv_res.scalar_one_or_none()
+        if inv_obj:
+            if "alternate_units" in fields_set:
+                inv_obj.alternate_units = data.alternate_units
+            if "allow_oversell" in fields_set and data.allow_oversell is not None:
                 inv_obj.allow_oversell = data.allow_oversell
 
     effective_mrp = data.mrp if "mrp" in fields_set else item.mrp

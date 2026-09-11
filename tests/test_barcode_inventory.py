@@ -296,7 +296,7 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
                 "menu_item_id": created_menu_item["id"],
                 "quantity": 1.0,
                 "selected_unit": "pair",
-                "unit_price": 80.0,  # 2 * 40
+                "unit_price": 20.0,  # 40 / 2
             }
         ],
     }
@@ -306,8 +306,8 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
     order_id = order_data["id"]
     order_item_id = order_data["items"][0]["id"]
     # Verify MRP and unit_price are properly resolved with factor 2
-    assert float(order_data["items"][0]["unit_price"]) == 80.0
-    assert float(order_data["items"][0]["mrp"]) == 80.0
+    assert float(order_data["items"][0]["unit_price"]) == 20.0
+    assert float(order_data["items"][0]["mrp"]) == 20.0
 
     # 4. Mark bill paid -> triggers process_order_auto_deduction
     pay_resp = await client.post(
@@ -317,20 +317,20 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
     )
     assert pay_resp.status_code == 200
 
-    # 5. Verify stock dropped by 2.0 pieces (50.0 - 2.0 = 48.0), NOT by 1.0!
+    # 5. Verify stock dropped by 0.5 pieces (50.0 - 0.5 = 49.5), NOT by 1.0!
     inv_check = await client.get(f"/api/admin/inventory/barcode/{inv_item['barcode']}", headers=headers)
     assert inv_check.status_code == 200
     updated_inv = inv_check.json()["item"]
-    assert float(updated_inv["current_stock"]) == 48.0
+    assert float(updated_inv["current_stock"]) == 49.5
 
-    # Check batch remaining quantity also dropped by 2.0
+    # Check batch remaining quantity also dropped by 0.5
     batches_resp = await client.get("/api/admin/inventory/batches", headers=headers)
     assert batches_resp.status_code == 200
     batches = batches_resp.json()
     item_batch = next(b for b in batches if b["item_id"] == inv_item["id"])
-    assert float(item_batch["remaining_quantity"]) == 48.0
+    assert float(item_batch["remaining_quantity"]) == 49.5
 
-    # Check StockLedger records -2.0
+    # Check StockLedger records -0.5
     ledger_resp = await client.get("/api/admin/inventory/ledger", headers=headers)
     assert ledger_resp.status_code == 200
     ledger_items = ledger_resp.json()["items"]
@@ -338,8 +338,8 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
         e for e in ledger_items
         if e["reference_order_id"] == order_id and e["change_type"] in ["AUTO_DEDUCTION", "auto_deduction"]
     )
-    assert float(deduct_entry["quantity_change"]) == -2.0
-    assert float(deduct_entry["resulting_stock"]) == 48.0
+    assert float(deduct_entry["quantity_change"]) == -0.5
+    assert float(deduct_entry["resulting_stock"]) == 49.5
 
     # 6. Customer returns the 1 pair
     return_payload = {
@@ -352,7 +352,7 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
                 "menu_item_id": created_menu_item["id"],
                 "quantity": 1.0,
                 "selected_unit": "pair",
-                "unit_price": 80.0,
+                "unit_price": 20.0,
                 "reason": "Size did not fit",
             }
         ],
@@ -361,7 +361,7 @@ async def test_alternate_unit_stock_deduction_and_return(client: AsyncClient, db
     ret_resp = await client.post("/api/billing/returns", json=return_payload, headers=headers)
     assert ret_resp.status_code == 200
 
-    # 7. Verify stock restored by 2.0 pieces back to 50.0
+    # 7. Verify stock restored by 0.5 pieces back to 50.0
     inv_check2 = await client.get(f"/api/admin/inventory/barcode/{inv_item['barcode']}", headers=headers)
     assert inv_check2.status_code == 200
     restored_inv = inv_check2.json()["item"]
@@ -409,7 +409,7 @@ async def test_alternate_unit_price_and_mrp_resolution(client: AsyncClient, db_s
 
     # 3. Bill 1 pair with Retail / Special Offer pricing (unit_price omitted to test server resolution)
     # Base: offer_price = 35.0, mrp = 50.0
-    # For 1 pair (factor=2): Rate should be 35 * 2 = 70.0, MRP should be 50 * 2 = 100.0
+    # For 1 pair (factor=2): Rate should be 35 / 2 = 17.5, MRP should be 50 / 2 = 25.0
     bill_payload = {
         "customer_name": "Ramesh",
         "items": [
@@ -423,12 +423,12 @@ async def test_alternate_unit_price_and_mrp_resolution(client: AsyncClient, db_s
     b1_resp = await client.post("/api/billing/bills", json=bill_payload, headers=headers)
     assert b1_resp.status_code == 200
     b1_item = b1_resp.json()["items"][0]
-    assert float(b1_item["unit_price"]) == 70.0  # 35 * 2
-    assert float(b1_item["mrp"]) == 100.0        # 50 * 2
+    assert float(b1_item["unit_price"]) == 17.5  # 35 / 2
+    assert float(b1_item["mrp"]) == 25.0        # 50 / 2
 
     # 4. Bill 1 pair with WHOLESALE pricing
     # Base: wholesale_price = 30.0, mrp = 50.0
-    # For 1 pair (factor=2): Rate should be 30 * 2 = 60.0, MRP should be 50 * 2 = 100.0
+    # For 1 pair (factor=2): Rate should be 30 / 2 = 15.0, MRP should be 50 / 2 = 25.0
     b2_payload = {
         "customer_name": "Wholesale Buyer",
         "items": [
@@ -443,12 +443,12 @@ async def test_alternate_unit_price_and_mrp_resolution(client: AsyncClient, db_s
     b2_resp = await client.post("/api/billing/bills", json=b2_payload, headers=headers)
     assert b2_resp.status_code == 200
     b2_item = b2_resp.json()["items"][0]
-    assert float(b2_item["unit_price"]) == 60.0  # 30 * 2
-    assert float(b2_item["mrp"]) == 100.0        # 50 * 2
-    assert float(b2_item["line_total"]) == 120.0  # 60 * 2 pairs
+    assert float(b2_item["unit_price"]) == 15.0  # 30 / 2
+    assert float(b2_item["mrp"]) == 25.0        # 50 / 2
+    assert float(b2_item["line_total"]) == 30.0  # 15 * 2 pairs
 
-    # 5. Bill where client passed base unmultiplied MRP (e.g. mrp=50 while unit_price=70 for 1 pair)
-    # Server should auto-scale base MRP to 100 so MRP is never less than unit_price
+    # 5. Bill where client passed base unmultiplied MRP (e.g. mrp=50 while unit_price=17.5 for 1 pair)
+    # Server should auto-scale base MRP to 25.0 so MRP is never less than unit_price
     b3_payload = {
         "customer_name": "Test Client",
         "items": [
@@ -456,7 +456,7 @@ async def test_alternate_unit_price_and_mrp_resolution(client: AsyncClient, db_s
                 "menu_item_id": item["id"],
                 "quantity": 1.0,
                 "selected_unit": "pair",
-                "unit_price": 70.0,
+                "unit_price": 17.5,
                 "mrp": 50.0,  # Unmultiplied base MRP passed by client
             }
         ],
@@ -464,8 +464,8 @@ async def test_alternate_unit_price_and_mrp_resolution(client: AsyncClient, db_s
     b3_resp = await client.post("/api/billing/bills", json=b3_payload, headers=headers)
     assert b3_resp.status_code == 200
     b3_item = b3_resp.json()["items"][0]
-    assert float(b3_item["unit_price"]) == 70.0
-    assert float(b3_item["mrp"]) == 100.0  # Scaled by 2!
+    assert float(b3_item["unit_price"]) == 17.5
+    assert float(b3_item["mrp"]) == 25.0  # Scaled by 2!
 
 
 @pytest.mark.asyncio

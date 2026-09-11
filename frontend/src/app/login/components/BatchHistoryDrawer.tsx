@@ -48,6 +48,7 @@ export function BatchHistoryDrawer({
 }: BatchHistoryDrawerProps) {
   const [batches, setBatches] = useState<BatchDetail[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [showDepleted, setShowDepleted] = useState(false);
   const [sortOption, setSortOption] = useState<
     "recent" | "oldest" | "expiry_asc" | "shelf_urgency" | "stock_desc" | "stock_asc"
   >("recent");
@@ -68,8 +69,19 @@ export function BatchHistoryDrawer({
     }
   }, [isOpen, item, fetchBatches]);
 
+  const isBatchDepleted = (b: BatchDetail) => {
+    return b.status === "DEPLETED" || parseFloat(String(b.remaining_quantity || 0)) === 0;
+  };
+
+  const depletedCount = useMemo(() => {
+    return batches.filter(isBatchDepleted).length;
+  }, [batches]);
+
   const sortedBatches = useMemo(() => {
-    const list = [...batches];
+    let list = [...batches];
+    if (!showDepleted) {
+      list = list.filter((b) => !isBatchDepleted(b));
+    }
     list.sort((a, b) => {
       switch (sortOption) {
         case "recent": {
@@ -115,7 +127,7 @@ export function BatchHistoryDrawer({
       }
     });
     return list;
-  }, [batches, sortOption, item]);
+  }, [batches, showDepleted, sortOption, item]);
 
   if (!isOpen || !item) return null;
 
@@ -221,9 +233,9 @@ export function BatchHistoryDrawer({
 
           {/* Actions Bar */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 px-5 py-3 border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]">
-            <div className="flex items-center gap-3">
+            <div className="flex flex-wrap items-center gap-3">
               <h3 className="text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)]">
-                Arrival Batches ({sortedBatches.length})
+                Arrival Batches ({sortedBatches.length}{batches.length !== sortedBatches.length ? ` / ${batches.length}` : ""})
               </h3>
 
               <div className="flex items-center gap-1.5">
@@ -241,6 +253,22 @@ export function BatchHistoryDrawer({
                   <option value="stock_asc">📉 Stock (Low to High)</option>
                 </select>
               </div>
+
+              {/* Show Depleted Toggle */}
+              <label className="flex items-center gap-2 text-xs text-[var(--text-secondary)] cursor-pointer select-none px-2.5 py-1 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:bg-[var(--bg-surface-elevated)] transition">
+                <input
+                  type="checkbox"
+                  checked={showDepleted}
+                  onChange={(e) => setShowDepleted(e.target.checked)}
+                  className="h-3.5 w-3.5 rounded border-[var(--border-strong)] text-emerald-500 focus:ring-emerald-500 cursor-pointer"
+                />
+                <span className="font-medium text-[var(--text-primary)]">Show Depleted</span>
+                {depletedCount > 0 && (
+                  <span className="font-mono text-[10px] px-1.5 py-0.2 rounded-full bg-[var(--bg-surface-elevated)] border border-[var(--border-subtle)] text-[var(--text-muted)]">
+                    {depletedCount}
+                  </span>
+                )}
+              </label>
             </div>
 
             <div className="flex items-center gap-2">
@@ -278,10 +306,25 @@ export function BatchHistoryDrawer({
                 <span>Loading arrival batches...</span>
               </div>
             ) : sortedBatches.length === 0 ? (
-              <div className="flex flex-col items-center justify-center py-12 text-center text-xs text-[var(--text-muted)] border border-dashed border-[var(--border-subtle)] rounded-2xl">
+              <div className="flex flex-col items-center justify-center py-12 text-center text-xs text-[var(--text-muted)] border border-dashed border-[var(--border-subtle)] rounded-2xl p-6">
                 <Package className="h-8 w-8 text-[var(--text-muted)] mb-2" />
-                <p className="font-semibold text-[var(--text-primary)]">No Batches Found</p>
-                <p className="mt-1">Add inward stock to record the first batch arrival for this item.</p>
+                <p className="font-semibold text-[var(--text-primary)]">
+                  {batches.length > 0 ? "No Active Batches" : "No Batches Found"}
+                </p>
+                <p className="mt-1 max-w-sm">
+                  {batches.length > 0
+                    ? `All ${batches.length} arrival batches for this item are depleted. Turn on "Show Depleted" above to review historical depleted lots.`
+                    : "Add inward stock to record the first batch arrival for this item."}
+                </p>
+                {batches.length > 0 && !showDepleted && (
+                  <button
+                    type="button"
+                    onClick={() => setShowDepleted(true)}
+                    className="mt-3 px-3 py-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] text-[var(--text-primary)] hover:border-emerald-500 font-semibold transition cursor-pointer"
+                  >
+                    Show {batches.length} Depleted Batch{batches.length > 1 ? "es" : ""}
+                  </button>
+                )}
               </div>
             ) : (
               <div className="overflow-x-auto rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface)]">

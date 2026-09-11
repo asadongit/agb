@@ -190,8 +190,13 @@ async def create_manual_bill(
         # Scale base MRP by alternate unit factor, and ensure MRP is never lower than unit price
         if item_in.mrp is not None:
             passed_mrp = Decimal(str(item_in.mrp))
-            if unit_multiplier > Decimal("1.0") and passed_mrp < price:
-                item_mrp = max(passed_mrp * unit_multiplier, price)
+            if unit_multiplier != Decimal("1.0"):
+                if menu_item and menu_item.mrp is not None and passed_mrp == Decimal(str(menu_item.mrp)):
+                    item_mrp = max(passed_mrp * unit_multiplier, price)
+                elif passed_mrp < price:
+                    item_mrp = max(passed_mrp * unit_multiplier, price)
+                else:
+                    item_mrp = max(passed_mrp, price)
             else:
                 item_mrp = max(passed_mrp, price)
         elif menu_item and menu_item.mrp is not None:
@@ -400,8 +405,13 @@ async def update_manual_bill(
             # Scale base MRP by alternate unit factor, and ensure MRP is never lower than unit price
             if item_in.mrp is not None:
                 passed_mrp = Decimal(str(item_in.mrp))
-                if unit_multiplier > Decimal("1.0") and passed_mrp < price:
-                    item_mrp = max(passed_mrp * unit_multiplier, price)
+                if unit_multiplier != Decimal("1.0"):
+                    if menu_item and menu_item.mrp is not None and passed_mrp == Decimal(str(menu_item.mrp)):
+                        item_mrp = max(passed_mrp * unit_multiplier, price)
+                    elif passed_mrp < price:
+                        item_mrp = max(passed_mrp * unit_multiplier, price)
+                    else:
+                        item_mrp = max(passed_mrp, price)
                 else:
                     item_mrp = max(passed_mrp, price)
             elif menu_item and menu_item.mrp is not None:

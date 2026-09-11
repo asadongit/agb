@@ -92,6 +92,13 @@ def _format_bill_response(order: Order) -> BillResponse:
             if inv_dict and getattr(inv_dict, "cost_per_unit", None) is not None:
                 cost_val = float(inv_dict.cost_per_unit)
 
+        # Scale cost price to match selected alternate unit if applicable
+        if cost_val is not None and unit_val:
+            from app.services.inventory_service import get_unit_conversion_multiplier
+            inv_dict = mi_dict.__dict__.get("inventory_item") if (mi_dict and hasattr(mi_dict, "__dict__")) else None
+            mult = float(get_unit_conversion_multiplier(unit_val, inv_item=inv_dict, menu_item=mi_dict))
+            cost_val = round(cost_val * mult, 4)
+
         items_out.append(
             {
                 "id": str(item.id),

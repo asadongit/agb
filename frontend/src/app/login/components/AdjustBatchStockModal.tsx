@@ -53,12 +53,15 @@ export function AdjustBatchStockModal({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Tier B (INTAKE_CORRECTION) States
+  // Inward & Cost Correction States
   const [qtyMode, setQtyMode] = useState<"SET_TOTAL" | "APPEND">("SET_TOTAL");
   const [correctedTotalQty, setCorrectedTotalQty] = useState<string>("");
   const [appendQty, setAppendQty] = useState<string>("0");
   const [totalBilled, setTotalBilled] = useState<string>("");
   const [unitCost, setUnitCost] = useState<string>("");
+  const [customRetailPrice, setCustomRetailPrice] = useState<string>("");
+  const [customMrp, setCustomMrp] = useState<string>("");
+  const [customWholesalePrice, setCustomWholesalePrice] = useState<string>("");
   const [syncCatalogPrice, setSyncCatalogPrice] = useState<boolean>(true);
   const [correctionReason, setCorrectionReason] = useState<string>("INWARD_CORRECTION");
 
@@ -88,6 +91,14 @@ export function AdjustBatchStockModal({
       setOriginalBilled(initBilled);
       setUnitCost(bPurchaseCost.toFixed(2));
       setSyncCatalogPrice(true);
+
+      const bRetail = (batch as any).retail_price != null ? String((batch as any).retail_price) : (item?.retail_price != null ? String(item.retail_price) : "");
+      const bMrp = (batch as any).mrp != null ? String((batch as any).mrp) : (item?.mrp != null ? String(item.mrp) : "");
+      const bWholesale = (batch as any).wholesale_price != null ? String((batch as any).wholesale_price) : (item?.wholesale_price != null ? String(item.wholesale_price) : "");
+      setCustomRetailPrice(bRetail);
+      setCustomMrp(bMrp);
+      setCustomWholesalePrice(bWholesale);
+
       if (parseFloat(String(batch.remaining_quantity || 0)) < 0) {
         setMode("INTAKE_CORRECTION");
         setQtyMode("APPEND");
@@ -100,7 +111,7 @@ export function AdjustBatchStockModal({
         setCorrectionReason("INWARD_CORRECTION");
       }
     }
-  }, [batch, suppliers]);
+  }, [batch, item, suppliers]);
 
   if (!isOpen || !batch) return null;
 
@@ -122,7 +133,7 @@ export function AdjustBatchStockModal({
 
   const isOversoldBatch = remainingQty < 0 || (Boolean(batch.batch_number) && batch.batch_number.includes("-OV-"));
 
-  // Tier B derived calculations
+  // Inward derived calculations
   const effectiveNewTotalQty = isOversoldBatch
     ? (parseFloat(appendQty) || 0)
     : qtyMode === "APPEND"
@@ -140,6 +151,7 @@ export function AdjustBatchStockModal({
   const marginType = item?.margin_type || (batch as any)?.margin_type || "MARKUP";
   const retailMargin = parseFloat(String(item?.retail_margin_pct ?? (batch as any)?.retail_margin_pct ?? 0));
   const mrpMargin = parseFloat(String(item?.mrp_margin_pct ?? (batch as any)?.mrp_margin_pct ?? 0));
+  const wholesaleMargin = parseFloat(String(item?.wholesale_margin_pct ?? (batch as any)?.wholesale_margin_pct ?? 0));
   const currentItemRetail = parseFloat(String(item?.retail_price ?? (batch as any)?.item_retail_price ?? 0));
 
   const calcProjectedPrice = (cost: number, marginPct: number, type: string) => {
@@ -154,6 +166,7 @@ export function AdjustBatchStockModal({
 
   const projectedRetail = retailMargin > 0 ? calcProjectedPrice(effectiveCost, retailMargin, marginType) : null;
   const projectedMrp = mrpMargin > 0 ? calcProjectedPrice(effectiveCost, mrpMargin, marginType) : null;
+  const projectedWholesale = wholesaleMargin > 0 ? calcProjectedPrice(effectiveCost, wholesaleMargin, marginType) : null;
 
   // Suggested billed amount if newly adjusted quantity was billed at the original purchase unit cost
   const suggestedBilled =
@@ -252,6 +265,9 @@ export function AdjustBatchStockModal({
               quantity_delta: deltaQty,
               total_billed: parseFloat(totalBilled) || undefined,
               new_unit_cost: parseFloat(unitCost) || undefined,
+              new_retail_price: customRetailPrice ? parseFloat(customRetailPrice) : undefined,
+              new_mrp: customMrp ? parseFloat(customMrp) : undefined,
+              new_wholesale_price: customWholesalePrice ? parseFloat(customWholesalePrice) : undefined,
               sync_catalog_price: syncCatalogPrice,
               reason: correctionReason,
               notes: notes || undefined,
@@ -318,7 +334,7 @@ export function AdjustBatchStockModal({
             </div>
             <div>
               <h3 className="font-display text-sm font-bold text-[var(--text-primary)]">
-                {mode === "INTAKE_CORRECTION" ? "Inward Qty & Margin Correction (Tier B)" : "Adjust / Return Batch Stock"}
+                {mode === "INTAKE_CORRECTION" ? "Inward Qty & Cost Correction" : "Adjust / Return Batch Stock"}
               </h3>
               <p className="text-xs text-[var(--text-secondary)] font-mono">
                 Batch #{batch.batch_number} • {batch.item_name}
@@ -365,7 +381,7 @@ export function AdjustBatchStockModal({
             </div>
           </div>
 
-          {/* Action Mode Selection (4 Options including Tier B) */}
+          {/* Action Mode Selection */}
           <div>
             <label className="block text-[11px] font-bold text-[var(--text-secondary)] uppercase tracking-wider mb-2">
               Select Adjustment Type
@@ -423,13 +439,13 @@ export function AdjustBatchStockModal({
                 }`}
               >
                 <Layers className="h-4 w-4" />
-                <span className="text-[11px]">Inward / Qty</span>
-                <span className="text-[9px] opacity-75 font-normal">Tier B • Margins</span>
+                <span className="text-[11px]">Inward / Cost</span>
+                <span className="text-[9px] opacity-75 font-normal">Qty & Pricing</span>
               </button>
             </div>
           </div>
 
-          {/* Tier B: Inward Stock Correction & Margin Recalculation */}
+          {/* Inward Stock Correction & Margin Recalculation */}
           {mode === "INTAKE_CORRECTION" && (
             <div className="space-y-3.5 animate-in fade-in duration-150">
               {isOversoldBatch && (
@@ -525,6 +541,17 @@ export function AdjustBatchStockModal({
                     <span className="text-[10px] text-[var(--text-muted)] mt-1 block">
                       Enter additional stock arriving or found for this batch lot to append to current stock.
                     </span>
+                  </div>
+                )}
+
+                {item?.alternate_units && (item.alternate_units as any[]).length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 pt-1 text-[10px] text-[var(--text-muted)] font-mono">
+                    <span className="font-semibold text-[var(--text-secondary)]">Configured Alt Units:</span>
+                    {(item.alternate_units as any[]).map((au: any, i: number) => (
+                      <span key={i} className="px-1.5 py-0.5 rounded bg-[var(--bg-surface)] border border-[var(--border-subtle)] text-indigo-300">
+                        1 {item.unit || batch.unit} = {au.conversion_factor} {au.unit_label}
+                      </span>
+                    ))}
                   </div>
                 )}
 
@@ -646,45 +673,108 @@ export function AdjustBatchStockModal({
               </div>
 
               {/* Step 3: Margin & Retail Pricing Impact Card */}
-              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3 space-y-2.5">
+              <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-3">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-1.5 text-xs font-bold text-[var(--text-primary)]">
                     <TrendingUp className="h-3.5 w-3.5 text-indigo-400" />
-                    <span>Margin & Catalog Price Ripple Effect</span>
+                    <span>Margin & Pricing Ripple Effect</span>
                   </div>
-                  <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
-                    {marginType} ({retailMargin > 0 ? `${retailMargin}%` : "No Margin Set"})
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-indigo-500/10 text-indigo-300 border border-indigo-500/20">
+                      Cost: ₹{purchaseUnitCost.toFixed(2)} → <span className="font-bold text-white">₹{effectiveCost.toFixed(2)}</span>
+                    </span>
+                    {(projectedMrp !== null || projectedRetail !== null || projectedWholesale !== null) && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (projectedMrp !== null) setCustomMrp(projectedMrp.toFixed(2));
+                          if (projectedRetail !== null) setCustomRetailPrice(projectedRetail.toFixed(2));
+                          if (projectedWholesale !== null) setCustomWholesalePrice(projectedWholesale.toFixed(2));
+                        }}
+                        className="text-[10px] text-indigo-400 hover:text-indigo-300 font-semibold underline decoration-dotted cursor-pointer flex items-center gap-1"
+                        title="Fill inputs with projected margin prices"
+                      >
+                        <Sparkles className="h-3 w-3" />
+                        <span>Apply Projected</span>
+                      </button>
+                    )}
+                  </div>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                  <div className="rounded-xl bg-[var(--bg-surface)] p-2 border border-[var(--border-subtle)]">
-                    <span className="text-[9px] uppercase text-[var(--text-muted)] block font-semibold">Unit Cost</span>
-                    <span className="font-mono font-bold text-xs text-[var(--text-primary)]">
-                      ₹{purchaseUnitCost.toFixed(2)} → <span className="text-indigo-400 font-black">₹{effectiveCost.toFixed(2)}</span>
-                    </span>
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[var(--text-primary)] mb-1 flex items-center justify-between">
+                      <span>Batch MRP (₹)</span>
+                      {projectedMrp !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomMrp(projectedMrp.toFixed(2))}
+                          className="text-[10px] text-[var(--text-muted)] hover:text-white font-mono underline decoration-dotted cursor-pointer"
+                          title="Click to apply projected MRP"
+                        >
+                          Proj: ₹{projectedMrp.toFixed(2)}
+                        </button>
+                      )}
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={customMrp}
+                      onChange={(e) => setCustomMrp(e.target.value)}
+                      placeholder="e.g. 25.00"
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-[var(--text-primary)] focus:border-indigo-500 focus:outline-none"
+                    />
                   </div>
 
-                  <div className="rounded-xl bg-[var(--bg-surface)] p-2 border border-[var(--border-subtle)]">
-                    <span className="text-[9px] uppercase text-[var(--text-muted)] block font-semibold">Catalog Retail</span>
-                    <span className="font-mono font-bold text-xs text-[var(--text-primary)]">
-                      {projectedRetail !== null ? (
-                        <>₹{currentItemRetail.toFixed(2)} → <span className="text-emerald-400 font-black">₹{projectedRetail.toFixed(2)}</span></>
-                      ) : (
-                        <span className="text-[var(--text-muted)]">₹{currentItemRetail.toFixed(2)} (Manual)</span>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[var(--text-primary)] mb-1 flex items-center justify-between">
+                      <span>Retail Price (₹)</span>
+                      {projectedRetail !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomRetailPrice(projectedRetail.toFixed(2))}
+                          className="text-[10px] text-emerald-400 hover:text-emerald-300 font-mono underline decoration-dotted cursor-pointer"
+                          title="Click to apply projected retail price"
+                        >
+                          Proj: ₹{projectedRetail.toFixed(2)}
+                        </button>
                       )}
-                    </span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={customRetailPrice}
+                      onChange={(e) => setCustomRetailPrice(e.target.value)}
+                      placeholder="e.g. 20.00"
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-emerald-400 font-bold focus:border-indigo-500 focus:outline-none"
+                    />
                   </div>
 
-                  <div className="rounded-xl bg-[var(--bg-surface)] p-2 border border-[var(--border-subtle)]">
-                    <span className="text-[9px] uppercase text-[var(--text-muted)] block font-semibold">Catalog MRP</span>
-                    <span className="font-mono font-bold text-xs text-[var(--text-primary)]">
-                      {projectedMrp !== null ? (
-                        <span className="text-emerald-300 font-bold">₹{projectedMrp.toFixed(2)}</span>
-                      ) : (
-                        <span className="text-[var(--text-muted)]">No MRP Margin</span>
+                  <div>
+                    <label className="block text-[11px] font-semibold text-[var(--text-primary)] mb-1 flex items-center justify-between">
+                      <span>Wholesale Price (₹)</span>
+                      {projectedWholesale !== null && (
+                        <button
+                          type="button"
+                          onClick={() => setCustomWholesalePrice(projectedWholesale.toFixed(2))}
+                          className="text-[10px] text-purple-300 hover:text-purple-200 font-mono underline decoration-dotted cursor-pointer"
+                          title="Click to apply projected wholesale price"
+                        >
+                          Proj: ₹{projectedWholesale.toFixed(2)}
+                        </button>
                       )}
-                    </span>
+                    </label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={customWholesalePrice}
+                      onChange={(e) => setCustomWholesalePrice(e.target.value)}
+                      placeholder="e.g. 18.00"
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 font-mono text-xs text-purple-300 font-bold focus:border-indigo-500 focus:outline-none"
+                    />
                   </div>
                 </div>
 
@@ -698,11 +788,10 @@ export function AdjustBatchStockModal({
                   />
                   <div className="text-[11px] leading-tight">
                     <span className="font-semibold text-[var(--text-primary)]">
-                      Sync new cost and recalculate retail price in Product Catalog
+                      Sync new cost and updated prices in Product Catalog
                     </span>
                     <span className="text-[10px] text-[var(--text-muted)] block">
-                      Updates item master default cost to ₹{effectiveCost.toFixed(2)}
-                      {projectedRetail !== null ? ` and selling price to ₹${projectedRetail.toFixed(2)}` : ""} for POS checkout.
+                      Updates item master default cost to ₹{effectiveCost.toFixed(2)} and active POS checkout prices.
                     </span>
                   </div>
                 </label>
