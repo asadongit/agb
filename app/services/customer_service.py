@@ -322,7 +322,7 @@ async def get_customer_analytics(
             .outerjoin(MenuItem, OrderItem.menu_item_id == MenuItem.id)
             .outerjoin(Category, MenuItem.category_id == Category.id)
             .where(OrderItem.order_id.in_(order_ids))
-            .group_by(func.coalesce(Category.name, "Uncategorized"))
+            .group_by(Category.name)
             .order_by(func.sum(OrderItem.line_total).desc())
             .limit(10)
         )
