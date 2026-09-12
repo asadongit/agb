@@ -8,7 +8,7 @@ import uuid
 from typing import TYPE_CHECKING
 from decimal import Decimal
 
-from sqlalchemy import Enum, Integer, JSON, Numeric, String
+from sqlalchemy import Boolean, Enum, Integer, JSON, Numeric, String
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -116,6 +116,9 @@ class Outlet(Base, TimestampMixin):
     interstate_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, server_default="OFF", default="OFF"
     )  # "OFF", "PER_BILL", "ALWAYS_ON"
+    b2b_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="false", default=False
+    )
     invoice_terms_conditions: Mapped[str | None] = mapped_column(
         String(2000), nullable=True, default="1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction."
     )

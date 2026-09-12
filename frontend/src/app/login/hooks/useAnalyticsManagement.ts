@@ -149,18 +149,28 @@ export function useAnalyticsManagement({
     setIsLoading(true);
     try {
       const params = getDateRangeParams();
-      const [kpiRes, revRes, peakRes, topRes, funnelRes] = await Promise.all([
+      const [kpiRes, revRes, peakRes, topRes, funnelRes] = await Promise.allSettled([
         apiRequest<AnalyticsKpiSummary>(`/api/analytics/kpi-summary?${params.toString()}`),
         apiRequest<RevenueAnalytics>(`/api/analytics/revenue?granularity=${granularity}&${params.toString()}`),
         apiRequest<PeakHoursAnalytics>(`/api/analytics/peak-hours?${params.toString()}`),
         apiRequest<TopItemsAnalytics>(`/api/analytics/top-items?sort_by=revenue&limit=5&${params.toString()}`),
         apiRequest<FunnelAnalytics>(`/api/analytics/funnel?${params.toString()}`),
       ]);
-      setKpiData(kpiRes);
-      setRevenueData(revRes);
-      setPeakHoursData(peakRes);
-      setTopItemsData(topRes);
-      setFunnelData(funnelRes);
+
+      if (kpiRes.status === "fulfilled") setKpiData(kpiRes.value);
+      else console.error("Dashboard KPI summary load error:", kpiRes.reason);
+
+      if (revRes.status === "fulfilled") setRevenueData(revRes.value);
+      else console.error("Dashboard revenue load error:", revRes.reason);
+
+      if (peakRes.status === "fulfilled") setPeakHoursData(peakRes.value);
+      else console.error("Dashboard peak hours load error:", peakRes.reason);
+
+      if (topRes.status === "fulfilled") setTopItemsData(topRes.value);
+      else console.error("Dashboard top items load error:", topRes.reason);
+
+      if (funnelRes.status === "fulfilled") setFunnelData(funnelRes.value);
+      else console.error("Dashboard funnel load error:", funnelRes.reason);
     } catch (err) {
       console.error("Dashboard load error:", err);
     } finally {
@@ -176,18 +186,18 @@ export function useAnalyticsManagement({
       const params = getDateRangeParams();
       if (activeSalesSubTab === "master_view") {
         const catFilter = itemSalesCategoryId ? `&category_id=${itemSalesCategoryId}` : "";
-        const [cat, item, aov, pay, disc] = await Promise.all([
+        const [cat, item, aov, pay, disc] = await Promise.allSettled([
           apiRequest<CategorySalesResponse>(`/api/analytics/category-sales?${params.toString()}`),
           apiRequest<ItemSalesResponse>(`/api/analytics/item-sales?sort_by=${topItemsSortBy}&limit=50${catFilter}&${params.toString()}`),
           apiRequest<AovAnalyticsResponse>(`/api/analytics/aov?granularity=${granularity}&${params.toString()}`),
           apiRequest<PaymentMixResponse>(`/api/analytics/payment-mix?${params.toString()}`),
           apiRequest<DiscountReportResponse>(`/api/analytics/discount-report?${params.toString()}`)
         ]);
-        setCategorySalesData(cat);
-        setItemSalesData(item);
-        setAovData(aov);
-        setPaymentMixData(pay);
-        setDiscountData(disc);
+        if (cat.status === "fulfilled") setCategorySalesData(cat.value);
+        if (item.status === "fulfilled") setItemSalesData(item.value);
+        if (aov.status === "fulfilled") setAovData(aov.value);
+        if (pay.status === "fulfilled") setPaymentMixData(pay.value);
+        if (disc.status === "fulfilled") setDiscountData(disc.value);
       } else if (activeSalesSubTab === "category") {
         setCategorySalesData(await apiRequest<CategorySalesResponse>(`/api/analytics/category-sales?${params.toString()}`));
       } else if (activeSalesSubTab === "item") {
@@ -214,18 +224,18 @@ export function useAnalyticsManagement({
     try {
       const params = getDateRangeParams();
       if (activeInventorySubTab === "master_view") {
-        const [mov, in_, was, ret, sup] = await Promise.all([
+        const [mov, in_, was, ret, sup] = await Promise.allSettled([
           apiRequest<StockMovementResponse>(`/api/analytics/stock-movement?${params.toString()}`),
           apiRequest<StockIntakeReportResponse>(`/api/analytics/stock-intake?${params.toString()}`),
           apiRequest<WastageReportResponse>(`/api/analytics/wastage?${params.toString()}`),
           apiRequest<PurchaseReturnReportResponse>(`/api/analytics/purchase-returns?${params.toString()}`),
           apiRequest<SupplierSpendResponse>(`/api/analytics/supplier-spend?${params.toString()}`)
         ]);
-        setStockMovementData(mov);
-        setStockIntakeData(in_);
-        setWastageData(was);
-        setPurchaseReturnData(ret);
-        setSupplierSpendData(sup);
+        if (mov.status === "fulfilled") setStockMovementData(mov.value);
+        if (in_.status === "fulfilled") setStockIntakeData(in_.value);
+        if (was.status === "fulfilled") setWastageData(was.value);
+        if (ret.status === "fulfilled") setPurchaseReturnData(ret.value);
+        if (sup.status === "fulfilled") setSupplierSpendData(sup.value);
       } else if (activeInventorySubTab === "stock_movement") {
         setStockMovementData(await apiRequest<StockMovementResponse>(`/api/analytics/stock-movement?${params.toString()}`));
       } else if (activeInventorySubTab === "intake") {
@@ -254,18 +264,18 @@ export function useAnalyticsManagement({
       const safeTo = params.get("to_date") || "";
 
       if (activeCustomersSubTab === "master_view") {
-        const [newC, ret, loy, ab, cd] = await Promise.all([
+        const [newC, ret, loy, ab, cd] = await Promise.allSettled([
           apiRequest<any>(`/api/analytics/new-customers?${params.toString()}`),
           apiRequest<CustomerReturnReportResponse>(`/api/analytics/customer-returns?${params.toString()}`),
           apiRequest<LoyaltyReportResponse>(`/api/analytics/loyalty?${params.toString()}`),
           apiRequest<AbandonedCartStatsResponse>(`/api/analytics/abandoned-carts?${params.toString()}`),
           apiRequest<CreditDebitReportResponse>(`/api/analytics/credit-debit-report?${params.toString()}`)
         ]);
-        setNewCustomerData(newC);
-        setCustomerReturnData(ret);
-        setLoyaltyData(loy);
-        setAbandonedCartData(ab);
-        setCreditDebitData(cd);
+        if (newC.status === "fulfilled") setNewCustomerData(newC.value);
+        if (ret.status === "fulfilled") setCustomerReturnData(ret.value);
+        if (loy.status === "fulfilled") setLoyaltyData(loy.value);
+        if (ab.status === "fulfilled") setAbandonedCartData(ab.value);
+        if (cd.status === "fulfilled") setCreditDebitData(cd.value);
       } else if (activeCustomersSubTab === "new_customers") {
         setNewCustomerData(await apiRequest<any>(`/api/analytics/new-customers?${params.toString()}`));
       } else if (activeCustomersSubTab === "returns") {

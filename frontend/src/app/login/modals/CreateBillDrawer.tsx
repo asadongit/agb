@@ -48,8 +48,13 @@ export const getUnitFactor = (
   item: AdminMenuItem | undefined,
   selectedUnit: string | null | undefined
 ): number => {
-  if (!item || !selectedUnit || selectedUnit === (item.unit_label || "piece")) return 1;
-  const altUnit = (item.alternate_units as any[])?.find((au: any) => au.unit_label === selectedUnit);
+  if (!item || !selectedUnit) return 1;
+  const base = (item.unit_label || "piece").trim().toLowerCase();
+  const target = selectedUnit.trim().toLowerCase();
+  if (base === target) return 1;
+  const altUnit = (item.alternate_units as any[])?.find(
+    (au: any) => (au?.unit_label || "").trim().toLowerCase() === target
+  );
   return altUnit ? (Number(altUnit.conversion_factor) || 1) : 1;
 };
 
@@ -267,13 +272,13 @@ export function CreateBillDrawer({
   const phoneInputRef = useRef<HTMLInputElement>(null);
   const [pricingMode, setPricingMode] = useState<"RETAIL" | "WHOLESALE">("RETAIL");
 
-  // B2B GST details expansion state
+  // B2B GST details expansion state (only if B2B mode is enabled)
   const [showB2bFields, setShowB2bFields] = useState(false);
   useEffect(() => {
-    if (customerGstin || customerLegalName) {
+    if (restaurant?.b2b_enabled && (customerGstin || customerLegalName)) {
       setShowB2bFields(true);
     }
-  }, [customerGstin, customerLegalName]);
+  }, [customerGstin, customerLegalName, restaurant?.b2b_enabled]);
 
   // If outlet mode is ALWAYS_ON, ensure isInterstate is set; if OFF, ensure isInterstate is false
   useEffect(() => {
@@ -1559,23 +1564,25 @@ export function CreateBillDrawer({
                     ) : null}
                   </div>
 
-                  {/* B2B Toggle */}
-                  <button
-                    type="button"
-                    onClick={() => setShowB2bFields(!showB2bFields)}
-                    className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
-                      showB2bFields || customerGstin
-                        ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
-                        : "bg-[var(--bg-surface-elevated)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
-                    }`}
-                  >
-                    <span>🏢</span>
-                    {showB2bFields || customerGstin ? "B2B GST Details Active" : "+ Add B2B GSTIN (Tax Invoice)"}
-                  </button>
+                  {/* B2B Toggle: only show when B2B mode is enabled in outlet settings */}
+                  {Boolean(restaurant?.b2b_enabled) && (
+                    <button
+                      type="button"
+                      onClick={() => setShowB2bFields(!showB2bFields)}
+                      className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all border ${
+                        showB2bFields || customerGstin
+                          ? "bg-indigo-500/20 border-indigo-500/40 text-indigo-300"
+                          : "bg-[var(--bg-surface-elevated)] border-[var(--border-subtle)] text-[var(--text-muted)] hover:text-[var(--text-primary)]"
+                      }`}
+                    >
+                      <span>🏢</span>
+                      {showB2bFields || customerGstin ? "B2B GST Details Active" : "+ Add B2B GSTIN (Tax Invoice)"}
+                    </button>
+                  )}
                 </div>
 
                 {/* Collapsible B2B Fields */}
-                {(showB2bFields || customerGstin) && (
+                {Boolean(restaurant?.b2b_enabled) && (showB2bFields || customerGstin) && (
                   <div className="pt-2 border-t border-[var(--border-subtle)] grid grid-cols-1 sm:grid-cols-3 gap-2.5 animate-fadeIn">
                     <div>
                       <label className="block text-[11px] font-semibold text-indigo-300 mb-0.5">

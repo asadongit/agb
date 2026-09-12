@@ -941,6 +941,11 @@ export interface ReturnPdfData {
     mrp?: number | string;
     line_refund?: number | string;
     tax_rate?: number | string | null;
+    hsn_code?: string | null;
+    selected_unit?: string | null;
+    unit?: string | null;
+    unit_label?: string | null;
+    menu_item_id?: string | null;
     reason?: string;
   }>;
   total_refund_amount: number;
@@ -953,6 +958,17 @@ export interface ReturnPdfData {
   credit_awarded?: number;
   debit_applied?: number;
   wallet_balance_after?: number | null;
+  customer_balance?: number | null;
+  is_interstate?: boolean;
+  place_of_supply?: string;
+  round_off?: number;
+  exchange_items?: Array<{
+    item_name: string;
+    quantity: number;
+    unit_price: number | string;
+    line_total?: number | string;
+    selected_unit?: string | null;
+  }>;
   restaurant?: {
     name?: string;
     address?: string;
@@ -963,6 +979,7 @@ export interface ReturnPdfData {
     logo_url?: string;
     bill_qr_url?: string;
     place_of_supply?: string;
+    interstate_mode?: string;
   };
 }
 
@@ -970,7 +987,8 @@ export async function generateReturnReceiptPDF(
   returnData: ReturnPdfData,
   restaurantName: string = "ApnaGreen Basket",
   storeDetailsOrAction?: any,
-  actionOpt: "download" | "view" = "download"
+  actionOpt: "download" | "view" = "download",
+  menuItemsMap?: Record<string, any>
 ) {
   let storeDetails: any = undefined;
   let action: "download" | "view" = actionOpt;
@@ -985,6 +1003,8 @@ export async function generateReturnReceiptPDF(
     storeDetails = returnData.restaurant;
   }
 
+  const effectiveMenuItemsMap = menuItemsMap || storeDetails?.menuItemsMap || undefined;
+
   const getOutletField = (field: string) => {
     return storeDetails?.[field] || returnData.restaurant?.[field as keyof typeof returnData.restaurant] || undefined;
   };
@@ -992,7 +1012,7 @@ export async function generateReturnReceiptPDF(
   const doc = new jsPDF({
     orientation: "portrait",
     unit: "mm",
-    format: [80, 210],
+    format: [80, 297],
   });
 
   const pageWidth = doc.internal.pageSize.getWidth();
@@ -1145,10 +1165,27 @@ export async function generateReturnReceiptPDF(
     doc.text(`Mob: ${guestPhone}`, pageWidth - margin, y, { align: "right" });
   }
   
-  const placeOfSupply = getOutletField("place_of_supply");
+  // Determine if interstate based strictly on original bill if present; fallback to outlet settings
+  let isInterstateOrder = false;
+  if ((returnData as any).is_interstate !== undefined && (returnData as any).is_interstate !== null) {
+    isInterstateOrder = Boolean((returnData as any).is_interstate);
+  } else if ((returnData as any).order?.is_interstate !== undefined && (returnData as any).order?.is_interstate !== null) {
+    isInterstateOrder = Boolean((returnData as any).order?.is_interstate);
+  } else {
+    const outletInterstateMode = getOutletField("interstate_mode");
+    isInterstateOrder = (outletInterstateMode === "ALWAYS_ON");
+  }
+
+  const placeOfSupply = (returnData as any).place_of_supply ||
+    (returnData as any).order?.place_of_supply ||
+    getOutletField("place_of_supply");
+
   if (placeOfSupply) {
     y += 3.5;
-    doc.text(`Place of Supply: ${placeOfSupply}`, margin, y);
+    doc.text(`Place of Supply: ${placeOfSupply}${isInterstateOrder ? " (Inter-State)" : ""}`, margin, y);
+  } else if (isInterstateOrder) {
+    y += 3.5;
+    doc.text(`Supply Type    : Inter-State (IGST)`, margin, y);
   }
 
   y += 2.5;
@@ -1161,7 +1198,7 @@ export async function generateReturnReceiptPDF(
   const tableData = (returnData.returned_items || []).map((item: any, idx: number) => {
     const dishName = item.item_name || `Item #${idx + 1}`;
     const qtyVal = parseFloat(String(item.quantity || "0"));
-    const rawUnit = item.selected_unit || item.unit || item.unit_label || "";
+    const rawUnit = item.selected_unit || item.unit || item.unit_label || (item.menu_item_id && effectiveMenuItemsMap?.[item.menu_item_id]?.unit_label) || "";
     const cleanUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
     const qtyFormatted = qtyVal % 1 === 0 ? qtyVal.toFixed(0) : String(qtyVal);
     const qtyStr = cleanUnit ? `${qtyFormatted} ${cleanUnit}` : qtyFormatted;
@@ -1210,10 +1247,109 @@ export async function generateReturnReceiptPDF(
     },
   });
 
-  const finalY = (doc as any).lastAutoTable.finalY + 2;
+  let currentTableFinalY = (doc as any).lastAutoTable.finalY + 2;
+
+  if (returnData.exchange_items && returnData.exchange_items.length > 0) {
+    drawDashedLine(currentTableFinalY);
+    currentTableFinalY += 3;
+    doc.setFont("courier", "bold");
+    doc.setFontSize(7);
+    doc.text("EXCHANGE / REPLACEMENT ITEMS", margin, currentTableFinalY);
+
+    const exchangeTableData = returnData.exchange_items.map((item: any, idx: number) => {
+      const dishName = item.item_name || `Exchange #${idx + 1}`;
+      const qtyVal = parseFloat(String(item.quantity || "0"));
+      const rawUnit = item.selected_unit || item.unit || item.unit_label || (item.menu_item_id && effectiveMenuItemsMap?.[item.menu_item_id]?.unit_label) || "";
+      const cleanUnit = typeof rawUnit === "string" ? rawUnit.trim() : "";
+      const qtyFormatted = qtyVal % 1 === 0 ? qtyVal.toFixed(0) : String(qtyVal);
+      const qtyStr = cleanUnit ? `${qtyFormatted} ${cleanUnit}` : qtyFormatted;
+      const price = parseFloat(String(item.unit_price || "0"));
+      const lineTotal = item.line_total !== undefined ? parseFloat(String(item.line_total)) : qtyVal * price;
+
+      return [
+        `${idx + 1}. ${dishName}`,
+        qtyStr,
+        `${price.toFixed(2)}`,
+        `${lineTotal.toFixed(2)}`,
+      ];
+    });
+
+    autoTable(doc, {
+      startY: currentTableFinalY + 1.5,
+      margin: { left: margin, right: margin },
+      head: [["#  Item", "Qty", "Rate", "Amt"]],
+      body: exchangeTableData,
+      theme: "plain",
+      styles: {
+        font: "courier",
+        fontSize: 6.5,
+        cellPadding: { top: 1, bottom: 1, left: 0, right: 0 },
+        textColor: [0, 0, 0],
+        lineWidth: 0,
+      },
+      headStyles: {
+        font: "courier",
+        fontStyle: "bold",
+        fontSize: 6.5,
+        textColor: [0, 0, 0],
+        fillColor: false,
+      },
+      columnStyles: {
+        0: { cellWidth: 35, halign: "left" },
+        1: { cellWidth: 15, halign: "center" },
+        2: { cellWidth: 11, halign: "right" },
+        3: { cellWidth: 11, halign: "right" },
+      },
+    });
+
+    currentTableFinalY = (doc as any).lastAutoTable.finalY + 2;
+  }
+
+  const finalY = currentTableFinalY;
   drawDashedLine(finalY);
 
-  // 4. TAX & FINANCIAL SUMMARY GRID
+  // Group GST by HSN code and Tax Rate
+  interface HsnSummaryItem {
+    hsn: string;
+    rate: number;
+    base: number;
+    tax: number;
+  }
+  const hsnSummaryMap: Record<string, HsnSummaryItem> = {};
+
+  (returnData.returned_items || []).forEach((item: any) => {
+    const qtyVal = parseFloat(String(item.quantity || "0"));
+    const price = parseFloat(String(item.unit_price || "0"));
+    const lineTotal = item.line_refund !== undefined ? parseFloat(String(item.line_refund)) : qtyVal * price;
+
+    let itemTaxRate = 0;
+    if (item.tax_rate !== undefined && item.tax_rate !== null) {
+      itemTaxRate = parseFloat(String(item.tax_rate));
+    } else if (item.item_tax_rate !== undefined && item.item_tax_rate !== null) {
+      itemTaxRate = parseFloat(String(item.item_tax_rate));
+    } else if (effectiveMenuItemsMap && item.menu_item_id && effectiveMenuItemsMap[item.menu_item_id]?.tax_rate !== undefined && effectiveMenuItemsMap[item.menu_item_id]?.tax_rate !== null) {
+      itemTaxRate = parseFloat(String(effectiveMenuItemsMap[item.menu_item_id].tax_rate));
+    }
+    if (isNaN(itemTaxRate)) itemTaxRate = 0;
+
+    let itemHsn = item.hsn_code || (effectiveMenuItemsMap && item.menu_item_id && (effectiveMenuItemsMap[item.menu_item_id] as any)?.hsn_code) || "-";
+
+    if (itemTaxRate >= 0) {
+      const base = lineTotal / (1 + (itemTaxRate / 100));
+      const taxAmount = lineTotal - base;
+
+      const groupKey = `${itemHsn}_${itemTaxRate}`;
+      if (!hsnSummaryMap[groupKey]) {
+        hsnSummaryMap[groupKey] = { hsn: itemHsn, rate: itemTaxRate, base: 0, tax: 0 };
+      }
+      hsnSummaryMap[groupKey].base += base;
+      hsnSummaryMap[groupKey].tax += taxAmount;
+    }
+  });
+
+  const hsnList = Object.values(hsnSummaryMap).sort((a, b) => a.hsn.localeCompare(b.hsn) || a.rate - b.rate);
+
+  // 4. FINANCIAL SUMMARY GRID
   let summaryY = finalY + 4;
   
   doc.setFont("courier", "normal");
@@ -1236,87 +1372,49 @@ export async function generateReturnReceiptPDF(
     summaryY += 4.5;
   }
 
-  doc.setFont("courier", "bold");
-  doc.text("Total Refund (GST Inclusive)", margin, summaryY);
+  let totalExchangeVal = 0;
+  if (returnData.exchange_items && returnData.exchange_items.length > 0) {
+    returnData.exchange_items.forEach((it) => {
+      totalExchangeVal += Number(it.line_total || (Number(it.quantity) * Number(it.unit_price)));
+    });
+  }
+
+  doc.text("Total Return Credit", margin, summaryY);
   doc.text(`INR ${totalRefundValue.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-  summaryY += 4.5;
-  doc.setFont("courier", "normal");
+  summaryY += 3.8;
 
-  const taxGroupMap: Record<number, { base: number; tax: number }> = {};
-  (returnData.returned_items || []).forEach((item: any) => {
-    const qtyVal = parseFloat(String(item.quantity || "0"));
-    const price = parseFloat(String(item.unit_price || "0"));
-    const lineTotal = item.line_refund !== undefined ? parseFloat(String(item.line_refund)) : qtyVal * price;
-
-    let itemTaxRate = 0;
-    if (item.tax_rate !== undefined && item.tax_rate !== null) {
-      itemTaxRate = parseFloat(String(item.tax_rate));
-    }
-
-    if (itemTaxRate >= 0) {
-      const base = lineTotal / (1 + (itemTaxRate / 100));
-      const taxAmount = lineTotal - base;
-
-      if (!taxGroupMap[itemTaxRate]) {
-        taxGroupMap[itemTaxRate] = { base: 0, tax: 0 };
-      }
-      taxGroupMap[itemTaxRate].base += base;
-      taxGroupMap[itemTaxRate].tax += taxAmount;
-    }
-  });
-
-  const activeTaxRates = Object.keys(taxGroupMap).map(Number).sort((a, b) => a - b);
-
-  activeTaxRates.forEach((rate) => {
-    const group = taxGroupMap[rate];
-    const groupTax = group.tax;
-    const cgstVal = groupTax / 2;
-    const sgstVal = groupTax / 2;
-
-    const rateLabel = rate.toFixed(1).replace(/\.0$/, "");
-    const halfRateLabel = (rate / 2).toFixed(1).replace(/\.0$/, "");
-
-    doc.text(`GST Included @ ${rateLabel}% (on Rs.${group.base.toFixed(2)})`, margin, summaryY);
+  if (totalExchangeVal > 0) {
+    doc.text("Less Exchange Value", margin, summaryY);
+    doc.text(`- INR ${totalExchangeVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
     summaryY += 3.5;
+  }
 
-    doc.text(`  CGST @ ${halfRateLabel}%`, margin, summaryY);
-    doc.text(`INR ${cgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
+  const netBeforeRound = totalRefundValue - totalExchangeVal;
+  const roundOff = returnData.round_off !== undefined ? Number(returnData.round_off) : (Math.round(netBeforeRound) - netBeforeRound);
+  const netRefund = netBeforeRound + roundOff;
 
-    doc.text(`  SGST @ ${halfRateLabel}%`, margin, summaryY);
-    doc.text(`INR ${sgstVal.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-    summaryY += 3.5;
-  });
-
-  const netRefund = Math.round(totalRefundValue);
-  const roundOff = netRefund - totalRefundValue;
-
-  doc.setFont("courier", "normal");
-  doc.setFontSize(7.5);
-  
   if (Math.abs(roundOff) > 0.001) {
-    summaryY += 1;
-    drawDashedLine(summaryY);
-    summaryY += 4.5;
-    
     doc.text("Round Off", margin, summaryY);
     const sign = roundOff > 0 ? "+" : "";
     doc.text(`${sign}${roundOff.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
     summaryY += 3.5;
+    summaryY += 1;
+    drawSolidLine(summaryY);
+    summaryY += 4.5;
+  } else {
+    summaryY += 1;
+    drawSolidLine(summaryY);
+    summaryY += 4.5;
   }
-  
-  summaryY += 1;
-  drawSolidLine(summaryY);
 
-  summaryY += 4;
   doc.setFont("courier", "bold");
   doc.setFontSize(8.5);
-  doc.text("NET REFUND", margin, summaryY);
-  doc.text(`INR ${netRefund.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
+  doc.text(netRefund >= 0 ? "NET REFUND" : "NET PAYABLE", margin, summaryY);
+  doc.text(`INR ${Math.abs(netRefund).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
   
   summaryY += 2;
   drawSolidLine(summaryY);
-  summaryY += 5;
+  summaryY += 4.5;
 
   let netPaid = netRefund;
   const creditApplied = returnData.credit_applied || 0;
@@ -1364,21 +1462,23 @@ export async function generateReturnReceiptPDF(
           netPaid += creditCashedOut;
       }
       
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
-      summaryY += 6;
+      summaryY += 1.5;
+      drawSolidLine(summaryY);
+      summaryY += 4.5;
       doc.setFont("courier", "bold");
       doc.setFontSize(8.5);
-      doc.text("NET SETTLEMENT (CASH)", margin, summaryY);
+      const settleMethod = (returnData.refund_payment_method || "CASH").toUpperCase();
+      doc.text(`NET SETTLEMENT (${settleMethod})`, margin, summaryY);
       doc.text(`INR ${netPaid.toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
-      summaryY += 1;
-      drawSolidLine(summaryY + 2);
+      summaryY += 2;
+      drawSolidLine(summaryY);
+      summaryY += 4.5;
   }
 
-  const customerBalanceRaw = returnData.wallet_balance_after;
+  const customerBalanceRaw = returnData.wallet_balance_after ?? returnData.customer_balance;
   if (customerBalanceRaw !== undefined && customerBalanceRaw !== null) {
       const customerBalance = parseFloat(String(customerBalanceRaw)) || 0;
-      summaryY += 5;
+      summaryY += 2;
       doc.setFont("courier", "normal");
       doc.setFontSize(7.5);
       if (customerBalance >= 0) {
@@ -1388,7 +1488,95 @@ export async function generateReturnReceiptPDF(
           doc.text("Outstanding Debit", margin, summaryY);
           doc.text(`INR ${Math.abs(customerBalance).toFixed(2)}`, pageWidth - margin, summaryY, { align: "right" });
       }
-      summaryY += 2;
+      summaryY += 3.5;
+  }
+
+  // 5. STATUTORY GST BREAKDOWN TABLE (Spacious & Clean Layout matching standard bill)
+  if (hsnList.length > 0) {
+    summaryY += 4;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(7.5);
+    doc.text("GST TAX SUMMARY", pageWidth / 2, summaryY, { align: "center" });
+    summaryY += 3.2;
+
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+    doc.text(isInterstateOrder ? "(INTER-STATE / IGST)" : "(INTRA-STATE SALE)", pageWidth / 2, summaryY, { align: "center" });
+    summaryY += 3.0;
+
+    drawDashedLine(summaryY);
+    summaryY += 4.0;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(6.5);
+    if (isInterstateOrder) {
+      doc.text("HSN/SAC", margin, summaryY);
+      doc.text("Taxable", 38, summaryY, { align: "right" });
+      doc.text("Rate", 54, summaryY, { align: "right" });
+      doc.text("IGST Amt", pageWidth - margin, summaryY, { align: "right" });
+    } else {
+      doc.text("HSN/SAC", margin, summaryY);
+      doc.text("Taxable", 30, summaryY, { align: "right" });
+      doc.text("CGST", 44, summaryY, { align: "right" });
+      doc.text("SGST", 58, summaryY, { align: "right" });
+      doc.text("Total Tax", pageWidth - margin, summaryY, { align: "right" });
+    }
+    summaryY += 1.8;
+    drawDashedLine(summaryY);
+    summaryY += 4.0;
+
+    doc.setFont("courier", "normal");
+    doc.setFontSize(6.5);
+
+    let totHsnBase = 0;
+    let totHsnTax = 0;
+
+    hsnList.forEach((grp) => {
+      totHsnBase += grp.base;
+      totHsnTax += grp.tax;
+
+      const displayHsn = grp.hsn && grp.hsn !== "null" && grp.hsn !== "undefined"
+        ? (grp.hsn.length > 8 ? grp.hsn.substring(0, 8) : grp.hsn)
+        : "-";
+      doc.text(displayHsn, margin, summaryY);
+
+      if (isInterstateOrder) {
+        doc.text(grp.base.toFixed(2), 38, summaryY, { align: "right" });
+        doc.text(`${grp.rate.toFixed(1).replace(/\.0$/, "")}%`, 54, summaryY, { align: "right" });
+        doc.text(grp.tax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+      } else {
+        const halfTax = grp.tax / 2;
+        doc.text(grp.base.toFixed(2), 30, summaryY, { align: "right" });
+        doc.text(halfTax.toFixed(2), 44, summaryY, { align: "right" });
+        doc.text(halfTax.toFixed(2), 58, summaryY, { align: "right" });
+        doc.text(grp.tax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+      }
+      summaryY += 3.8;
+    });
+
+    summaryY += 0.8;
+    drawDashedLine(summaryY);
+    summaryY += 3.8;
+
+    doc.setFont("courier", "bold");
+    doc.setFontSize(6.5);
+    doc.text("Total", margin, summaryY);
+
+    if (isInterstateOrder) {
+      doc.text(totHsnBase.toFixed(2), 38, summaryY, { align: "right" });
+      doc.text(totHsnTax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+    } else {
+      const halfTot = totHsnTax / 2;
+      doc.text(totHsnBase.toFixed(2), 30, summaryY, { align: "right" });
+      doc.text(halfTot.toFixed(2), 44, summaryY, { align: "right" });
+      doc.text(halfTot.toFixed(2), 58, summaryY, { align: "right" });
+      doc.text(totHsnTax.toFixed(2), pageWidth - margin, summaryY, { align: "right" });
+    }
+
+    summaryY += 2.0;
+    drawDashedLine(summaryY);
+    summaryY += 4.5;
   }
 
   // 5. FOOTER & QR CODE
@@ -2001,4 +2189,242 @@ export function generateSalesPdfReport(
   }
 
   doc.save(`Sales-Orders-Report-${(restaurant?.name || "Report").replace(/\s+/g, "_")}.pdf`);
+}
+
+export function generateBillsHistoryPdfReport({
+  restaurant,
+  dateRangeLabel,
+  statusFilterLabel,
+  searchQuery,
+  bills,
+}: {
+  restaurant: any;
+  dateRangeLabel: string;
+  statusFilterLabel: string;
+  searchQuery?: string;
+  bills: any[];
+}) {
+  const doc = new (jsPDF as any)({ orientation: "portrait", unit: "mm", format: "a4" });
+  let y = drawHeader(doc, restaurant, "BILLS & SALES HISTORY REPORT", dateRangeLabel);
+
+  doc.setFontSize(9);
+  doc.setFont("helvetica", "normal");
+  doc.setTextColor(71, 85, 105);
+
+  const filterSummaryParts = [
+    `Status Filter: ${statusFilterLabel || "ALL"}`,
+    searchQuery ? `Search: "${searchQuery}"` : null,
+    `Total Records: ${bills.length}`,
+  ].filter(Boolean).join("   |   ");
+
+  doc.text(filterSummaryParts, 14, y);
+  y += 6;
+
+  // 1. Executive / KPI Summary
+  let totalGrandSales = 0;
+  let totalSubtotal = 0;
+  let totalDiscounts = 0;
+  let paidCount = 0;
+  let draftCount = 0;
+  let cancelledOrRefundedCount = 0;
+  const paymentBreakdown: Record<string, number> = {};
+
+  bills.forEach((b: any) => {
+    const s = (b.status || "").toUpperCase();
+    const total = Number(b.total_amount || 0);
+    const sub = Number(b.subtotal_amount || total);
+    const disc = Number(b.discount_value || 0) || Math.max(0, sub - total);
+
+    totalGrandSales += total;
+    totalSubtotal += sub;
+    totalDiscounts += disc;
+
+    if (s === "PAID" || s === "COMPLETED" || s === "FINALIZED") {
+      paidCount++;
+      const pm = (b.payment_method || "CASH").toUpperCase();
+      paymentBreakdown[pm] = (paymentBreakdown[pm] || 0) + total;
+    } else if (s === "CANCELLED" || s === "REFUNDED") {
+      cancelledOrRefundedCount++;
+    } else {
+      draftCount++;
+    }
+  });
+
+  (autoTable as any)(doc, {
+    startY: y,
+    head: [["Total Bills", "Paid / Settled", "Draft / Pending", "Cancelled / Refunded", "Total Discounts", "Grand Total"]],
+    body: [
+      [
+        bills.length,
+        paidCount,
+        draftCount,
+        cancelledOrRefundedCount,
+        `Rs. ${totalDiscounts.toFixed(2)}`,
+        `Rs. ${totalGrandSales.toFixed(2)}`,
+      ],
+    ],
+    theme: "grid",
+    headStyles: { fillColor: [30, 41, 59], fontStyle: "bold", fontSize: 8 },
+    styles: { fontSize: 8, halign: "center" },
+  });
+  y = (doc as any).lastAutoTable.finalY + 8;
+
+  // 2. Bills Details Table
+  doc.setFontSize(11);
+  doc.setFont("helvetica", "bold");
+  doc.setTextColor(15, 23, 42);
+  doc.text(`Bills Listing (${bills.length} Bills)`, 14, y);
+  y += 4;
+
+  const tableRows = bills.map((b: any, idx: number) => {
+    const billId = b.id ? `#${b.id.slice(0, 8).toUpperCase()}` : "—";
+    
+    // Format timestamp
+    let dtStr = "—";
+    if (b.created_at) {
+      try {
+        const d = new Date(b.created_at);
+        dtStr = d.toLocaleDateString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          hour: "2-digit",
+          minute: "2-digit",
+          hour12: true,
+        });
+      } catch {
+        dtStr = String(b.created_at).slice(0, 16);
+      }
+    }
+
+    // Customer & Basket (Name first, then Walk-In / Basket)
+    const basketStr = b.basket_number && b.basket_number.toUpperCase().includes("WALK")
+      ? "Walk-In"
+      : `Basket #${b.basket_number || "Walk-In"}`;
+    const custAndBasket = b.customer_name ? `${b.customer_name}\n${basketStr}` : basketStr;
+
+    const itemsCount = `${b.items?.length || 0} item${b.items?.length === 1 ? "" : "s"}`;
+    const payMethod = b.payment_method || (b.status === "PAID" ? "CASH" : "—");
+    const subtotal = `Rs. ${(Number(b.subtotal_amount) || Number(b.total_amount) || 0).toFixed(2)}`;
+    
+    const discVal = Number(b.discount_value || 0) || Math.max(0, (Number(b.subtotal_amount) || 0) - (Number(b.total_amount) || 0));
+    const discount = discVal > 0 ? `Rs. ${discVal.toFixed(2)}` : "—";
+    
+    const grandTotal = `Rs. ${(Number(b.total_amount) || 0).toFixed(2)}`;
+    const status = (b.status || "DRAFT").toUpperCase();
+
+    return [
+      idx + 1,
+      billId,
+      dtStr,
+      custAndBasket,
+      itemsCount,
+      payMethod,
+      subtotal,
+      discount,
+      grandTotal,
+      status,
+    ];
+  });
+
+  (autoTable as any)(doc, {
+    startY: y,
+    margin: { left: 14, right: 14 },
+    head: [["#", "Bill ID", "Date & Time", "Customer & Basket", "Items", "Pay Mode", "Subtotal", "Discount", "Grand Total", "Status"]],
+    body: tableRows.length > 0 ? tableRows : [["—", "No bills found", "—", "—", "—", "—", "—", "—", "—", "—"]],
+    foot: tableRows.length > 0 ? [
+      [
+        { content: "Total", colSpan: 3, styles: { halign: "left", fontStyle: "bold" } },
+        `${bills.length} Bills`,
+        "",
+        "",
+        `Rs. ${totalSubtotal.toFixed(2)}`,
+        `Rs. ${totalDiscounts.toFixed(2)}`,
+        `Rs. ${totalGrandSales.toFixed(2)}`,
+        "",
+      ]
+    ] : undefined,
+    theme: "striped",
+    showHead: "everyPage",
+    headStyles: {
+      fillColor: [15, 23, 42],
+      textColor: [255, 255, 255],
+      fontStyle: "bold",
+      fontSize: 7.5,
+    },
+    footStyles: {
+      fillColor: [241, 245, 249],
+      textColor: [15, 23, 42],
+      fontStyle: "bold",
+      fontSize: 8,
+    },
+    styles: {
+      fontSize: 7.5,
+      cellPadding: 1.5,
+      overflow: "linebreak",
+      valign: "middle",
+    },
+    columnStyles: {
+      0: { cellWidth: 7, halign: "center" },
+      1: { cellWidth: 22, fontStyle: "bold" },
+      2: { cellWidth: 26 },
+      3: { cellWidth: 25 },
+      4: { cellWidth: 13, halign: "center" },
+      5: { cellWidth: 14, halign: "center" },
+      6: { cellWidth: 18, halign: "right" },
+      7: { cellWidth: 16, halign: "right" },
+      8: { cellWidth: 18, halign: "right", fontStyle: "bold" },
+      9: { cellWidth: 23, halign: "center" },
+    },
+    alternateRowStyles: {
+      fillColor: [248, 250, 252],
+    },
+    didParseCell: (data: any) => {
+      if (data.section === "body" && data.column.index === 3 && String(data.cell.raw).includes("\n")) {
+        data.cell.styles.minCellHeight = 10.5;
+      }
+    },
+    willDrawCell: (data: any) => {
+      if (data.section === "body" && data.column.index === 3 && String(data.cell.raw).includes("\n")) {
+        data.cell.text = [];
+      }
+    },
+    didDrawCell: (data: any) => {
+      if (data.section === "body" && data.column.index === 3 && String(data.cell.raw).includes("\n")) {
+        const parts = String(data.cell.raw).split("\n");
+        const custName = parts[0];
+        const basketText = parts.slice(1).join(" ");
+        const padLeft = data.cell.padding("left");
+        const padTop = data.cell.padding("top");
+        const availWidth = data.cell.width - padLeft - data.cell.padding("right");
+        const x = data.cell.x + padLeft;
+        let currY = data.cell.y + padTop + 0.3;
+
+        doc.setFont("helvetica", "bold");
+        doc.setFontSize(9.5);
+        doc.setTextColor(15, 23, 42);
+        const nameLines = doc.splitTextToSize(custName, availWidth);
+        doc.text(nameLines, x, currY, { baseline: "top" });
+
+        currY += nameLines.length * 3.8;
+        doc.setFont("helvetica", "normal");
+        doc.setFontSize(7);
+        doc.setTextColor(100, 116, 139);
+        doc.text(basketText, x, currY, { baseline: "top" });
+      }
+    },
+    didDrawPage: (data: any) => {
+      const pageCount = doc.getNumberOfPages();
+      doc.setFontSize(7.5);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(148, 163, 184);
+      
+      const footerText = `Page ${data.pageNumber} of ${pageCount}  •  Apna Green Basket POS  •  Exported on ${new Date().toLocaleString("en-IN")}`;
+      doc.text(footerText, 14, doc.internal.pageSize.height - 8);
+    },
+  });
+
+  const cleanStoreName = (restaurant?.name || "Store").replace(/[^a-zA-Z0-9]/g, "_");
+  const cleanFilter = (statusFilterLabel || "ALL").replace(/[^a-zA-Z0-9]/g, "_");
+  const filename = `Bills_History_${cleanStoreName}_${cleanFilter}_${new Date().toISOString().slice(0, 10)}.pdf`;
+  doc.save(filename);
 }

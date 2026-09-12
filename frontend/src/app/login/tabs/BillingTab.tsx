@@ -27,7 +27,7 @@ import {
   Trash2,
   X,
 } from "lucide-react";
-import { generateReceiptPDF } from "@/lib/pdfGenerator";
+import { generateReceiptPDF, generateBillsHistoryPdfReport } from "@/lib/pdfGenerator";
 import { generateA4InvoicePDF } from "@/lib/invoiceGenerator";
 import type { DiscountApproval, ManualBill, RolePermissions } from "@/types";
 import type { RestaurantProfile, AdminMenuItem } from "../adminTypes";
@@ -49,6 +49,9 @@ type BillingTabProps = {
   setBillingStatusFilter: (status: any) => void;
   billingSearchQuery: string;
   setBillingSearchQuery: (query: string) => void;
+  computedStartDate?: string;
+  computedEndDate?: string;
+  dateRangeMode?: string;
 
   // Modal triggers
   onOpenCreateBill: () => void;
@@ -73,6 +76,9 @@ export function BillingTab({
   setBillingStatusFilter,
   billingSearchQuery,
   setBillingSearchQuery,
+  computedStartDate,
+  computedEndDate,
+  dateRangeMode,
   onOpenCreateBill,
   onResumeDraft,
   onOpenDiscountModal,
@@ -96,6 +102,71 @@ export function BillingTab({
   }, [menuItems]);
 
   const [error, setError] = useState<string | null>(null);
+
+  const filteredBills = useMemo(() => {
+    return billsList.filter((b) => {
+      if (billingStatusFilter !== "ALL") {
+        const s = (b.status || "").toUpperCase();
+        const ds = (b.discount_status || "").toUpperCase();
+        if (billingStatusFilter === "DRAFT") {
+          if (s !== "DRAFT" && s !== "PENDING" && s !== "PAYMENT_PENDING") return false;
+        } else if (billingStatusFilter === "PENDING / PAYMENT") {
+          if (s !== "PENDING" && s !== "PAYMENT_PENDING") return false;
+        } else if (billingStatusFilter === "VERIFICATION") {
+          if (s !== "PENDING_VERIFICATION" && ds !== "PENDING_APPROVAL") return false;
+        } else if (billingStatusFilter === "PAID / COMPLETED") {
+          if (s !== "PAID" && s !== "COMPLETED" && s !== "FINALIZED") return false;
+        } else if (billingStatusFilter === "REFUNDED") {
+          if (s !== "REFUNDED") return false;
+        } else if (billingStatusFilter === "CANCELLED") {
+          if (s !== "CANCELLED") return false;
+        } else if (s !== billingStatusFilter) {
+          return false;
+        }
+      }
+      if (billingSearchQuery) {
+        const q = billingSearchQuery.toLowerCase();
+        return (
+          b.id.toLowerCase().includes(q) ||
+          b.basket_number.toLowerCase().includes(q) ||
+          (b.customer_name && b.customer_name.toLowerCase().includes(q))
+        );
+      }
+      return true;
+    });
+  }, [billsList, billingStatusFilter, billingSearchQuery]);
+
+  const handleExportBillsPdf = () => {
+    if (filteredBills.length === 0) {
+      setError("No bills match the selected filter to export.");
+      return;
+    }
+
+    let dateLabel = "All Time";
+    if (dateRangeMode === "today") {
+      dateLabel = `Today (${new Date().toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })})`;
+    } else if (dateRangeMode === "yesterday") {
+      const yDate = new Date();
+      yDate.setDate(yDate.getDate() - 1);
+      dateLabel = `Yesterday (${yDate.toLocaleDateString("en-IN", { day: "2-digit", month: "short", year: "numeric" })})`;
+    } else if (dateRangeMode === "last2days") {
+      dateLabel = "Last 2 Days";
+    } else if (dateRangeMode === "week") {
+      dateLabel = "This Week";
+    } else if (computedStartDate && computedEndDate) {
+      dateLabel = computedStartDate === computedEndDate 
+        ? computedStartDate 
+        : `${computedStartDate} to ${computedEndDate}`;
+    }
+
+    generateBillsHistoryPdfReport({
+      restaurant,
+      dateRangeLabel: dateLabel,
+      statusFilterLabel: billingStatusFilter,
+      searchQuery: billingSearchQuery,
+      bills: filteredBills,
+    });
+  };
 
   useEffect(() => {
     if (error) {
@@ -199,6 +270,7 @@ export function BillingTab({
       onBillSettled?.();
     } catch (err: any) {
       setError(err instanceof Error ? err.message : "Failed to process return.");
+      throw err;
     }
   };
 
@@ -430,16 +502,28 @@ export function BillingTab({
             ))}
           </div>
 
-          <div className="relative min-w-[200px]">
-            <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
-            <input
-              id="billing-search-input"
-              type="text"
-              value={billingSearchQuery}
-              onChange={(e) => setBillingSearchQuery(e.target.value)}
-              placeholder="Search by Bill ID or Basket... (/)"
-              className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 pl-8 pr-3 text-xs"
-            />
+          <div className="flex items-center gap-2 flex-wrap sm:flex-nowrap">
+            <div className="relative min-w-[200px] flex-1">
+              <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
+              <input
+                id="billing-search-input"
+                type="text"
+                value={billingSearchQuery}
+                onChange={(e) => setBillingSearchQuery(e.target.value)}
+                placeholder="Search by Bill ID or Basket... (/)"
+                className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-1.5 pl-8 pr-3 text-xs"
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={handleExportBillsPdf}
+              title={`Export ${filteredBills.length} filtered bills as PDF`}
+              className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] px-3 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:border-[var(--accent-brand)] hover:text-[var(--accent-brand)] shadow-xs transition shrink-0"
+            >
+              <Download className="h-3.5 w-3.5 text-[var(--accent-brand)]" />
+              <span>Export PDF ({filteredBills.length})</span>
+            </button>
           </div>
         </div>
 
@@ -449,7 +533,7 @@ export function BillingTab({
             <thead>
               <tr className="border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] text-[11px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
                 <th className="p-3.5">Bill ID &amp; Source</th>
-                <th className="p-3.5">Basket &amp; Customer</th>
+                <th className="p-3.5">Customer &amp; Basket</th>
                 <th className="p-3.5 text-center">Items</th>
                 <th className="p-3.5 text-right">Subtotal</th>
                 <th className="p-3.5 text-right">Discount</th>
@@ -460,45 +544,14 @@ export function BillingTab({
               </tr>
             </thead>
             <tbody className="divide-y divide-[var(--border-subtle)] text-xs">
-              {billsList.length === 0 ? (
+              {filteredBills.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="p-12 text-center text-[var(--text-muted)]">
-                    No bills found matching filters. Create your first bill above!
+                  <td colSpan={9} className="p-12 text-center text-[var(--text-muted)]">
+                    No bills found matching filters.
                   </td>
                 </tr>
               ) : (
-                billsList
-                  .filter((b) => {
-                    if (billingStatusFilter !== "ALL") {
-                      const s = (b.status || "").toUpperCase();
-                      const ds = (b.discount_status || "").toUpperCase();
-                      if (billingStatusFilter === "DRAFT") {
-                        if (s !== "DRAFT" && s !== "PENDING" && s !== "PAYMENT_PENDING") return false;
-                      } else if (billingStatusFilter === "PENDING / PAYMENT") {
-                        if (s !== "PENDING" && s !== "PAYMENT_PENDING") return false;
-                      } else if (billingStatusFilter === "VERIFICATION") {
-                        if (s !== "PENDING_VERIFICATION" && ds !== "PENDING_APPROVAL") return false;
-                      } else if (billingStatusFilter === "PAID / COMPLETED") {
-                        if (s !== "PAID" && s !== "COMPLETED" && s !== "FINALIZED") return false;
-                      } else if (billingStatusFilter === "REFUNDED") {
-                        if (s !== "REFUNDED") return false;
-                      } else if (billingStatusFilter === "CANCELLED") {
-                        if (s !== "CANCELLED") return false;
-                      } else if (s !== billingStatusFilter) {
-                        return false;
-                      }
-                    }
-                    if (billingSearchQuery) {
-                      const q = billingSearchQuery.toLowerCase();
-                      return (
-                        b.id.toLowerCase().includes(q) ||
-                        b.basket_number.toLowerCase().includes(q) ||
-                        (b.customer_name && b.customer_name.toLowerCase().includes(q))
-                      );
-                    }
-                    return true;
-                  })
-                  .map((b) => (
+                filteredBills.map((b) => (
                     <tr key={b.id} className={`hover:bg-[var(--bg-surface-elevated)]/50 transition ${b.status === "REFUNDED" ? "opacity-50" : ""}`}>
                       <td className="p-3.5 font-mono">
                         <span className="font-bold text-[var(--text-primary)]">#{b.id.slice(0, 8).toUpperCase()}</span>
@@ -506,13 +559,23 @@ export function BillingTab({
                       </td>
 
                       <td className="p-3.5">
-                        <span className="font-bold text-[var(--text-primary)]">
-                          {b.basket_number && b.basket_number.toUpperCase().includes("WALK")
-                            ? "Walk-In"
-                            : `Basket #${b.basket_number || "Walk-In"}`}
-                        </span>
-                        {b.customer_name && (
-                          <span className="block text-xs font-semibold text-[var(--text-muted)]">{b.customer_name}</span>
+                        {b.customer_name ? (
+                          <div className="flex flex-col">
+                            <span className="font-bold text-[15px] text-[var(--text-primary)] leading-tight">
+                              {b.customer_name}
+                            </span>
+                            <span className="text-xs font-medium text-[var(--text-muted)] mt-0.5">
+                              {b.basket_number && b.basket_number.toUpperCase().includes("WALK")
+                                ? "Walk-In"
+                                : `Basket #${b.basket_number || "Walk-In"}`}
+                            </span>
+                          </div>
+                        ) : (
+                          <span className="font-bold text-[var(--text-primary)]">
+                            {b.basket_number && b.basket_number.toUpperCase().includes("WALK")
+                              ? "Walk-In"
+                              : `Basket #${b.basket_number || "Walk-In"}`}
+                          </span>
                         )}
                       </td>
 
@@ -734,6 +797,7 @@ export function BillingTab({
         returnData={successReturnData}
         restaurantName={restaurant?.name || "ApnaGreen Basket"}
         restaurant={restaurant}
+        menuItemsMap={menuItemsMap}
       />
 
       {/* Delete Bill Modal */}

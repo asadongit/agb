@@ -63,7 +63,7 @@ class TopItemResponse(StrictSchema):
     menu_item_id: str | None
     name: str
     category_name: str | None = None
-    quantity_sold: int
+    quantity_sold: float = 0.0
     revenue: float
     revenue_share_pct: float
 

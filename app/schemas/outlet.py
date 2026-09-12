@@ -54,6 +54,7 @@ class OutletCreate(StrictSchema):
     loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"), ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
     interstate_mode: str = "OFF"
+    b2b_enabled: bool = False
 
 
 class OutletUpdate(StrictSchema):
@@ -89,6 +90,7 @@ class OutletUpdate(StrictSchema):
     loyalty_max_bill_percentage: Decimal | None = Field(default=None, ge=Decimal("0"), le=Decimal("100"))
     invoice_terms_conditions: str | None = None
     interstate_mode: str | None = None
+    b2b_enabled: bool | None = None
 
 
 class OutletResponse(BaseResponse):
@@ -125,6 +127,7 @@ class OutletResponse(BaseResponse):
     loyalty_max_bill_percentage: Decimal = Field(default=Decimal("100.00"))
     invoice_terms_conditions: str | None = None
     interstate_mode: str = "OFF"
+    b2b_enabled: bool = False
     created_at: datetime
     updated_at: datetime
 

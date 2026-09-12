@@ -61,6 +61,7 @@ export function useSettingsManagement({
     invoice_terms_conditions: "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
     weighing_scale_barcode_format: "21_5I_5W_GRAMS",
     interstate_mode: "OFF",
+    b2b_enabled: false,
   });
   const [isSavingRestaurant, setIsSavingRestaurant] = useState(false);
 
@@ -99,6 +100,7 @@ export function useSettingsManagement({
         invoice_terms_conditions: restaurant.invoice_terms_conditions || "1. Goods once sold will not be taken back.\n2. Subject to local jurisdiction.",
         weighing_scale_barcode_format: restaurant.weighing_scale_barcode_format || "21_5I_5W_GRAMS",
         interstate_mode: (restaurant as any).interstate_mode || "OFF",
+        b2b_enabled: Boolean(restaurant.b2b_enabled),
       });
     }
   }, [restaurant]);
@@ -139,6 +141,7 @@ export function useSettingsManagement({
         invoice_terms_conditions: restaurantForm.invoice_terms_conditions?.trim() || null,
         weighing_scale_barcode_format: restaurantForm.weighing_scale_barcode_format || null,
         interstate_mode: restaurantForm.interstate_mode || "OFF",
+        b2b_enabled: Boolean(restaurantForm.b2b_enabled),
       };
 
       const updated = await apiRequest<RestaurantProfile>(

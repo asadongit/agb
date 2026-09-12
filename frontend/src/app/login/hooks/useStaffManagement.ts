@@ -156,7 +156,6 @@ export function useStaffManagement({
   useEffect(() => {
     if (staffPermissions?.can_manage_staff) {
       void loadStaffMembers();
-      void loadStaffAuditLogs();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [staffPermissions?.can_manage_staff]);
@@ -165,6 +164,13 @@ export function useStaffManagement({
   useEffect(() => {
     setAuditPage(1);
   }, [auditRoleFilter, auditActionFilter, auditDateFilter]);
+
+  // Re-fetch audit logs when permissions are ready or when filters / page change
+  useEffect(() => {
+    if (staffPermissions?.can_manage_staff) {
+      void loadStaffAuditLogs();
+    }
+  }, [staffPermissions?.can_manage_staff, loadStaffAuditLogs]);
 
   const onSubmitStaffMember = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();

@@ -477,10 +477,14 @@ export default function AdminDashboardPage() {
             pendingApprovals={billingState.pendingApprovals}
             handleResolveApproval={billingState.handleResolveApproval}
             billsList={billingState.billsList}
+            menuItems={menuState.menuItems}
             billingStatusFilter={billingState.billingStatusFilter}
             setBillingStatusFilter={billingState.setBillingStatusFilter}
             billingSearchQuery={billingState.billingSearchQuery}
             setBillingSearchQuery={billingState.setBillingSearchQuery}
+            computedStartDate={billingState.computedStartDate}
+            computedEndDate={billingState.computedEndDate}
+            dateRangeMode={billingState.dateRangeMode}
             onOpenCreateBill={() => {
               refreshCatalogAndInventory();
               billingState.setCreateBillModalOpen(true);

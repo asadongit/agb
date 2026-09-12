@@ -25,23 +25,41 @@ from app.services.analytics_service import *
 router = APIRouter(prefix="/api/analytics", tags=["analytics"])
 
 
+from app.core.datetime_utils import ensure_naive_utc
+
+
 def _parse_date_range(from_date: str | None, to_date: str | None) -> tuple[datetime, datetime]:
     """Parse date strings or default to past 30 days."""
     now = datetime.now(timezone.utc).replace(tzinfo=None)
     to_dt = now
     from_dt = now - timedelta(days=30)
 
-    if from_date:
+    if from_date and from_date.strip():
         try:
-            from_dt = datetime.fromisoformat(from_date.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
+            s = from_date.strip()
+            parsed = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            val = ensure_naive_utc(parsed)
+            if val:
+                from_dt = val
+        except Exception:
             pass
 
-    if to_date:
+    if to_date and to_date.strip():
         try:
-            to_dt = datetime.fromisoformat(to_date.replace("Z", "+00:00")).replace(tzinfo=None)
-        except ValueError:
+            s = to_date.strip()
+            # If to_date is date-only (e.g. YYYY-MM-DD), set time to end-of-day
+            if len(s) == 10 and s.count("-") == 2:
+                parsed = datetime.fromisoformat(s + "T23:59:59.999999+00:00")
+            else:
+                parsed = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            val = ensure_naive_utc(parsed)
+            if val:
+                to_dt = val
+        except Exception:
             pass
+
+    if from_dt > to_dt:
+        from_dt, to_dt = to_dt, from_dt
 
     return from_dt, to_dt
 

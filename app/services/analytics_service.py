@@ -354,7 +354,13 @@ async def get_peak_hours(
     )
 
     res = await db.execute(stmt)
-    hour_map = {row.hr: row.cnt for row in res.all()}
+    hour_map: dict[int, int] = {}
+    for row in res.all():
+        if row.hr is not None:
+            try:
+                hour_map[int(row.hr)] = int(row.cnt or 0)
+            except (ValueError, TypeError):
+                pass
 
     buckets: list[PeakHourBucket] = []
     for h in range(24):
@@ -418,12 +424,13 @@ async def get_top_selling_items(
     for r in rows:
         rev = round(float(r.total_rev or 0), 2)
         share = round((rev / total_rev_all) * 100.0, 2) if total_rev_all > 0 else 0.0
+        qty = round(float(r.total_qty or 0), 3)
         items.append(
             TopItemResponse(
                 menu_item_id=str(r.menu_item_id) if r.menu_item_id else None,
                 name=r.item_name or "Unknown Item",
                 category_name=r.category_name,
-                quantity_sold=int(r.total_qty or 0),
+                quantity_sold=int(qty) if qty.is_integer() else qty,
                 revenue=rev,
                 revenue_share_pct=share,
             )
@@ -458,14 +465,23 @@ async def get_order_funnel(
     )
 
     res = await db.execute(stmt)
-    status_counts = {row.status: row.cnt for row in res.all()}
+    status_counts: dict[str, int] = {}
+    for row in res.all():
+        st = row.status.value if hasattr(row.status, "value") else str(row.status)
+        status_counts[st] = status_counts.get(st, 0) + int(row.cnt or 0)
 
     total_orders = sum(status_counts.values())
 
-    pending_cnt = status_counts.get(OrderStatusEnum.PENDING, 0) + status_counts.get(OrderStatusEnum.PENDING_VERIFICATION, 0)
-    paid_cnt = status_counts.get(OrderStatusEnum.PAID, 0) + status_counts.get(OrderStatusEnum.PAYMENT_PENDING, 0)
-    served_cnt = status_counts.get(OrderStatusEnum.COMPLETED, 0)
-    cancelled_cnt = status_counts.get(OrderStatusEnum.CANCELLED, 0) + status_counts.get(OrderStatusEnum.REFUNDED, 0)
+    def _get_status_count(*statuses) -> int:
+        return sum(
+            status_counts.get(s.value if hasattr(s, "value") else str(s), 0)
+            for s in statuses
+        )
+
+    pending_cnt = _get_status_count(OrderStatusEnum.PENDING, OrderStatusEnum.PENDING_VERIFICATION)
+    paid_cnt = _get_status_count(OrderStatusEnum.PAID, OrderStatusEnum.PAYMENT_PENDING)
+    served_cnt = _get_status_count(OrderStatusEnum.COMPLETED)
+    cancelled_cnt = _get_status_count(OrderStatusEnum.CANCELLED, OrderStatusEnum.REFUNDED)
 
     stages = [
         FunnelStage(
@@ -1694,9 +1710,11 @@ async def get_cash_denomination_flow(
 
         for d, count in denoms.items():
             if not count: continue
-            
-            d_val = float(d)
-            cnt = int(count)
+            try:
+                d_val = float(d)
+                cnt = int(count)
+            except (ValueError, TypeError):
+                continue
             
             if d not in overall_map:
                 overall_map[d] = {"in": 0, "out": 0}
@@ -1718,33 +1736,41 @@ async def get_cash_denomination_flow(
                 types_map[ttype]["denoms"][d]["out"] += out_qty
                 net_in_drawer -= out_qty * d_val
 
+    def safe_float_key(x):
+        try:
+            return float(x)
+        except (ValueError, TypeError):
+            return 0.0
+
     overall_denoms = []
-    for d in sorted(overall_map.keys(), key=lambda x: float(x), reverse=True):
+    for d in sorted(overall_map.keys(), key=safe_float_key, reverse=True):
         inn = overall_map[d]["in"]
         out = overall_map[d]["out"]
+        d_val = safe_float_key(d)
         overall_denoms.append(
             DenominationBreakdown(
                 denomination=d,
                 notes_in=inn,
                 notes_out=out,
                 net_notes=inn - out,
-                net_value=(inn - out) * float(d)
+                net_value=(inn - out) * d_val
             )
         )
         
     by_type = []
     for ttype, dinfo in types_map.items():
         tdenoms = []
-        for d in sorted(dinfo["denoms"].keys(), key=lambda x: float(x), reverse=True):
+        for d in sorted(dinfo["denoms"].keys(), key=safe_float_key, reverse=True):
             inn = dinfo["denoms"][d]["in"]
             out = dinfo["denoms"][d]["out"]
+            d_val = safe_float_key(d)
             tdenoms.append(
                 DenominationBreakdown(
                     denomination=d,
                     notes_in=inn,
                     notes_out=out,
                     net_notes=inn - out,
-                    net_value=(inn - out) * float(d)
+                    net_value=(inn - out) * d_val
                 )
             )
         by_type.append(

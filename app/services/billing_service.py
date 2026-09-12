@@ -1192,16 +1192,56 @@ async def process_customer_return(
         item_name = ret_item.item_name or "Returned Item"
         menu_item_id = ret_item.menu_item_id
 
+        matching = None
         if order and ret_item.order_item_id:
             item_uuid = uuid.UUID(ret_item.order_item_id)
             matching = next((i for i in order.items if i.id == item_uuid), None)
             if matching:
-                item_unit_price = matching.unit_price or Decimal("0.00")
                 item_name = matching.item_name or item_name
                 menu_item_id = menu_item_id or (str(matching.menu_item_id) if matching.menu_item_id else None)
-                matching.returned_quantity += ret_qty
-        elif ret_item.unit_price is not None:
+
+        m_item = None
+        if menu_item_id:
+            try:
+                m_item = await db.get(MenuItem, uuid.UUID(menu_item_id))
+            except Exception:
+                pass
+
+        selected_u = getattr(ret_item, "selected_unit", None) or (
+            matching.selected_unit if matching else (m_item.unit_label if m_item else None)
+        )
+
+        if matching:
+            from app.services.inventory_service import get_unit_conversion_multiplier
+            ret_mult = get_unit_conversion_multiplier(selected_u, menu_item=m_item)
+            orig_mult = get_unit_conversion_multiplier(matching.selected_unit, menu_item=m_item)
+            ratio = (ret_mult / orig_mult) if (orig_mult and orig_mult > 0) else Decimal("1.0")
+            matching.returned_quantity += (ret_qty * ratio)
+
+        if ret_item.unit_price is not None:
             item_unit_price = Decimal(str(ret_item.unit_price))
+        elif matching:
+            item_unit_price = matching.unit_price or Decimal("0.00")
+
+        hsn_code = getattr(ret_item, "hsn_code", None)
+        tax_rate = float(getattr(ret_item, "tax_rate", 0.0) or 0.0)
+        tax_category = None
+        mrp = float(getattr(ret_item, "mrp", item_unit_price) or item_unit_price)
+
+        if matching:
+            hsn_code = matching.hsn_code or hsn_code
+            if matching.tax_rate is not None:
+                tax_rate = float(matching.tax_rate)
+            tax_category = matching.tax_category
+            if matching.mrp is not None:
+                mrp = float(matching.mrp)
+        elif m_item:
+            hsn_code = hsn_code or m_item.hsn_code
+            if m_item.tax_rate is not None:
+                tax_rate = float(m_item.tax_rate)
+            tax_category = m_item.tax_category
+            if m_item.mrp is not None:
+                mrp = float(m_item.mrp)
 
         line_refund = item_unit_price * ret_qty
         total_return_amount += line_refund
@@ -1211,35 +1251,35 @@ async def process_customer_return(
             "menu_item_id": menu_item_id,
             "item_name": item_name,
             "quantity": float(ret_qty),
+            "selected_unit": selected_u,
             "unit_price": float(item_unit_price),
+            "mrp": mrp,
             "line_refund": float(line_refund),
+            "tax_rate": tax_rate,
+            "tax_category": tax_category,
+            "hsn_code": hsn_code,
             "reason": ret_item.reason or "CUSTOMER_RETURN",
         })
 
         # Restock inventory item and original intake batch if linked to a MenuItem
-        if menu_item_id:
+        if m_item and m_item.inventory_item_id:
             try:
-                m_item = await db.get(MenuItem, uuid.UUID(menu_item_id))
-                if m_item and m_item.inventory_item_id:
-                    from app.services.inventory_service import (
-                        restore_customer_return_to_batch,
-                        get_unit_conversion_multiplier,
-                    )
-                    inv_item = await db.get(InventoryItem, m_item.inventory_item_id)
-                    selected_u = getattr(ret_item, "selected_unit", None) or (
-                        matching.selected_unit if matching else None
-                    )
-                    multiplier = get_unit_conversion_multiplier(
-                        selected_u, inv_item=inv_item, menu_item=m_item
-                    )
-                    converted_ret_qty = ret_qty * multiplier
-                    await restore_customer_return_to_batch(
-                        db=db,
-                        outlet_id=outlet_id,
-                        item_id=m_item.inventory_item_id,
-                        return_qty=converted_ret_qty,
-                        order_id=order.id if order else None,
-                    )
+                from app.services.inventory_service import (
+                    restore_customer_return_to_batch,
+                    get_unit_conversion_multiplier,
+                )
+                inv_item = await db.get(InventoryItem, m_item.inventory_item_id)
+                multiplier = get_unit_conversion_multiplier(
+                    selected_u, inv_item=inv_item, menu_item=m_item
+                )
+                converted_ret_qty = ret_qty * multiplier
+                await restore_customer_return_to_batch(
+                    db=db,
+                    outlet_id=outlet_id,
+                    item_id=m_item.inventory_item_id,
+                    return_qty=converted_ret_qty,
+                    order_id=order.id if order else None,
+                )
             except Exception as e:
                 print(f"⚠️ [Customer Return Restock Error] {e}")
 
@@ -1252,7 +1292,48 @@ async def process_customer_return(
         if all_returned:
             order.status = OrderStatusEnum.REFUNDED
 
-    net_balance = float(total_return_amount)
+    # Process exchange items if present
+    exchange_items_summary = []
+    total_exchange_amount = Decimal("0.00")
+    for ex_item in (data.exchange_items or []):
+        if isinstance(ex_item, dict):
+            ex_qty = Decimal(str(ex_item.get("quantity", 0)))
+            ex_price = Decimal(str(ex_item.get("unit_price", 0) or 0))
+            raw_id = ex_item.get("menu_item_id")
+            item_name = ex_item.get("item_name") or "Exchange Item"
+            selected_unit = ex_item.get("selected_unit")
+        else:
+            ex_qty = Decimal(str(getattr(ex_item, "quantity", 0)))
+            ex_price = Decimal(str(getattr(ex_item, "unit_price", 0) or 0))
+            raw_id = getattr(ex_item, "menu_item_id", None)
+            item_name = getattr(ex_item, "item_name", None) or "Exchange Item"
+            selected_unit = getattr(ex_item, "selected_unit", None)
+
+        ex_total = ex_qty * ex_price
+        total_exchange_amount += ex_total
+
+        if raw_id:
+            try:
+                m_item = await db.get(MenuItem, uuid.UUID(str(raw_id)))
+                if m_item and m_item.name:
+                    item_name = m_item.name
+            except Exception:
+                pass
+
+        exchange_items_summary.append({
+            "menu_item_id": str(raw_id) if raw_id else None,
+            "item_name": item_name,
+            "quantity": float(ex_qty),
+            "unit_price": float(ex_price),
+            "line_total": float(ex_total),
+            "selected_unit": selected_unit,
+        })
+
+    round_off_dec = Decimal(str(getattr(data, "round_off", 0) or 0))
+    net_refund_amount = (total_return_amount - total_exchange_amount) + round_off_dec
+    final_refund_recorded = max(Decimal("0.00"), net_refund_amount)
+
+    net_balance = float(net_refund_amount)
     return_num = f"RET-{uuid.uuid4().hex[:6].upper()}"
 
     # Process Customer Wallet (Store Credit/Debt) & Loyalty Points deduction
@@ -1376,6 +1457,13 @@ async def process_customer_return(
                 )
             db.add_all(ledger_entries)
 
+    notes_parts = [data.notes] if data.notes else []
+    if total_exchange_amount > 0:
+        notes_parts.append(f"Exchange: {len(exchange_items_summary)} item(s) (Rs.{total_exchange_amount:.2f})")
+    if round_off_dec != 0:
+        notes_parts.append(f"Round Off: {round_off_dec:+.2f}")
+    final_notes = " | ".join(notes_parts) if notes_parts else None
+
     # Save to CustomerReturn table
     customer_return_rec = CustomerReturn(
         return_number=return_num,
@@ -1384,9 +1472,9 @@ async def process_customer_return(
         customer_name=customer_name,
         customer_phone=customer_phone,
         returned_items=returned_items_summary,
-        total_refund_amount=total_return_amount,
+        total_refund_amount=final_refund_recorded,
         refund_payment_method=data.refund_payment_method or "CASH",
-        notes=data.notes,
+        notes=final_notes if 'final_notes' in locals() else data.notes,
         credit_applied=data.apply_credit,
         debit_applied=data.record_debit,
         debt_settled=data.debt_settled,
@@ -1446,6 +1534,20 @@ async def process_customer_return(
     except Exception as e:
         logger.warning("Failed to broadcast catalog update on customer return: %s", e)
 
+    res_outlet = await db.execute(select(Outlet).where(Outlet.id == outlet_id))
+    outlet_obj = res_outlet.scalar_one_or_none()
+
+    if order:
+        is_interstate = bool(order.is_interstate)
+        place_of_supply = order.place_of_supply or (outlet_obj.place_of_supply if outlet_obj else None)
+    else:
+        is_interstate = bool(getattr(data, "is_interstate", False)) or (
+            (outlet_obj.interstate_mode == "ALWAYS_ON") if outlet_obj else False
+        )
+        place_of_supply = getattr(data, "place_of_supply", None) or (
+            outlet_obj.place_of_supply if outlet_obj else None
+        )
+
     return {
         "id": str(customer_return_rec.id),
         "status": "PROCESSED",
@@ -1454,9 +1556,11 @@ async def process_customer_return(
         "original_bill_number": original_bill_number or "Direct Return (No Bill)",
         "customer_name": customer_name,
         "customer_phone": customer_phone,
-        "total_refund_amount": float(total_return_amount),
+        "total_refund_amount": float(final_refund_recorded),
         "net_balance": net_balance,
+        "round_off": float(round_off_dec),
         "returned_items": returned_items_summary,
+        "exchange_items": exchange_items_summary,
         "refund_payment_method": data.refund_payment_method or "CASH",
         "processed_at": datetime.now(timezone.utc).isoformat(),
         "credit_applied": float(data.apply_credit or 0),
@@ -1466,6 +1570,8 @@ async def process_customer_return(
         "debit_applied": float(data.record_debit or 0),
         "customer_balance": float(customer.credit_balance) if customer else None,
         "wallet_balance_after": float(customer.credit_balance) if customer else None,
+        "is_interstate": is_interstate,
+        "place_of_supply": place_of_supply,
     }
 
 
@@ -1473,7 +1579,10 @@ async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[
     """List all past customer return bills for an outlet."""
     res = await db.execute(
         select(CustomerReturn)
-        .options(selectinload(CustomerReturn.order))
+        .options(
+            selectinload(CustomerReturn.order),
+            selectinload(CustomerReturn.outlet),
+        )
         .where(CustomerReturn.outlet_id == outlet_id)
         .order_by(CustomerReturn.created_at.desc())
     )
@@ -1481,6 +1590,12 @@ async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[
     out = []
     for ret in returns_list:
         orig_bill = f"#{ret.order.id.hex[:8].upper()}" if ret.order else "Direct Return (No Bill)"
+        is_interstate = bool(ret.order.is_interstate) if ret.order else (
+            (ret.outlet.interstate_mode == "ALWAYS_ON") if ret.outlet else False
+        )
+        place_of_supply = (ret.order.place_of_supply if ret.order else None) or (
+            ret.outlet.place_of_supply if ret.outlet else None
+        )
         out.append({
             "id": str(ret.id),
             "return_number": ret.return_number,
@@ -1500,6 +1615,8 @@ async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[
             "credit_awarded": float(getattr(ret, "credit_awarded", 0) or 0),
             "credit_cashed_out": float(getattr(ret, "credit_cashed_out", 0) or 0),
             "customer_balance": float(ret.customer_balance) if getattr(ret, "customer_balance", None) is not None else None,
+            "is_interstate": is_interstate,
+            "place_of_supply": place_of_supply,
         })
     return out
 

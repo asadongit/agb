@@ -21,6 +21,9 @@ class BillItemInput(StrictSchema):
     allow_oversell: bool = False
     unit_price: Decimal | None = Field(None, ge=0)
     mrp: Decimal | None = Field(None, ge=0)
+    base_unit_price: Decimal | None = Field(None, ge=0)
+    base_mrp: Decimal | None = Field(None, ge=0)
+    is_custom_price: bool = False
     tax_rate: Decimal | None = Field(None, ge=0)
     hsn_code: str | None = None
     pricing_type: str = Field(default="RETAIL", pattern="^(RETAIL|WHOLESALE)$")
@@ -85,6 +88,11 @@ class CustomerReturnItemInput(StrictSchema):
     quantity: float = Field(..., gt=0)
     selected_unit: str | None = Field(None, max_length=50)
     unit_price: float | None = Field(None, ge=0)
+    mrp: float | None = Field(None, ge=0)
+    base_unit_price: float | None = Field(None, ge=0)
+    base_mrp: float | None = Field(None, ge=0)
+    tax_rate: float | None = Field(None, ge=0)
+    hsn_code: str | None = Field(None, max_length=50)
     reason: str = Field(default="CUSTOMER_RETURN")
 
 
@@ -98,6 +106,8 @@ class CustomerReturnRequest(StrictSchema):
     refund_cash_denominations: dict[str, int] | None = None
     inward_cash_denominations: dict[str, int] | None = None
     notes: str | None = None
+    is_interstate: bool | None = None
+    place_of_supply: str | None = None
     
     # Wallet / Ledger integrations
     apply_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
@@ -105,6 +115,7 @@ class CustomerReturnRequest(StrictSchema):
     record_credit: Decimal = Field(default=Decimal("0.00"), ge=0)
     debt_settled: Decimal = Field(default=Decimal("0.00"), ge=0)
     credit_cashed_out: Decimal = Field(default=Decimal("0.00"), ge=0)
+    round_off: Decimal = Field(default=Decimal("0.00"))
 
 
 class CustomerReturnResponse(BaseResponse):
@@ -115,8 +126,10 @@ class CustomerReturnResponse(BaseResponse):
     customer_name: str | None = None
     customer_phone: str | None = None
     returned_items: list[dict]
+    exchange_items: list[dict] = Field(default_factory=list)
     total_refund_amount: float
     net_balance: float
+    round_off: float = 0.0
     refund_payment_method: str
     processed_at: str
     credit_applied: float = 0.0
@@ -125,6 +138,8 @@ class CustomerReturnResponse(BaseResponse):
     credit_awarded: float = 0.0
     credit_cashed_out: float = 0.0
     customer_balance: float | None = None
+    is_interstate: bool = False
+    place_of_supply: str | None = None
 
 
 class BillItemResponse(StrictSchema):

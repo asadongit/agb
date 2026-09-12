@@ -48,7 +48,15 @@ export function isAuthError(err: any): boolean {
 export async function parseApiResponse<T>(response: Response): Promise<T> {
   if (response.status === 204) return undefined as T;
 
-  const payload = await response.json().catch(() => ({}));
+  let rawText = "";
+  let payload: any = {};
+  try {
+    rawText = await response.text();
+    payload = JSON.parse(rawText);
+  } catch {
+    payload = {};
+  }
+
   if (!response.ok) {
     if (response.status === 401) {
       if (typeof window !== "undefined") {
@@ -59,17 +67,34 @@ export async function parseApiResponse<T>(response: Response): Promise<T> {
       throw new Error("Please sign in first.");
     }
 
-    let detail = `Request failed (${response.status}${response.statusText ? " " + response.statusText : ""}). Please try again.`;
-    if (typeof payload?.detail === "string") {
-      detail = payload.detail;
+    let detail = "";
+    if (typeof payload?.detail === "string" && payload.detail.trim()) {
+      detail = payload.detail.trim();
     } else if (Array.isArray(payload?.detail) && payload.detail.length > 0) {
       detail = payload.detail
         .map((err: { msg?: string }) => err.msg || JSON.stringify(err))
         .join(", ");
-    } else if (typeof payload?.message === "string") {
-      detail = payload.message;
+    } else if (typeof payload?.message === "string" && payload.message.trim()) {
+      detail = payload.message.trim();
+    } else if (rawText && rawText.length < 300 && !rawText.trim().startsWith("<")) {
+      detail = rawText.trim();
     }
-    throw new Error(detail);
+
+    let endpointPath = "";
+    try {
+      endpointPath = response.url ? new URL(response.url, "http://localhost").pathname : "";
+    } catch {
+      endpointPath = "";
+    }
+    const prefix = endpointPath ? `[${endpointPath}] ` : "";
+    const statusInfo = `${response.status}${response.statusText ? " " + response.statusText : ""}`;
+
+    const finalMessage = detail 
+      ? `${prefix}${detail}`
+      : `${prefix}Request failed (${statusInfo}). Please try again.`;
+
+    console.error(`API Error ${response.status} on ${response.url || "endpoint"}:`, detail || rawText || statusInfo);
+    throw new Error(finalMessage);
   }
 
   return payload as T;

@@ -280,6 +280,28 @@ export function SettingsTab({
                 </span>
               </label>
 
+              <div className="mt-3 p-3.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] space-y-2">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <span className="text-xs uppercase tracking-wide text-[var(--text-primary)] font-bold block">
+                      B2B Tax Invoice Mode
+                    </span>
+                    <span className="text-[11px] text-[var(--text-muted)] block mt-0.5">
+                      Enable B2B GSTIN collection and legal business invoicing during billing. When disabled (default), B2B tax invoice options are hidden.
+                    </span>
+                  </div>
+                  <label className="relative inline-flex items-center cursor-pointer shrink-0 ml-4">
+                    <input
+                      type="checkbox"
+                      checked={Boolean(restaurantForm.b2b_enabled)}
+                      onChange={(e) => setRestaurantForm((current) => ({ ...current, b2b_enabled: e.target.checked }))}
+                      className="sr-only peer"
+                    />
+                    <div className="w-11 h-6 bg-[var(--bg-surface-elevated)] peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-emerald-500 border border-[var(--border-strong)]"></div>
+                  </label>
+                </div>
+              </div>
+
               <label className="block space-y-1 mt-3">
                 <span className="text-xs uppercase tracking-wide text-[var(--text-muted)] font-semibold">Bill QR URL</span>
                 <input

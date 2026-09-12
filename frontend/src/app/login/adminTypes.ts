@@ -85,6 +85,7 @@ export interface RestaurantProfile {
   loyalty_max_bill_percentage?: string | number;
   invoice_terms_conditions?: string | null;
   interstate_mode?: "OFF" | "PER_BILL" | "ALWAYS_ON";
+  b2b_enabled?: boolean;
   created_at?: string;
   updated_at?: string;
 }
@@ -120,6 +121,7 @@ export interface RestaurantFormState {
   loyalty_max_bill_percentage: string;
   invoice_terms_conditions: string;
   interstate_mode: "OFF" | "PER_BILL" | "ALWAYS_ON";
+  b2b_enabled: boolean;
 }
 
 export type AdminCategory = import("@/types").Category;

@@ -121,6 +121,28 @@ def create_app() -> FastAPI:
     app.state.limiter = limiter
     app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
+    # ── Global unhandled exception handler ────────────────────────────
+    import logging
+    import traceback
+    from fastapi import Request
+    from fastapi.responses import JSONResponse
+
+    app_logger = logging.getLogger("app.main")
+
+    @app.exception_handler(Exception)
+    async def global_unhandled_exception_handler(request: Request, exc: Exception):
+        app_logger.error(
+            "Unhandled server exception on %s %s: %s\n%s",
+            request.method,
+            request.url,
+            exc,
+            traceback.format_exc(),
+        )
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Internal Server Error: {str(exc)}"},
+        )
+
     # ── Routers ──────────────────────────────────────────────────────
     from app.routers.auth import router as auth_router
     from app.routers.admin.outlets import router as outlets_router

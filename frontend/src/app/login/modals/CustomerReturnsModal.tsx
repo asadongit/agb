@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect, useMemo } from "react";
+import React, { useState, useEffect, useMemo, useRef } from "react";
 import {
   AlertCircle,
   ArrowDownRight,
   ArrowUpRight,
   Barcode,
+  Check,
+  CheckCircle2,
   CreditCard,
   Eye,
   FileText,
@@ -16,12 +18,13 @@ import {
   RotateCcw,
   Search,
   UserCheck,
+  UserPlus,
   Wallet,
   X,
 } from "lucide-react";
 import type { AdminMenuItem } from "../adminTypes";
 import type { ManualBill } from "@/types";
-import type { DraftCartItem } from "./CreateBillDrawer";
+import { getUnitFactor, type DraftCartItem } from "./CreateBillDrawer";
 import { generateReturnReceiptPDF } from "@/lib/pdfGenerator";
 import { apiRequest , parseUTCDate} from "../adminUtils";
 
@@ -30,6 +33,116 @@ type DirectReturnItem = {
   item_name: string;
   unit_price: number;
   quantity: number;
+};
+
+interface DecimalQtyInputProps {
+  value: number;
+  min?: number;
+  max?: number;
+  placeholder?: string;
+  className?: string;
+  title?: string;
+  onChange: (val: number) => void;
+  onRemove?: () => void;
+}
+
+function DecimalQtyInput({
+  value,
+  min = 0,
+  max,
+  placeholder = "0",
+  className,
+  title,
+  onChange,
+  onRemove,
+}: DecimalQtyInputProps) {
+  const [text, setText] = useState<string>(value > 0 ? String(value) : "");
+
+  useEffect(() => {
+    const num = parseFloat(text);
+    if (isNaN(num) && value === 0) return;
+    if (num !== value) {
+      setText(value > 0 ? String(value) : "");
+    }
+  }, [value]);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const raw = e.target.value;
+    setText(raw);
+
+    if (raw === "" || raw === ".") {
+      onChange(0);
+      return;
+    }
+
+    const parsed = parseFloat(raw);
+    if (!isNaN(parsed)) {
+      if (max !== undefined && parsed > max) {
+        setText(String(max));
+        onChange(max);
+      } else if (parsed >= 0) {
+        onChange(parsed);
+      }
+    }
+  };
+
+  const handleBlur = () => {
+    const parsed = parseFloat(text);
+    if (isNaN(parsed) || parsed <= (min > 0 ? 0 : -1)) {
+      if (onRemove && min > 0) {
+        onRemove();
+      } else {
+        setText(min > 0 ? String(min) : "");
+        onChange(min > 0 ? min : 0);
+      }
+    } else {
+      let clamped = parsed;
+      if (max !== undefined && clamped > max) clamped = max;
+      if (min !== undefined && clamped < min) clamped = min;
+      const rounded = Math.round(clamped * 1000) / 1000;
+      setText(String(rounded));
+      onChange(rounded);
+    }
+  };
+
+  return (
+    <input
+      type="number"
+      step="any"
+      min={min}
+      max={max}
+      value={text}
+      placeholder={placeholder}
+      title={title}
+      onChange={handleChange}
+      onBlur={handleBlur}
+      className={className}
+    />
+  );
+}
+
+const DENOM_KEY_MAP: Record<number, string> = {
+  500: "7",
+  200: "8",
+  100: "9",
+  50: "4",
+  20: "5",
+  10: "6",
+  5: "1",
+  2: "2",
+  1: "3",
+};
+
+const NUMPAD_DENOM_MAP: Record<string, number> = {
+  "Numpad7": 500, "Digit7": 500,
+  "Numpad8": 200, "Digit8": 200,
+  "Numpad9": 100, "Digit9": 100,
+  "Numpad4": 50,  "Digit4": 50,
+  "Numpad5": 20,  "Digit5": 20,
+  "Numpad6": 10,  "Digit6": 10,
+  "Numpad1": 5,   "Digit1": 5,
+  "Numpad2": 2,   "Digit2": 2,
+  "Numpad3": 1,   "Digit3": 1,
 };
 
 type CustomerReturnsModalProps = {
@@ -74,6 +187,7 @@ export function CustomerReturnsModal({
 
   // Return quantities for bill items: item_id -> quantity to return
   const [returnItemsMap, setReturnItemsMap] = useState<Record<string, number>>({});
+  const [returnItemsUnitMap, setReturnItemsUnitMap] = useState<Record<string, string>>({});
   const [returnReason, setReturnReason] = useState("DEFECTIVE_PRODUCT");
 
   // Direct return items (when customer has no original bill)
@@ -96,11 +210,47 @@ export function CustomerReturnsModal({
     500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0
   });
 
+  // Active Cash Deck for Numpad Tapping & Spacebar Switching
+  const [activeCashDeck, setActiveCashDeck] = useState<"OUTWARD" | "INWARD">("OUTWARD");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const outwardDeckRef = useRef<HTMLDivElement>(null);
+  const inwardDeckRef = useRef<HTMLDivElement>(null);
+  const rightScrollRef = useRef<HTMLDivElement>(null);
+  const cashSectionRef = useRef<HTMLDivElement>(null);
+
+  // Smoothly slide the scrollable container so the cash selection deck is positioned on screen
+  const scrollToCashDeck = (deck?: "OUTWARD" | "INWARD") => {
+    const active = deck || activeCashDeck;
+    const target = active === "OUTWARD" ? outwardDeckRef.current : inwardDeckRef.current;
+    const container = rightScrollRef.current;
+
+    if (container && (target || cashSectionRef.current)) {
+      const el = target || cashSectionRef.current!;
+      const targetRect = el.getBoundingClientRect();
+      const containerRect = container.getBoundingClientRect();
+
+      // Check if target is already comfortably visible in the viewport
+      const isComfortablyVisible =
+        targetRect.top >= containerRect.top + 10 &&
+        targetRect.bottom <= containerRect.bottom - 10;
+
+      if (!isComfortablyVisible) {
+        const relativeTop = targetRect.top - containerRect.top + container.scrollTop;
+        // Scroll so the top of the cash deck sits neatly 12px below the container top
+        const targetScroll = Math.max(0, relativeTop - 12);
+        container.scrollTo({ top: targetScroll, behavior: "smooth" });
+      }
+    } else if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+    }
+  };
+
   // Wallet / Analytics State
   const [customerAnalytics, setCustomerAnalytics] = useState<any>(null);
   const [customerPhoneOverride, setCustomerPhoneOverride] = useState("");
   const [customerNameOverride, setCustomerNameOverride] = useState("");
   const [showPhonePrompt, setShowPhonePrompt] = useState(false);
+  const lastPhonePromptCloseTime = useRef<number>(0);
 
   // Customer Dynamic Suggestions State
   const [customerSuggestions, setCustomerSuggestions] = useState<{ name: string; phone: string; gstin?: string; credit_balance?: number }[]>([]);
@@ -115,7 +265,22 @@ export function CustomerReturnsModal({
   const [applyCreditAmount, setApplyCreditAmount] = useState("");
   const [creditCashedOut, setCreditCashedOut] = useState("");
 
+  // Round off toggle state
+  const [isRoundOffActive, setIsRoundOffActive] = useState(false);
+
+  // Exchange items autocomplete & search
+  const [showExchangeSection, setShowExchangeSection] = useState(false);
+  const [exchangeSearchQuery, setExchangeSearchQuery] = useState("");
+  const [showExchangePicker, setShowExchangePicker] = useState(false);
+  const exchangePickerRef = React.useRef<HTMLDivElement>(null);
+  const [localCatalogItems, setLocalCatalogItems] = useState<AdminMenuItem[]>([]);
+  const [isLoadingCatalog, setIsLoadingCatalog] = useState(false);
+
   const handleRefundDenomChange = (denom: number, change: number) => {
+    setError(null);
+    if (change > 0) {
+      scrollToCashDeck("OUTWARD");
+    }
     setRefundCashDenoms(prev => {
       const current = prev[denom] || 0;
       const next = Math.max(0, current + change);
@@ -124,6 +289,10 @@ export function CustomerReturnsModal({
   };
 
   const handleInwardDenomChange = (denom: number, change: number) => {
+    setError(null);
+    if (change > 0) {
+      scrollToCashDeck("INWARD");
+    }
     setInwardCashDenoms(prev => {
       const current = prev[denom] || 0;
       const next = Math.max(0, current + change);
@@ -137,6 +306,18 @@ export function CustomerReturnsModal({
   // Return bills history state
   const [returnsHistoryList, setReturnsHistoryList] = useState<any[]>([]);
   const [isLoadingHistory, setIsLoadingHistory] = useState(false);
+
+  const activeCatalog = useMemo(() => {
+    return (menuItems && menuItems.length > 0) ? menuItems : localCatalogItems;
+  }, [menuItems, localCatalogItems]);
+
+  const menuItemsMap = useMemo(() => {
+    const map: Record<string, any> = {};
+    (activeCatalog || []).forEach((m) => {
+      map[m.id] = m;
+    });
+    return map;
+  }, [activeCatalog]);
 
   // Customer linkage resolution
   const effectiveCustomerPhone = useMemo(() => {
@@ -162,8 +343,18 @@ export function CustomerReturnsModal({
   const returnCreditTotal = returnMode === "BILL_REFERENCED" && selectedBill
     ? (selectedBill.items || []).reduce((sum: number, item: any) => {
         const qty = returnItemsMap[item.id] || 0;
-        const price = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
-        return sum + qty * price;
+        if (qty <= 0) return sum;
+        const billedPrice = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
+        const origMenuItem = item.menu_item_id
+          ? menuItemsMap[item.menu_item_id]
+          : (activeCatalog || []).find((m: any) => m.name?.toLowerCase() === item.item_name?.toLowerCase());
+        const billedUnit = item.selected_unit || origMenuItem?.unit_label || "piece";
+        const currentUnit = returnItemsUnitMap[item.id] || billedUnit;
+        const billedFactor = getUnitFactor(origMenuItem, billedUnit);
+        const currentFactor = getUnitFactor(origMenuItem, currentUnit);
+        const factorRatio = (billedFactor > 0 && currentFactor > 0) ? (currentFactor / billedFactor) : 1;
+        const effectiveUnitPrice = factorRatio > 0 ? billedPrice / factorRatio : billedPrice;
+        return sum + qty * effectiveUnitPrice;
       }, 0)
     : directReturnItems.reduce((sum, it) => sum + it.unit_price * it.quantity, 0);
 
@@ -211,17 +402,43 @@ export function CustomerReturnsModal({
   // Effective target cash to pay OUTWARD to customer
   const targetRefundAmt = useMemo(() => {
     if (refundMethod !== "CASH") return 0;
+    let base = 0;
     if (isNetRefund) {
-      return Math.max(0, rawRefundOwed - refundDebtToSettle) + cashedOutCredit;
+      base = Math.max(0, rawRefundOwed - refundDebtToSettle) + cashedOutCredit;
+    } else {
+      base = cashedOutCredit;
     }
-    return cashedOutCredit;
-  }, [refundMethod, isNetRefund, rawRefundOwed, refundDebtToSettle, cashedOutCredit]);
+    if (isRoundOffActive && base > 0) {
+      return Math.round(base);
+    }
+    return base;
+  }, [refundMethod, isNetRefund, rawRefundOwed, refundDebtToSettle, cashedOutCredit, isRoundOffActive]);
 
   // Effective target cash to receive INWARD from customer (for Exchange payable)
   const targetCollectionAmt = useMemo(() => {
     if (refundMethod !== "CASH" || isNetRefund) return 0;
-    return Math.max(0, rawAdditionalPayable - appliedCredit) + payableDebtToAdd;
-  }, [refundMethod, isNetRefund, rawAdditionalPayable, appliedCredit, payableDebtToAdd]);
+    const base = Math.max(0, rawAdditionalPayable - appliedCredit) + payableDebtToAdd;
+    if (isRoundOffActive && base > 0) {
+      return Math.round(base);
+    }
+    return base;
+  }, [refundMethod, isNetRefund, rawAdditionalPayable, appliedCredit, payableDebtToAdd, isRoundOffActive]);
+
+  // Round off computation helpers
+  const baseOutward = isNetRefund ? Math.max(0, rawRefundOwed - refundDebtToSettle) + cashedOutCredit : cashedOutCredit;
+  const hasDecimalOutward = baseOutward > 0 && Math.abs(Math.round(baseOutward) - baseOutward) > 0.001;
+  const roundedTargetOutward = Math.round(baseOutward);
+  const diffOutward = roundedTargetOutward - baseOutward;
+  const deltaLabelOutward = `${diffOutward >= 0 ? "+" : ""}₹${diffOutward.toFixed(2)}`;
+
+  const baseInward = (!isNetRefund) ? Math.max(0, rawAdditionalPayable - appliedCredit) + payableDebtToAdd : 0;
+  const hasDecimalInward = baseInward > 0 && Math.abs(Math.round(baseInward) - baseInward) > 0.001;
+  const roundedTargetInward = Math.round(baseInward);
+  const diffInward = roundedTargetInward - baseInward;
+  const deltaLabelInward = `${diffInward >= 0 ? "+" : ""}₹${diffInward.toFixed(2)}`;
+
+  const hasDecimal = isNetRefund ? hasDecimalOutward : hasDecimalInward;
+  const activeRoundOff = isRoundOffActive ? (isNetRefund ? diffOutward : diffInward) : 0;
 
   const currentNetRefundGiven = refundDenomTotal - inwardDenomTotal;
   const currentNetCashReceived = inwardDenomTotal - refundDenomTotal;
@@ -298,7 +515,103 @@ export function CustomerReturnsModal({
     return [...DENOMINATIONS].reverse().find((d) => d >= target) || null;
   }, [isNetRefund, targetCollectionAmt, remainingNeededInward]);
 
+  const netSatisfactionStatus = useMemo(() => {
+    if (returnCreditTotal <= 0) {
+      return { isSatisfied: false, reason: "NO_ITEMS", label: "Select items to return" };
+    }
+    if (returnMode === "BILL_REFERENCED" && !selectedBill) {
+      return { isSatisfied: false, reason: "NO_BILL", label: "Select invoice" };
+    }
+    if (returnMode === "DIRECT_UNBILLED" && directReturnItems.length === 0) {
+      return { isSatisfied: false, reason: "NO_ITEMS", label: "Add items for direct return" };
+    }
+
+    const hasCreditDebitEngaged = 
+      refundMethod === "STORE_CREDIT" ||
+      settleDebit ||
+      autoConvertCredit ||
+      autoRecordDebitOnShortfall ||
+      autoRecordExtraChangeAsDebt ||
+      parseFloat(applyCreditAmount || "0") > 0 ||
+      parseFloat(creditCashedOut || "0") > 0;
+
+    if (hasCreditDebitEngaged && !isCustomerLinked) {
+      return { isSatisfied: false, reason: "NEED_PHONE", label: "Link customer mobile for credit / udhaar" };
+    }
+
+    if (refundMethod === "STORE_CREDIT") {
+      return { isSatisfied: true, reason: "STORE_CREDIT", label: `Store Credit: ₹${rawRefundOwed.toFixed(2)}` };
+    }
+
+    if (refundMethod === "UPI") {
+      return { isSatisfied: true, reason: "UPI", label: `UPI: ₹${(isNetRefund ? targetRefundAmt : targetCollectionAmt).toFixed(2)}` };
+    }
+
+    if (refundMethod === "CASH") {
+      if (isNetRefund) {
+        const netCashGiven = refundDenomTotal - inwardDenomTotal;
+        const diff = Math.round((netCashGiven - targetRefundAmt) * 100) / 100;
+        if (Math.abs(diff) < 0.005) {
+          return { isSatisfied: true, reason: "EXACT_CASH", label: `Exact Change Dispensed: ₹${targetRefundAmt.toFixed(2)}` };
+        }
+        if (diff < 0) {
+          if (autoConvertCredit && isCustomerLinked) {
+            return { isSatisfied: true, reason: "BALANCED_CREDIT", label: `₹${netCashGiven.toFixed(2)} cash + ₹${Math.abs(diff).toFixed(2)} store credit` };
+          }
+          return { isSatisfied: false, reason: "CASH_SHORT", diff: Math.abs(diff), label: `Short by ₹${Math.abs(diff).toFixed(2)}` };
+        }
+        if (diff > 0) {
+          if (autoRecordExtraChangeAsDebt && isCustomerLinked) {
+            return { isSatisfied: true, reason: "BALANCED_DEBT", label: `₹${netCashGiven.toFixed(2)} cash (₹${diff.toFixed(2)} extra as debt)` };
+          }
+          return { isSatisfied: false, reason: "CASH_EXTRA", diff, label: `Extra ₹${diff.toFixed(2)} cash given` };
+        }
+      } else {
+        // Exchange - Net Payable by Customer
+        const netCashPaid = inwardDenomTotal - refundDenomTotal;
+        const diff = Math.round((netCashPaid - targetCollectionAmt) * 100) / 100;
+        if (targetCollectionAmt <= 0 || Math.abs(diff) < 0.005) {
+          return { isSatisfied: true, reason: "EXACT_CASH", label: `Exact Cash Received: ₹${targetCollectionAmt.toFixed(2)}` };
+        }
+        if (diff < 0) {
+          if (autoRecordDebitOnShortfall && isCustomerLinked) {
+            return { isSatisfied: true, reason: "BALANCED_DEBT", label: `₹${netCashPaid.toFixed(2)} cash + ₹${Math.abs(diff).toFixed(2)} debt` };
+          }
+          return { isSatisfied: false, reason: "CASH_SHORT", diff: Math.abs(diff), label: `Short by ₹${Math.abs(diff).toFixed(2)}` };
+        }
+        if (diff > 0) {
+          if ((autoConvertCredit || settleDebit) && isCustomerLinked) {
+            return { isSatisfied: true, reason: "BALANCED_CREDIT", label: `₹${netCashPaid.toFixed(2)} cash (₹${diff.toFixed(2)} extra handled)` };
+          }
+          return { isSatisfied: false, reason: "CASH_EXTRA", diff, label: `Customer paid ₹${diff.toFixed(2)} extra` };
+        }
+      }
+    }
+
+    return { isSatisfied: true, reason: "DEFAULT", label: "Ready" };
+  }, [
+    returnCreditTotal,
+    returnMode,
+    selectedBill,
+    directReturnItems.length,
+    refundMethod,
+    isCustomerLinked,
+    isNetRefund,
+    refundDenomTotal,
+    inwardDenomTotal,
+    targetRefundAmt,
+    targetCollectionAmt,
+    autoConvertCredit,
+    autoRecordExtraChangeAsDebt,
+    autoRecordDebitOnShortfall,
+    settleDebit,
+    applyCreditAmount,
+    creditCashedOut,
+    rawRefundOwed,
+  ]);
+
   const handleAutoTapOutwardExact = (targetAmount: number) => {
+    scrollToCashDeck("OUTWARD");
     let rem = Math.floor(targetAmount);
     const newCounts: Record<number, number> = {
       500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0
@@ -314,6 +627,7 @@ export function CustomerReturnsModal({
   };
 
   const handleAutoTapInwardExact = (targetAmount: number) => {
+    scrollToCashDeck("INWARD");
     let rem = Math.floor(targetAmount);
     const newCounts: Record<number, number> = {
       500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0
@@ -329,10 +643,12 @@ export function CustomerReturnsModal({
   };
 
   const handleResetOutwardNotes = () => {
+    setError(null);
     setRefundCashDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
   };
 
   const handleResetInwardNotes = () => {
+    setError(null);
     setInwardCashDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
   };
 
@@ -360,11 +676,6 @@ export function CustomerReturnsModal({
     setCustomerPhoneOverride(clean);
     setHighlightedSuggestionIndex(-1);
 
-    if (clean.length >= 10 && showPhonePrompt) {
-      setShowPhonePrompt(false);
-      setError(null);
-    }
-
     if (clean.length === 10) {
       void fetchCustomerAnalytics(clean);
     }
@@ -384,12 +695,23 @@ export function CustomerReturnsModal({
     }
   };
 
+  const handleSaveAndLinkCustomer = () => {
+    const clean = customerPhoneOverride.replace(/\D/g, "");
+    if (clean.length >= 10) {
+      void fetchCustomerAnalytics(clean);
+      lastPhonePromptCloseTime.current = Date.now();
+      setShowPhonePrompt(false);
+      setError(null);
+    }
+  };
+
   const handleSelectCustomerSuggestion = (s: { name: string; phone: string }) => {
     setCustomerPhoneOverride(s.phone);
     if (s.name) setCustomerNameOverride(s.name);
     setShowSuggestions(false);
     setHighlightedSuggestionIndex(-1);
     if (showPhonePrompt) {
+      lastPhonePromptCloseTime.current = Date.now();
       setShowPhonePrompt(false);
       setError(null);
     }
@@ -407,11 +729,14 @@ export function CustomerReturnsModal({
     }
   }, [selectedBill?.id]);
 
-  // Click outside to close suggestion dropdown
+  // Click outside to close suggestion and exchange dropdowns
   useEffect(() => {
     const handleClickOutside = (e: MouseEvent) => {
       if (suggestionsRef.current && !suggestionsRef.current.contains(e.target as Node)) {
         setShowSuggestions(false);
+      }
+      if (exchangePickerRef.current && !exchangePickerRef.current.contains(e.target as Node)) {
+        setShowExchangePicker(false);
       }
     };
     document.addEventListener("mousedown", handleClickOutside);
@@ -435,11 +760,26 @@ export function CustomerReturnsModal({
     }
   }, [isOpen, lookupTab]);
 
+  // Self-healing catalog fetch: Ensure exchange items are always available even if prop is empty
+  useEffect(() => {
+    if (!isOpen) return;
+    if ((!menuItems || menuItems.length === 0) && localCatalogItems.length === 0) {
+      setIsLoadingCatalog(true);
+      apiRequest<AdminMenuItem[]>("/api/admin/menu-items")
+        .then((items) => {
+          if (Array.isArray(items)) setLocalCatalogItems(items);
+        })
+        .catch((err) => console.error("Error fetching catalog for exchange:", err))
+        .finally(() => setIsLoadingCatalog(false));
+    }
+  }, [isOpen, menuItems, localCatalogItems.length]);
+
   // Reset state when modal is closed
   useEffect(() => {
     if (!isOpen) {
       setSelectedBill(null);
       setReturnItemsMap({});
+      setReturnItemsUnitMap({});
       setReturnReason("DEFECTIVE_PRODUCT");
       setRefundMethod("CASH");
       setRefundCashDenoms({ 500: 0, 200: 0, 100: 0, 50: 0, 20: 0, 10: 0, 5: 0, 2: 0, 1: 0 });
@@ -461,12 +801,25 @@ export function CustomerReturnsModal({
       setApplyCreditAmount("");
       setCreditCashedOut("");
       setExchangeItems([]);
+      setIsRoundOffActive(false);
+      setExchangeSearchQuery("");
+      setShowExchangePicker(false);
+      setShowExchangeSection(false);
       setCustomerSearch("");
       setInvoiceSearch("");
       setLookupTab("USER_HISTORY");
       setError(null);
+      setActiveCashDeck("OUTWARD");
+      setIsSubmitting(false);
     }
   }, [isOpen]);
+
+  // Sync initial active deck based on whether Mart owes customer refund or customer owes for exchange
+  useEffect(() => {
+    if (isOpen) {
+      setActiveCashDeck(isNetRefund ? "OUTWARD" : "INWARD");
+    }
+  }, [isOpen, isNetRefund]);
 
   const fetchReturnsHistory = async () => {
     setIsLoadingHistory(true);
@@ -480,10 +833,8 @@ export function CustomerReturnsModal({
     }
   };
 
-  if (!isOpen) return null;
-
   // Filter bills by customer search
-  const filteredUserBills = billsList.filter((b) => {
+  const filteredUserBills = (billsList || []).filter((b) => {
     if (!customerSearch.trim()) return true;
     const q = customerSearch.toLowerCase();
     return (
@@ -493,23 +844,103 @@ export function CustomerReturnsModal({
   });
 
   // Filter bill by invoice ID
-  const matchingInvoiceBill = billsList.find((b) => {
+  const matchingInvoiceBill = (billsList || []).find((b) => {
     if (!invoiceSearch.trim()) return false;
     const q = invoiceSearch.toLowerCase().trim();
     return b.id.toLowerCase().includes(q) || (b.basket_number && b.basket_number.toLowerCase().includes(q));
   });
 
-  const handleToggleReturnItem = (itemId: string, maxQty: number) => {
-    setReturnItemsMap((prev) => {
-      const current = prev[itemId] || 0;
-      if (current >= maxQty) {
-        return prev;
+  // Exchange Items Autocomplete Filter
+  const exchangeFilteredMenuItems = useMemo(() => {
+    if (!exchangeSearchQuery.trim()) {
+      return (activeCatalog || []).slice(0, 8);
+    }
+    const q = exchangeSearchQuery.toLowerCase().trim();
+    return (activeCatalog || [])
+      .filter((m) =>
+        (m.name && m.name.toLowerCase().includes(q)) ||
+        (m.barcode && m.barcode.toLowerCase().includes(q)) ||
+        ((m as any).category_name && (m as any).category_name.toLowerCase().includes(q))
+      )
+      .slice(0, 15);
+  }, [activeCatalog, exchangeSearchQuery]);
+
+  const handleAddExchangeItem = (m: AdminMenuItem) => {
+    setExchangeItems((prev) => {
+      const existingIndex = prev.findIndex((it) => it.menu_item_id === m.id);
+      if (existingIndex >= 0) {
+        const copy = [...prev];
+        copy[existingIndex] = {
+          ...copy[existingIndex],
+          quantity: Math.round((copy[existingIndex].quantity + 1) * 1000) / 1000,
+        };
+        return copy;
       }
-      return { ...prev, [itemId]: current + 1 };
+      const initialUnit = (m as any).unit || m.unit_label || "piece";
+      const basePrice = Number(m.price || 0);
+      const baseMrp = m.mrp ? Number(m.mrp) : basePrice;
+      const newItem: DraftCartItem = {
+        menu_item_id: m.id,
+        item_name: m.name,
+        unit_price: basePrice,
+        base_unit_price: basePrice,
+        base_mrp: baseMrp,
+        mrp: baseMrp,
+        tax_rate: m.tax_rate ? Number(m.tax_rate) : 0,
+        hsn_code: m.hsn_code || null,
+        quantity: 1,
+        selected_unit: initialUnit,
+        is_complimentary: false,
+      };
+      return [...prev, newItem];
     });
   };
 
-  const handleSubReturnItem = (itemId: string) => {
+  const handleUpdateExchangeItemQty = (index: number, newQty: number) => {
+    if (isNaN(newQty) || newQty <= 0) {
+      setExchangeItems((prev) => prev.filter((_, i) => i !== index));
+      return;
+    }
+    const rounded = Math.round(newQty * 1000) / 1000;
+    setExchangeItems((prev) => {
+      const copy = [...prev];
+      copy[index] = { ...copy[index], quantity: rounded };
+      return copy;
+    });
+  };
+
+  const handleRemoveExchangeItem = (index: number) => {
+    setExchangeItems((prev) => prev.filter((_, i) => i !== index));
+  };
+
+  // Return Item Quantity Handlers (Constrained by max available)
+  const handleSetReturnItemQty = (itemId: string, val: number, maxQty: number) => {
+    if (isNaN(val) || val <= 0) {
+      setReturnItemsMap((prev) => {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      });
+      return;
+    }
+    const clamped = Math.min(maxQty, Math.max(0, val));
+    const rounded = Math.round(clamped * 1000) / 1000;
+    setReturnItemsMap((prev) => ({
+      ...prev,
+      [itemId]: rounded,
+    }));
+  };
+
+  const handleToggleReturnItem = (itemId: string, maxQty: number) => {
+    setReturnItemsMap((prev) => {
+      const current = prev[itemId] || 0;
+      if (current >= maxQty) return prev;
+      const nextVal = Math.min(maxQty, Math.round((current + 1) * 1000) / 1000);
+      return { ...prev, [itemId]: nextVal };
+    });
+  };
+
+  const handleSubReturnItem = (itemId: string, maxQty?: number) => {
     setReturnItemsMap((prev) => {
       const current = prev[itemId] || 0;
       if (current <= 1) {
@@ -517,11 +948,37 @@ export function CustomerReturnsModal({
         delete next[itemId];
         return next;
       }
-      return { ...prev, [itemId]: current - 1 };
+      const nextVal = Math.max(0, Math.round((current - 1) * 1000) / 1000);
+      if (nextVal <= 0) {
+        const next = { ...prev };
+        delete next[itemId];
+        return next;
+      }
+      return { ...prev, [itemId]: nextVal };
     });
   };
 
   const handleSubmitReturn = async () => {
+    if (isSubmitting) return;
+
+    // Validate return items selection first
+    if (returnMode === "BILL_REFERENCED") {
+      if (!selectedBill) {
+        setError("Please select a bill to process return.");
+        return;
+      }
+      const returnItemCount = Object.values(returnItemsMap).reduce((acc, qty) => acc + qty, 0);
+      if (returnItemCount <= 0) {
+        setError("Please select at least one item to return.");
+        return;
+      }
+    } else {
+      if (directReturnItems.length === 0) {
+        setError("Please add at least one store item for direct return.");
+        return;
+      }
+    }
+
     // Compulsory check: If any credit/debit option is engaged or STORE_CREDIT chosen
     const hasCreditDebitEngaged = 
       refundMethod === "STORE_CREDIT" ||
@@ -641,30 +1098,76 @@ export function CustomerReturnsModal({
       credit_cashed_out: finalCreditCashedOut,
     };
 
+    setIsSubmitting(true);
+    setError(null);
+
     try {
       if (returnMode === "BILL_REFERENCED") {
         if (!selectedBill) return;
-        const returnItemsPayload = Object.entries(returnItemsMap).map(([order_item_id, quantity]) => ({
-          order_item_id,
-          quantity,
-          reason: returnReason,
-        }));
+        const returnItemsPayload = Object.entries(returnItemsMap).map(([order_item_id, quantity]) => {
+          const origItem = selectedBill.items?.find((i: any) => i.id === order_item_id);
+          const mItem = origItem?.menu_item_id
+            ? menuItemsMap[origItem.menu_item_id]
+            : (activeCatalog || []).find((m: any) => m.name?.toLowerCase() === origItem?.item_name?.toLowerCase());
+          const billedUnit = origItem?.selected_unit || mItem?.unit_label || "piece";
+          const currentUnit = returnItemsUnitMap[order_item_id] || billedUnit;
+          const billedPrice = origItem?.unit_price ? Number(origItem.unit_price) : 0;
+          const billedFactor = getUnitFactor(mItem, billedUnit);
+          const currentFactor = getUnitFactor(mItem, currentUnit);
+          const factorRatio = (billedFactor > 0 && currentFactor > 0) ? (currentFactor / billedFactor) : 1;
+          const effectiveUnitPrice = factorRatio > 0 ? billedPrice / factorRatio : billedPrice;
+
+          const baseMrp = origItem?.mrp ? Number(origItem.mrp) : (mItem?.mrp ? Number(mItem.mrp) : billedPrice);
+          const effectiveMrp = factorRatio > 0 ? baseMrp / factorRatio : baseMrp;
+
+          return {
+            order_item_id,
+            menu_item_id: origItem?.menu_item_id || null,
+            item_name: origItem?.item_name || mItem?.name || "Item",
+            quantity,
+            selected_unit: currentUnit,
+            unit_price: effectiveUnitPrice,
+            mrp: effectiveMrp,
+            tax_rate: origItem?.tax_rate !== undefined && origItem?.tax_rate !== null ? Number(origItem.tax_rate) : (mItem?.tax_rate ? Number(mItem.tax_rate) : 0),
+            hsn_code: origItem?.hsn_code || mItem?.hsn_code || null,
+            reason: returnReason,
+          };
+        });
 
         if (returnItemsPayload.length === 0) {
           setError("Please select at least one item to return.");
           return;
         }
 
+        const exchangeItemsPayload = exchangeItems.map((item) => ({
+          menu_item_id: item.menu_item_id || null,
+          variant_id: item.variant_id || null,
+          selected_batch_id: item.selected_batch_id || null,
+          allow_oversell: !!item.allow_oversell,
+          item_name: item.item_name,
+          quantity: item.quantity,
+          unit_price: item.unit_price,
+          mrp: item.mrp || null,
+          tax_rate: item.tax_rate || null,
+          hsn_code: item.hsn_code || null,
+          pricing_type: item.pricing_type || "RETAIL",
+          is_complimentary: item.is_complimentary,
+          selected_unit: item.selected_unit || null,
+        }));
+
         await onRequestReturn({
           order_id: selectedBill.id,
           customer_name: effectiveCustomerName || null,
           customer_phone: effectiveCustomerPhone || null,
           return_items: returnItemsPayload,
-          exchange_items: exchangeItems,
+          exchange_items: exchangeItemsPayload,
           refund_payment_method: refundMethod,
           refund_cash_denominations: refundMethod === "CASH" ? refundCashDenoms : undefined,
           inward_cash_denominations: refundMethod === "CASH" ? inwardCashDenoms : undefined,
           notes: returnReason,
+          is_interstate: selectedBill.is_interstate,
+          place_of_supply: selectedBill.place_of_supply,
+          round_off: activeRoundOff,
           ...walletPayload,
         });
       } else {
@@ -674,12 +1177,34 @@ export function CustomerReturnsModal({
           return;
         }
 
-        const returnItemsPayload = directReturnItems.map((item) => ({
-          menu_item_id: item.menu_item_id,
+        const returnItemsPayload = directReturnItems.map((item) => {
+          const mItem = menuItemsMap[item.menu_item_id];
+          return {
+            menu_item_id: item.menu_item_id,
+            item_name: item.item_name,
+            quantity: item.quantity,
+            unit_price: item.unit_price,
+            mrp: mItem?.mrp ? Number(mItem.mrp) : item.unit_price,
+            tax_rate: mItem?.tax_rate ? Number(mItem.tax_rate) : 0,
+            hsn_code: mItem?.hsn_code || null,
+            reason: returnReason,
+          };
+        });
+
+        const exchangeItemsPayload = exchangeItems.map((item) => ({
+          menu_item_id: item.menu_item_id || null,
+          variant_id: item.variant_id || null,
+          selected_batch_id: item.selected_batch_id || null,
+          allow_oversell: !!item.allow_oversell,
           item_name: item.item_name,
           quantity: item.quantity,
           unit_price: item.unit_price,
-          reason: returnReason,
+          mrp: item.mrp || null,
+          tax_rate: item.tax_rate || null,
+          hsn_code: item.hsn_code || null,
+          pricing_type: item.pricing_type || "RETAIL",
+          is_complimentary: item.is_complimentary,
+          selected_unit: item.selected_unit || null,
         }));
 
         await onRequestReturn({
@@ -687,54 +1212,197 @@ export function CustomerReturnsModal({
           customer_name: effectiveCustomerName || null,
           customer_phone: effectiveCustomerPhone || null,
           return_items: returnItemsPayload,
-          exchange_items: exchangeItems,
+          exchange_items: exchangeItemsPayload,
           refund_payment_method: refundMethod,
           refund_cash_denominations: refundMethod === "CASH" ? refundCashDenoms : undefined,
           inward_cash_denominations: refundMethod === "CASH" ? inwardCashDenoms : undefined,
           notes: returnReason,
+          is_interstate: restaurant?.interstate_mode === "ALWAYS_ON",
+          place_of_supply: restaurant?.place_of_supply || null,
+          round_off: activeRoundOff,
           ...walletPayload,
         });
       }
       onClose();
     } catch (err: any) {
       setError(err instanceof Error ? err.message : "Failed to process return.");
+    } finally {
+      setIsSubmitting(false);
     }
   };
+
+  // Keyboard Shortcuts (3x3 Numpad & Spacebar Deck Switching) Listener
+  const latestHandlers = useRef({
+    activeCashDeck,
+    setActiveCashDeck,
+    handleRefundDenomChange,
+    handleInwardDenomChange,
+    handleResetOutwardNotes,
+    handleResetInwardNotes,
+    outwardDeckRef,
+    inwardDeckRef,
+    rightScrollRef,
+    cashSectionRef,
+    scrollToCashDeck,
+    refundMethod,
+    showPhonePrompt,
+    handleSubmitReturn,
+    returnCreditTotal,
+    isSubmitting,
+    onClose,
+  });
+
+  useEffect(() => {
+    latestHandlers.current = {
+      activeCashDeck,
+      setActiveCashDeck,
+      handleRefundDenomChange,
+      handleInwardDenomChange,
+      handleResetOutwardNotes,
+      handleResetInwardNotes,
+      outwardDeckRef,
+      inwardDeckRef,
+      rightScrollRef,
+      cashSectionRef,
+      scrollToCashDeck,
+      refundMethod,
+      showPhonePrompt,
+      handleSubmitReturn,
+      returnCreditTotal,
+      isSubmitting,
+      onClose,
+    };
+  });
+
+  useEffect(() => {
+    if (!isOpen) return;
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // Don't intercept when user is typing in form inputs, textareas, selects, or editable elements
+      if (
+        document.activeElement instanceof HTMLInputElement ||
+        document.activeElement instanceof HTMLTextAreaElement ||
+        document.activeElement instanceof HTMLSelectElement ||
+        (document.activeElement as HTMLElement)?.isContentEditable
+      ) {
+        return;
+      }
+
+      const h = latestHandlers.current;
+
+      // Don't intercept if Link Customer popup modal is open or was just closed
+      if (h.showPhonePrompt || (Date.now() - lastPhonePromptCloseTime.current < 500)) return;
+
+      if (e.defaultPrevented) return;
+
+      if (e.key === "Escape") {
+        e.preventDefault();
+        h.onClose();
+        return;
+      }
+
+      if (e.key === "Enter") {
+        if (h.returnCreditTotal > 0 && !h.isSubmitting) {
+          e.preventDefault();
+          void h.handleSubmitReturn();
+        }
+        return;
+      }
+
+      // Denomination shortcuts only apply in CASH refund/exchange mode
+      if (h.refundMethod !== "CASH") return;
+
+      // Spacebar switches deck between OUTWARD and INWARD and slides into view
+      if (e.key === " " || e.code === "Space") {
+        e.preventDefault();
+        h.setActiveCashDeck((prev: "OUTWARD" | "INWARD") => {
+          const next = prev === "OUTWARD" ? "INWARD" : "OUTWARD";
+          setTimeout(() => {
+            h.scrollToCashDeck(next);
+          }, 30);
+          return next;
+        });
+        return;
+      }
+
+      // Backspace / Delete resets denominations of the active deck
+      if (e.key === "Backspace" || e.key === "Delete") {
+        e.preventDefault();
+        if (h.activeCashDeck === "OUTWARD") {
+          h.handleResetOutwardNotes();
+        } else {
+          h.handleResetInwardNotes();
+        }
+        return;
+      }
+
+      // Numpad & Digit 1-9 mapping to 3x3 denominations
+      const denom = NUMPAD_DENOM_MAP[e.code];
+      if (denom) {
+        e.preventDefault();
+        // Immediately slide screen so cash selection deck comes into view
+        h.scrollToCashDeck(h.activeCashDeck);
+
+        // Windows Numpad shift detection: Shift + Numpad7 sends e.key="Home", e.shiftKey=false
+        const isNumpadShifted = e.code.startsWith("Numpad") && !/^\d$/.test(e.key);
+        const isRemoveAction = e.shiftKey || isNumpadShifted;
+
+        if (isRemoveAction) {
+          if (h.activeCashDeck === "OUTWARD") {
+            h.handleRefundDenomChange(denom, -1);
+          } else {
+            h.handleInwardDenomChange(denom, -1);
+          }
+        } else {
+          if (h.activeCashDeck === "OUTWARD") {
+            h.handleRefundDenomChange(denom, 1);
+          } else {
+            h.handleInwardDenomChange(denom, 1);
+          }
+        }
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [isOpen]);
+
+  if (!isOpen) return null;
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-black/70 backdrop-blur-sm">
       <div className="w-full h-full max-w-none max-h-none flex flex-col rounded-none border-none bg-[var(--bg-surface)] overflow-hidden relative">
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4 flex-shrink-0">
-          <div className="flex items-center gap-3">
-            <div className="rounded-xl bg-purple-500/10 p-2.5 shadow-sm border border-purple-500/20">
-              <RotateCcw className="h-6 w-6 text-purple-400" />
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-6 py-4 flex-shrink-0">
+          <div className="flex items-center gap-3.5">
+            <div className="rounded-2xl bg-purple-500/10 p-3 shadow-sm border border-purple-500/20">
+              <RotateCcw className="h-7 w-7 text-purple-400" />
             </div>
             <div>
-              <h2 className="font-display text-xl font-bold tracking-tight text-[var(--text-primary)]">Customer Returns & Exchanges</h2>
-              <p className="text-xs text-[var(--text-muted)] font-mono mt-1 tracking-wide">
+              <h2 className="font-display text-2xl font-black tracking-tight text-[var(--text-primary)]">Customer Returns & Exchanges</h2>
+              <p className="text-sm text-[var(--text-secondary)] mt-0.5 tracking-wide">
                 Process returns, issue store credit, or direct exchange.
               </p>
             </div>
           </div>
           <button
             onClick={onClose}
-            className="rounded-xl p-2 text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition"
+            className="rounded-xl p-2.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition cursor-pointer"
           >
             <X className="h-6 w-6" />
           </button>
         </div>
 
         {error && (
-          <div className="bg-rose-500/10 border-b border-rose-500/30 px-4 py-2.5 flex items-center justify-between text-sm font-bold text-rose-500 flex-shrink-0">
-            <div className="flex items-center gap-2">
-              <span className="shrink-0 rounded-full bg-rose-500 p-0.5 text-[var(--bg-surface)]">
+          <div className="bg-rose-500/10 border-b border-rose-500/30 px-6 py-3 flex items-center justify-between text-sm font-bold text-rose-500 flex-shrink-0">
+            <div className="flex items-center gap-2.5">
+              <span className="shrink-0 rounded-full bg-rose-500 p-1 text-[var(--bg-surface)]">
                 <X className="h-3.5 w-3.5" />
               </span>
               {error}
             </div>
-            <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-[10px] tracking-wider px-2 py-1 rounded bg-rose-500/20">
+            <button type="button" onClick={() => setError(null)} className="opacity-70 hover:opacity-100 uppercase text-xs tracking-wider px-2.5 py-1 rounded bg-rose-500/20 cursor-pointer">
               Dismiss
             </button>
           </div>
@@ -745,41 +1413,41 @@ export function CustomerReturnsModal({
           {/* Left Column (30%): Fixed Header/Tabs/Search, Only Middle Box Scrollable */}
           <div className="p-5 flex flex-col h-full overflow-hidden space-y-4">
             {/* 3 Lookup Options Tabs */}
-            <div className="grid grid-cols-3 gap-1 rounded-2xl bg-[var(--bg-surface-elevated)] p-1 border border-[var(--border-strong)] flex-shrink-0">
+            <div className="grid grid-cols-3 gap-1.5 rounded-2xl bg-[var(--bg-surface-elevated)] p-1.5 border border-[var(--border-strong)] flex-shrink-0">
               <button
                 type="button"
                 onClick={() => setLookupTab("USER_HISTORY")}
-                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                className={`rounded-xl py-2.5 px-1.5 text-sm font-bold transition flex flex-col items-center gap-1.5 cursor-pointer ${
                   lookupTab === "USER_HISTORY"
                     ? "bg-sky-500 text-white shadow-xs"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
-                <UserCheck className="h-4 w-4" />
+                <UserCheck className="h-4.5 w-4.5" />
                 <span>1. User History</span>
               </button>
               <button
                 type="button"
                 onClick={() => setLookupTab("INVOICE_NO")}
-                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                className={`rounded-xl py-2.5 px-1.5 text-sm font-bold transition flex flex-col items-center gap-1.5 cursor-pointer ${
                   lookupTab === "INVOICE_NO"
                     ? "bg-sky-500 text-white shadow-xs"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
-                <Barcode className="h-4 w-4" />
+                <Barcode className="h-4.5 w-4.5" />
                 <span>2. Invoice No</span>
               </button>
               <button
                 type="button"
                 onClick={() => setLookupTab("RETURN_HISTORY")}
-                className={`rounded-xl py-2 px-1 text-xs font-bold transition flex flex-col items-center gap-1 ${
+                className={`rounded-xl py-2.5 px-1.5 text-sm font-bold transition flex flex-col items-center gap-1.5 cursor-pointer ${
                   lookupTab === "RETURN_HISTORY"
                     ? "bg-sky-500 text-white shadow-xs"
                     : "text-[var(--text-secondary)] hover:text-[var(--text-primary)]"
                 }`}
               >
-                <FileText className="h-4 w-4" />
+                <FileText className="h-4.5 w-4.5" />
                 <span>3. Return Log</span>
               </button>
             </div>
@@ -787,26 +1455,26 @@ export function CustomerReturnsModal({
             {/* Search Input based on active lookup option */}
             {lookupTab === "USER_HISTORY" && (
               <div className="relative flex-shrink-0">
-                <Search className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                <Search className="absolute left-3.5 top-3 h-4 w-4 text-[var(--text-muted)]" />
                 <input
                   type="text"
                   placeholder="Search customer phone or name..."
                   value={customerSearch}
                   onChange={(e) => setCustomerSearch(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2 pl-9 pr-3 text-xs text-[var(--text-primary)] focus:border-sky-400 outline-none"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2.5 pl-10 pr-3.5 text-sm font-medium text-[var(--text-primary)] focus:border-sky-400 outline-none"
                 />
               </div>
             )}
 
             {lookupTab === "INVOICE_NO" && (
               <div className="relative flex-shrink-0">
-                <Barcode className="absolute left-3 top-2.5 h-3.5 w-3.5 text-[var(--text-muted)]" />
+                <Barcode className="absolute left-3.5 top-3 h-4 w-4 text-[var(--text-muted)]" />
                 <input
                   type="text"
                   placeholder="Enter or scan Bill / Invoice ID (e.g. 59C8D...)"
                   value={invoiceSearch}
                   onChange={(e) => setInvoiceSearch(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2 pl-9 pr-3 text-xs font-mono text-[var(--text-primary)] focus:border-sky-400 outline-none"
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2.5 pl-10 pr-3.5 text-sm font-mono text-[var(--text-primary)] focus:border-sky-400 outline-none"
                 />
               </div>
             )}
@@ -825,37 +1493,37 @@ export function CustomerReturnsModal({
                   returnsHistoryList.map((ret) => (
                     <div
                       key={ret.id}
-                      className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-2"
+                      className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] p-4 space-y-2.5 shadow-xs"
                     >
-                      <div className="flex justify-between items-center text-xs">
-                        <span className="font-mono font-bold text-sky-400">{ret.return_number}</span>
-                        <span className="font-mono font-bold text-[var(--text-primary)]">
+                      <div className="flex justify-between items-center text-sm">
+                        <span className="font-mono font-black text-sky-400">{ret.return_number}</span>
+                        <span className="font-mono font-black text-[var(--text-primary)] text-base">
                           ₹{ret.total_refund_amount.toFixed(2)}
                         </span>
                       </div>
-                      <div className="flex justify-between items-center text-[11px] text-[var(--text-muted)]">
+                      <div className="flex justify-between items-center text-xs text-[var(--text-secondary)] font-medium">
                         <span>Orig Bill: {ret.original_bill_number}</span>
                         <span>{parseUTCDate(ret.created_at).toLocaleDateString()}</span>
                       </div>
-                      <div className="flex items-center justify-between pt-1 border-t border-[var(--border-subtle)]">
-                        <span className="text-[11px] text-[var(--text-secondary)] font-semibold">
+                      <div className="flex items-center justify-between pt-1.5 border-t border-[var(--border-subtle)]">
+                        <span className="text-xs text-[var(--text-primary)] font-bold">
                           {ret.customer_name || "Walk-In Customer"}
                         </span>
-                        <div className="flex items-center gap-1.5">
+                        <div className="flex items-center gap-2">
                           <button
                             type="button"
-                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, restaurant, "view")}
-                            className="inline-flex items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2 py-1 text-[11px] font-bold text-sky-400 hover:bg-sky-500/20"
+                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, restaurant, "view", menuItemsMap)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-sky-500/30 bg-sky-500/10 px-2.5 py-1.5 text-xs font-bold text-sky-400 hover:bg-sky-500/20 cursor-pointer"
                           >
-                            <Eye className="h-3 w-3" />
+                            <Eye className="h-3.5 w-3.5" />
                             <span>View</span>
                           </button>
                           <button
                             type="button"
-                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, restaurant, "download")}
-                            className="inline-flex items-center gap-1 rounded-lg border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 py-1 text-[11px] font-bold text-[var(--text-primary)] hover:border-sky-400"
+                            onClick={() => generateReturnReceiptPDF(ret, restaurantName, restaurant, "download", menuItemsMap)}
+                            className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs font-bold text-[var(--text-primary)] hover:border-sky-400 cursor-pointer"
                           >
-                            <Printer className="h-3 w-3" />
+                            <Printer className="h-3.5 w-3.5" />
                             <span>Print</span>
                           </button>
                         </div>
@@ -870,41 +1538,44 @@ export function CustomerReturnsModal({
                       setReturnMode("BILL_REFERENCED");
                       setSelectedBill(matchingInvoiceBill);
                       setReturnItemsMap({});
+                      setReturnItemsUnitMap({});
                     }}
-                    className={`rounded-2xl border p-3.5 cursor-pointer transition ${
+                    className={`rounded-2xl border p-4 cursor-pointer transition space-y-2 shadow-xs ${
                       selectedBill?.id === matchingInvoiceBill.id && returnMode === "BILL_REFERENCED"
-                        ? "border-sky-500/40 bg-sky-500/10"
+                        ? "border-sky-500/50 bg-sky-500/15 ring-1 ring-sky-500/30"
                         : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] hover:border-sky-400/60"
                     }`}
                   >
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-mono font-bold text-sky-400">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-mono font-black text-sky-400">
                         Bill #{matchingInvoiceBill.id.slice(0, 8).toUpperCase()}
                       </span>
-                      <span className="font-mono font-bold">₹{matchingInvoiceBill.total_amount.toFixed(2)}</span>
+                      <span className="font-mono font-black text-base text-[var(--text-primary)]">
+                        ₹{matchingInvoiceBill.total_amount.toFixed(2)}
+                      </span>
                     </div>
-                    <p className="text-xs text-[var(--text-primary)] font-bold mt-1">
+                    <p className="text-sm text-[var(--text-primary)] font-bold">
                       {matchingInvoiceBill.customer_name || "Walk-In Customer"} ({matchingInvoiceBill.customer_phone || "No Phone"})
                     </p>
                     {((matchingInvoiceBill as any).credit_applied > 0 || (matchingInvoiceBill as any).debit_applied > 0 || (matchingInvoiceBill as any).debt_settled > 0 || (matchingInvoiceBill as any).credit_awarded > 0) && (
-                      <div className="flex flex-wrap gap-1 pt-1">
+                      <div className="flex flex-wrap gap-1.5 pt-1">
                         {(matchingInvoiceBill as any).credit_applied > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30">
                             Cr Used: ₹{(matchingInvoiceBill as any).credit_applied}
                           </span>
                         )}
                         {(matchingInvoiceBill as any).debit_applied > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30">
                             Udhaar: ₹{(matchingInvoiceBill as any).debit_applied}
                           </span>
                         )}
                         {(matchingInvoiceBill as any).debt_settled > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             Debt Settled: ₹{(matchingInvoiceBill as any).debt_settled}
                           </span>
                         )}
                         {(matchingInvoiceBill as any).credit_awarded > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30">
                             Cr Added: ₹{(matchingInvoiceBill as any).credit_awarded}
                           </span>
                         )}
@@ -912,12 +1583,12 @@ export function CustomerReturnsModal({
                     )}
                   </div>
                 ) : (
-                  <p className="text-xs text-[var(--text-muted)] text-center py-12">
+                  <p className="text-sm text-[var(--text-muted)] text-center py-12">
                     Enter a valid invoice ID to view bill details.
                   </p>
                 )
               ) : filteredUserBills.length === 0 ? (
-                <p className="text-xs text-[var(--text-muted)] text-center py-12">No matching paid bills found.</p>
+                <p className="text-sm text-[var(--text-muted)] text-center py-12">No matching paid bills found.</p>
               ) : (
                 filteredUserBills.map((bill) => (
                   <div
@@ -926,44 +1597,45 @@ export function CustomerReturnsModal({
                       setReturnMode("BILL_REFERENCED");
                       setSelectedBill(bill);
                       setReturnItemsMap({});
+                      setReturnItemsUnitMap({});
                     }}
-                    className={`rounded-2xl border p-3.5 cursor-pointer transition space-y-1 ${
+                    className={`rounded-2xl border p-4 cursor-pointer transition space-y-2 shadow-xs ${
                       selectedBill?.id === bill.id && returnMode === "BILL_REFERENCED"
-                        ? "border-sky-500/40 bg-sky-500/10"
+                        ? "border-sky-500/50 bg-sky-500/15 ring-1 ring-sky-500/30"
                         : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] hover:border-sky-400/60"
                     }`}
                   >
-                    <div className="flex justify-between items-center text-xs">
-                      <span className="font-mono font-bold text-sky-400">
+                    <div className="flex justify-between items-center text-sm">
+                      <span className="font-mono font-black text-sky-400">
                         Bill #{bill.id.slice(0, 8).toUpperCase()} • {bill.basket_number && bill.basket_number.toUpperCase().includes("WALK") ? "Walk-In" : `Basket #${bill.basket_number}`}
                       </span>
-                      <span className="font-mono font-bold text-[var(--text-primary)]">
+                      <span className="font-mono font-black text-base text-[var(--text-primary)]">
                         ₹{bill.total_amount.toFixed(2)}
                       </span>
                     </div>
-                    <div className="flex justify-between items-center text-[11px] text-[var(--text-muted)]">
+                    <div className="flex justify-between items-center text-xs text-[var(--text-secondary)] font-medium">
                       <span>{bill.customer_name || "Walk-In"} ({bill.customer_phone || "N/A"})</span>
                       <span>{parseUTCDate(bill.created_at).toLocaleDateString()}</span>
                     </div>
                     {((bill as any).credit_applied > 0 || (bill as any).debit_applied > 0 || (bill as any).debt_settled > 0 || (bill as any).credit_awarded > 0) && (
-                      <div className="flex flex-wrap gap-1 pt-1">
+                      <div className="flex flex-wrap gap-1.5 pt-1">
                         {(bill as any).credit_applied > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-amber-500/15 text-amber-300 border border-amber-500/30">
                             Cr Used: ₹{(bill as any).credit_applied}
                           </span>
                         )}
                         {(bill as any).debit_applied > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-rose-500/10 text-rose-400 border border-rose-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-rose-500/15 text-rose-300 border border-rose-500/30">
                             Udhaar: ₹{(bill as any).debit_applied}
                           </span>
                         )}
                         {(bill as any).debt_settled > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">
                             Debt Settled: ₹{(bill as any).debt_settled}
                           </span>
                         )}
                         {(bill as any).credit_awarded > 0 && (
-                          <span className="text-[9px] font-mono font-bold px-1.5 py-0.5 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                          <span className="text-[11px] font-mono font-bold px-2 py-0.5 rounded-lg bg-sky-500/15 text-sky-300 border border-sky-500/30">
                             Cr Added: ₹{(bill as any).credit_awarded}
                           </span>
                         )}
@@ -983,207 +1655,200 @@ export function CustomerReturnsModal({
                 <p className="font-semibold text-sm">Select a bill from the left to initiate Return or Exchange</p>
               </div>
             ) : (
-              <div className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1">
+              <div ref={rightScrollRef} className="space-y-4 flex-1 overflow-y-auto min-h-0 pr-1 scroll-smooth">
                 {/* Header Block */}
-                <div className="border-b border-[var(--border-subtle)] pb-2 flex justify-between items-center flex-shrink-0">
+                <div className="border-b border-[var(--border-subtle)] pb-3 flex justify-between items-center flex-shrink-0">
                   <div>
-                    <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] block">
+                    <span className="text-xs uppercase font-bold text-[var(--text-muted)] tracking-wider block">
                       Selected Original Bill
                     </span>
-                    <span className="font-mono font-bold text-sky-400 text-xs">
-                      #{selectedBill.id.slice(0, 8).toUpperCase()} • {effectiveCustomerName || "Walk-In"}
-                    </span>
+                    <div className="flex items-center gap-2 mt-0.5">
+                      <span className="font-mono font-black text-sky-400 text-base">
+                        #{selectedBill.id.slice(0, 8).toUpperCase()}
+                      </span>
+                      <span className="text-[var(--text-muted)]">•</span>
+                      {isCustomerLinked ? (
+                        <div className="inline-flex items-center gap-1.5">
+                          <span className="font-bold text-[var(--text-primary)] text-sm">
+                            {effectiveCustomerName || "Customer"} ({effectiveCustomerPhone})
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowPhonePrompt(true)}
+                            className="text-xs text-sky-400 hover:text-sky-300 font-bold underline cursor-pointer ml-1"
+                            title="Edit customer details"
+                          >
+                            Edit
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="inline-flex items-center gap-2">
+                          <span className="text-sm font-semibold text-[var(--text-muted)]">
+                            Walk-In
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setShowPhonePrompt(true)}
+                            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-xl bg-sky-500/15 border border-sky-500/30 text-sky-400 hover:bg-sky-500/25 text-xs font-bold transition cursor-pointer"
+                          >
+                            <UserPlus className="h-3.5 w-3.5" />
+                            <span>+ Link Customer</span>
+                          </button>
+                        </div>
+                      )}
+                    </div>
                   </div>
-                  <span className="text-xs font-mono font-bold text-[var(--text-primary)]">
+                  <span className="text-base font-mono font-black text-[var(--text-primary)]">
                     Original Total: ₹{selectedBill.total_amount.toFixed(2)}
                   </span>
                 </div>
 
-                {/* Customer Link Card (Compulsory for Store Credit / Udhaar / Wallet) */}
-                <div
-                  className={`rounded-2xl border p-3 transition-all space-y-2 ${
-                    showPhonePrompt && !isCustomerLinked
-                      ? "border-rose-500/60 bg-rose-500/10 ring-2 ring-rose-500/30"
-                      : isCustomerLinked
-                      ? "border-emerald-500/30 bg-emerald-500/5"
-                      : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]"
-                  }`}
-                >
-                  <div className="flex items-center justify-between">
-                    <div className="flex items-center gap-2">
-                      <UserCheck className={`h-4 w-4 ${isCustomerLinked ? "text-emerald-400" : "text-[var(--text-muted)]"}`} />
-                      <span className="text-xs font-bold text-[var(--text-primary)]">
-                        {isCustomerLinked ? "Customer Linked" : "Link Customer (Required for Udhaar / Store Credit)"}
-                      </span>
-                    </div>
-                    {isCustomerLinked ? (
-                      <span className="text-[10px] font-mono font-bold text-emerald-400 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/30">
-                        ✓ {effectiveCustomerPhone}
-                      </span>
-                    ) : (
-                      <span className="text-[10px] font-semibold text-rose-400">
-                        * Walk-In Bill
-                      </span>
-                    )}
-                  </div>
-
-                  {/* Input fields when bill has no phone or cashier overrides or prompted */}
-                  {(!selectedBill.customer_phone || customerPhoneOverride || showPhonePrompt) && (
-                    <div className="grid grid-cols-2 gap-2 pt-1 border-t border-[var(--border-subtle)]">
-                      <div className="relative" ref={suggestionsRef}>
-                        <label className="block text-[10px] font-bold text-[var(--text-muted)] mb-1">
-                          Customer Mobile (10 digits) *
-                        </label>
-                        <input
-                          type="tel"
-                          maxLength={10}
-                          placeholder="e.g. 9876543210"
-                          value={customerPhoneOverride}
-                          onChange={(e) => handlePhoneInputChange(e.target.value)}
-                          onFocus={() => {
-                            const currentVal = customerPhoneOverride.trim();
-                            if (currentVal.length >= 2) {
-                              setShowSuggestions(true);
-                              if (customerSuggestions.length === 0) {
-                                void handlePhoneInputChange(currentVal);
-                              }
-                            }
-                          }}
-                          onKeyDown={(e) => {
-                            if (!showSuggestions || customerSuggestions.length === 0) return;
-                            if (e.key === "ArrowDown") {
-                              e.preventDefault();
-                              setHighlightedSuggestionIndex((prev) => Math.min(prev + 1, customerSuggestions.length - 1));
-                            } else if (e.key === "ArrowUp") {
-                              e.preventDefault();
-                              setHighlightedSuggestionIndex((prev) => Math.max(prev - 1, -1));
-                            } else if (e.key === "Enter") {
-                              e.preventDefault();
-                              if (highlightedSuggestionIndex >= 0 && highlightedSuggestionIndex < customerSuggestions.length) {
-                                handleSelectCustomerSuggestion(customerSuggestions[highlightedSuggestionIndex]);
-                              }
-                            } else if (e.key === "Escape") {
-                              setShowSuggestions(false);
-                            }
-                          }}
-                          className={`w-full rounded-xl border px-2.5 py-1.5 text-xs font-mono font-bold bg-[var(--bg-surface)] text-[var(--text-primary)] focus:outline-none focus:ring-1 ${
-                            showPhonePrompt && !isCustomerLinked
-                              ? "border-rose-500 focus:border-rose-500 focus:ring-rose-500/30"
-                              : "border-[var(--border-strong)] focus:border-sky-400 focus:ring-sky-400/30"
-                          }`}
-                        />
-                        {customerPhoneOverride && customerPhoneOverride.length < 10 && (
-                          <span className="text-[10px] text-rose-400 block mt-0.5">
-                            Min 10 digits ({customerPhoneOverride.length}/10)
-                          </span>
-                        )}
-
-                        {/* Customer Dynamic Suggestion Dropdown */}
-                        {showSuggestions && customerSuggestions.length > 0 && (
-                          <div className="absolute left-0 top-full mt-1.5 z-50 w-full sm:w-[calc(200%+0.5rem)] rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-1.5 shadow-2xl max-h-52 overflow-y-auto space-y-1">
-                            {customerSuggestions.map((s, i) => (
-                              <button
-                                key={i}
-                                type="button"
-                                onMouseDown={(e) => e.preventDefault()}
-                                onClick={() => handleSelectCustomerSuggestion(s)}
-                                onMouseEnter={() => setHighlightedSuggestionIndex(i)}
-                                className={`w-full text-left rounded-lg px-2.5 py-2 text-xs transition cursor-pointer flex items-center justify-between gap-2.5 ${
-                                  highlightedSuggestionIndex === i
-                                    ? "bg-sky-500/20 border border-sky-500/40 text-white"
-                                    : "hover:bg-[var(--bg-surface)] text-[var(--text-primary)] border border-transparent"
-                                }`}
-                              >
-                                <div className="flex items-center gap-2.5 min-w-0">
-                                  <div className="h-6 w-6 rounded-full bg-sky-500/15 text-sky-400 flex items-center justify-center font-bold text-[11px] shrink-0">
-                                    {(s.name || "C").charAt(0).toUpperCase()}
-                                  </div>
-                                  <div className="min-w-0">
-                                    <p className="font-bold truncate text-[var(--text-primary)]">{s.name || "Customer"}</p>
-                                    <p className="font-mono text-[10px] text-[var(--text-muted)]">{s.phone}</p>
-                                  </div>
-                                </div>
-                                {typeof s.credit_balance === "number" && s.credit_balance !== 0 && (
-                                  <span className={`text-[10px] font-mono font-bold px-1.5 py-0.5 rounded shrink-0 ${
-                                    s.credit_balance > 0
-                                      ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-                                      : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
-                                  }`}>
-                                    {s.credit_balance > 0 ? `+₹${s.credit_balance.toFixed(2)} Cr` : `-₹${Math.abs(s.credit_balance).toFixed(2)} Debt`}
-                                  </span>
-                                )}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                      <div>
-                        <label className="block text-[10px] font-bold text-[var(--text-muted)] mb-1">
-                          Customer Name (Optional)
-                        </label>
-                        <input
-                          type="text"
-                          placeholder="e.g. Rahul Sharma"
-                          value={customerNameOverride}
-                          onChange={(e) => setCustomerNameOverride(e.target.value)}
-                          className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2.5 py-1.5 text-xs font-semibold text-[var(--text-primary)] focus:border-sky-400 focus:outline-none"
-                        />
-                      </div>
-                    </div>
-                  )}
-                </div>
-
                 {/* Line Items to select for return */}
-                <div className="space-y-2">
-                  <span className="text-xs font-bold uppercase tracking-wider text-[var(--text-muted)] block">
+                <div className="space-y-2.5">
+                  <span className="text-sm font-black uppercase tracking-wider text-[var(--text-muted)] block">
                     Select Bill Items to Return:
                   </span>
 
                   {(selectedBill.items || []).map((item: any) => {
                     const retQty = returnItemsMap[item.id] || 0;
-                    const price = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
+                    const origMenuItem = item.menu_item_id
+                      ? menuItemsMap[item.menu_item_id]
+                      : (activeCatalog || []).find((m: any) => m.name?.toLowerCase() === item.item_name?.toLowerCase());
+
+                    const billedUnit = item.selected_unit || origMenuItem?.unit_label || "piece";
+                    const currentUnit = returnItemsUnitMap[item.id] || billedUnit;
+
+                    const billedPrice = typeof item.unit_price === "number" ? item.unit_price : parseFloat(item.unit_price) || 0;
                     const totalQty = typeof item.quantity === "number" ? item.quantity : parseFloat(item.quantity) || 1;
                     const returnedQty = typeof item.returned_quantity === "number" ? item.returned_quantity : parseFloat(item.returned_quantity) || 0;
-                    const maxQty = Math.max(0, totalQty - returnedQty);
+
+                    const billedFactor = getUnitFactor(origMenuItem, billedUnit);
+                    const currentFactor = getUnitFactor(origMenuItem, currentUnit);
+                    const unitRatio = (billedFactor > 0 && currentFactor > 0) ? (currentFactor / billedFactor) : 1;
+
+                    const effectiveUnitPrice = unitRatio > 0 ? billedPrice / unitRatio : billedPrice;
+                    const effectiveTotalQty = Math.round(totalQty * unitRatio * 1000) / 1000;
+                    const effectiveReturnedQty = Math.round(returnedQty * unitRatio * 1000) / 1000;
+                    const maxQty = Math.round(Math.max(0, effectiveTotalQty - effectiveReturnedQty) * 1000) / 1000;
                     const isFullyReturned = maxQty <= 0;
+
+                    // Available units list for selection
+                    const availableUnits: string[] = [];
+                    if (origMenuItem?.unit_label && !availableUnits.includes(origMenuItem.unit_label)) {
+                      availableUnits.push(origMenuItem.unit_label);
+                    }
+                    if (billedUnit && !availableUnits.includes(billedUnit)) {
+                      availableUnits.push(billedUnit);
+                    }
+                    if (origMenuItem?.alternate_units && Array.isArray(origMenuItem.alternate_units)) {
+                      origMenuItem.alternate_units.forEach((au: any) => {
+                        if (au?.unit_label && !availableUnits.includes(au.unit_label)) {
+                          availableUnits.push(au.unit_label);
+                        }
+                      });
+                    }
+                    if (availableUnits.length === 0) availableUnits.push(billedUnit);
 
                     return (
                       <div
                         key={item.id}
-                        className={`rounded-2xl border p-3 flex items-center justify-between text-xs transition ${
+                        className={`rounded-2xl border p-4 flex items-center justify-between gap-4 text-sm transition shadow-xs ${
                           retQty > 0
-                            ? "border-sky-500/40 bg-sky-500/10"
+                            ? "border-sky-500/50 bg-sky-500/15 ring-1 ring-sky-500/30"
                             : "border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]"
                         } ${isFullyReturned ? "opacity-50 pointer-events-none" : ""}`}
                       >
-                        <div>
-                          <p className="font-bold text-[var(--text-primary)]">{item.item_name} {isFullyReturned && "(Fully Returned)"}</p>
-                          <p className="font-mono text-[11px] text-[var(--text-muted)]">
-                            ₹{price.toFixed(2)} × {totalQty} bought {returnedQty > 0 && `(${returnedQty} returned)`}
-                          </p>
+                        {/* Inline item info: name (+25% text-xl) + bought & max details on the SAME line */}
+                        <div className="flex items-center gap-3.5 min-w-0 flex-1 flex-wrap">
+                          <span className="text-xl font-black text-[var(--text-primary)] shrink-0">
+                            {item.item_name}
+                            {isFullyReturned && (
+                              <span className="text-xs font-bold text-rose-400/80 ml-2 uppercase tracking-wider">(Fully Returned)</span>
+                            )}
+                          </span>
+                          <span className="font-mono text-sm text-[var(--text-secondary)] font-medium flex items-center gap-2 shrink-0">
+                            <span>₹{effectiveUnitPrice.toFixed(2)} / {currentUnit} × {effectiveTotalQty} {currentUnit} bought</span>
+                            {effectiveReturnedQty > 0 && <span className="text-amber-400/80 font-bold">({effectiveReturnedQty} {currentUnit} returned)</span>}
+                            <span className="text-[var(--border-strong)]">•</span>
+                            <span className="text-sky-400 font-bold">Max Returnable: {maxQty} {currentUnit}</span>
+                          </span>
                         </div>
 
                         {!isFullyReturned && (
-                          <div className="flex items-center gap-2">
-                            {retQty > 0 && (
+                          <div className="flex items-center gap-3 shrink-0">
+                            {/* Quantity steppers (+100% larger) */}
+                            <div className="flex items-center gap-1.5">
+                              {retQty > 0 && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSubReturnItem(item.id, maxQty)}
+                                  className="h-12 w-12 flex items-center justify-center rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:border-sky-400 hover:text-sky-400 text-[var(--text-secondary)] transition cursor-pointer"
+                                  title="Decrease return quantity"
+                                >
+                                  <Minus className="h-6 w-6" />
+                                </button>
+                              )}
+
+                              <div className="relative">
+                                <DecimalQtyInput
+                                  value={retQty}
+                                  min={0}
+                                  max={maxQty}
+                                  placeholder="0"
+                                  onChange={(val) => handleSetReturnItemQty(item.id, val, maxQty)}
+                                  className="w-24 h-12 rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-2 text-center font-mono text-2xl font-black text-sky-400 focus:border-sky-400 focus:outline-none focus:ring-2 focus:ring-sky-400/30"
+                                  title={`Enter quantity to return (Max available: ${maxQty})`}
+                                />
+                              </div>
+
                               <button
                                 type="button"
-                                onClick={() => handleSubReturnItem(item.id)}
-                                className="p-1 rounded-lg border border-[var(--border-strong)] hover:bg-[var(--bg-surface)]"
+                                onClick={() => handleToggleReturnItem(item.id, maxQty)}
+                                className="h-12 w-12 flex items-center justify-center rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:border-sky-400 hover:text-sky-400 text-[var(--text-secondary)] transition cursor-pointer"
+                                title={`Increase return quantity (Max: ${maxQty})`}
                               >
-                                <Minus className="h-3 w-3" />
+                                <Plus className="h-6 w-6" />
                               </button>
-                            )}
-                            <span className="font-mono font-bold w-6 text-center text-sky-400">
-                              {retQty}
-                            </span>
-                            <button
-                              type="button"
-                              onClick={() => handleToggleReturnItem(item.id, maxQty)}
-                              className="p-1 rounded-lg border border-[var(--border-strong)] hover:bg-[var(--bg-surface)]"
-                            >
-                              <Plus className="h-3 w-3" />
-                            </button>
+
+                              {/* Unit Selector or Badge for Returned Item */}
+                              {availableUnits.length > 1 ? (
+                                <select
+                                  value={currentUnit}
+                                  onChange={(e) => {
+                                    const newUnit = e.target.value;
+                                    const oldFactor = getUnitFactor(origMenuItem, currentUnit);
+                                    const newFactor = getUnitFactor(origMenuItem, newUnit);
+                                    const switchRatio = (oldFactor > 0 && newFactor > 0) ? (newFactor / oldFactor) : 1;
+                                    const newMaxQty = Math.round(maxQty * switchRatio * 1000) / 1000;
+
+                                    setReturnItemsUnitMap((prev) => ({ ...prev, [item.id]: newUnit }));
+                                    if (retQty > 0) {
+                                      const newQty = Math.min(newMaxQty, Math.round(retQty * switchRatio * 1000) / 1000);
+                                      setReturnItemsMap((prev) => ({ ...prev, [item.id]: newQty }));
+                                    }
+                                  }}
+                                  className="h-12 text-sm font-bold bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-2xl px-2.5 text-sky-400 focus:outline-none focus:border-sky-400 cursor-pointer"
+                                  title="Change unit of return"
+                                >
+                                  {availableUnits.map((u) => (
+                                    <option key={u} value={u}>{u}</option>
+                                  ))}
+                                </select>
+                              ) : (
+                                <span className="h-12 flex items-center px-3 text-xs font-bold text-[var(--text-secondary)] bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-2xl uppercase tracking-wider">
+                                  {currentUnit}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Line Return Amount (+100% larger) */}
+                            <div className="w-28 text-right font-mono font-black text-2xl">
+                              {retQty > 0 ? (
+                                <span className="text-sky-400">₹{(retQty * effectiveUnitPrice).toFixed(2)}</span>
+                              ) : (
+                                <span className="text-[var(--text-muted)] opacity-30">₹0.00</span>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -1191,14 +1856,227 @@ export function CustomerReturnsModal({
                   })}
                 </div>
 
+                {/* --- EXCHANGE ITEMS SECTION (Collapsible) --- */}
+                {(!showExchangeSection && exchangeItems.length === 0) ? (
+                  <div className="pt-1">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowExchangeSection(true);
+                        setShowExchangePicker(true);
+                      }}
+                      className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl border border-dashed border-emerald-500/40 bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 text-sm font-black transition cursor-pointer"
+                    >
+                      <Plus className="h-4 w-4" />
+                      <span>+ Add Exchange / Replacement Item</span>
+                    </button>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)]/60 p-4 space-y-3.5 shadow-xs" ref={exchangePickerRef}>
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <ArrowUpRight className="h-5 w-5 text-emerald-400" />
+                        <span className="text-sm font-black uppercase tracking-wider text-[var(--text-primary)]">
+                          Exchange / Replacement Items
+                        </span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        {exchangeItems.length > 0 && (
+                          <span className="text-sm font-mono font-black text-emerald-400">
+                            {exchangeItems.length} item{exchangeItems.length > 1 ? "s" : ""} • ₹{exchangeItemsTotal.toFixed(2)}
+                          </span>
+                        )}
+                        {exchangeItems.length === 0 && (
+                          <button
+                            type="button"
+                            onClick={() => setShowExchangeSection(false)}
+                            className="text-xs text-[var(--text-muted)] hover:text-[var(--text-primary)] font-bold transition cursor-pointer"
+                          >
+                            Cancel
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Search / Add Item for Exchange */}
+                    <div className="relative">
+                      <div className="relative">
+                        <Search className="absolute left-3.5 top-3.5 h-4 w-4 text-[var(--text-muted)]" />
+                        <input
+                          type="text"
+                          placeholder="Search items by name, barcode, or category to exchange..."
+                          value={exchangeSearchQuery}
+                          onChange={(e) => {
+                            setExchangeSearchQuery(e.target.value);
+                            setShowExchangePicker(true);
+                          }}
+                          onFocus={() => setShowExchangePicker(true)}
+                          className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] py-3 pl-10 pr-4 text-sm font-medium text-[var(--text-primary)] focus:border-emerald-400 outline-none"
+                        />
+                      </div>
+
+                      {/* Autocomplete dropdown for exchange items */}
+                      {showExchangePicker && (
+                        <div className="absolute left-0 top-full mt-1.5 z-50 w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2 shadow-2xl max-h-60 overflow-y-auto space-y-1">
+                          {isLoadingCatalog ? (
+                            <div className="py-4 text-center text-xs text-[var(--text-muted)] flex items-center justify-center gap-2">
+                              <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                              <span>Loading catalog items...</span>
+                            </div>
+                          ) : exchangeFilteredMenuItems.length === 0 ? (
+                            <div className="py-4 text-center text-xs text-[var(--text-muted)] font-medium">
+                              No items found matching "{exchangeSearchQuery}"
+                            </div>
+                          ) : (
+                            exchangeFilteredMenuItems.map((m) => (
+                              <button
+                                key={m.id}
+                                type="button"
+                                onMouseDown={(e) => e.preventDefault()}
+                                onClick={() => {
+                                  handleAddExchangeItem(m);
+                                  setExchangeSearchQuery("");
+                                  setShowExchangePicker(false);
+                                }}
+                                className="w-full text-left rounded-xl px-3 py-2 text-sm hover:bg-emerald-500/15 hover:border-emerald-500/30 border border-transparent flex items-center justify-between gap-3 transition cursor-pointer"
+                              >
+                                <div className="min-w-0">
+                                  <p className="font-bold text-[var(--text-primary)] truncate text-sm">{m.name}</p>
+                                  <p className="text-xs text-[var(--text-muted)] font-mono">
+                                    {(m as any).category_name || "General"} {m.unit_label ? `• per ${m.unit_label}` : ""}
+                                    {m.barcode ? ` • ${m.barcode}` : ""}
+                                  </p>
+                                </div>
+                                <span className="font-mono font-black text-emerald-400 text-sm shrink-0">
+                                  ₹{Number(m.price || 0).toFixed(2)}
+                                </span>
+                              </button>
+                            ))
+                          )}
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Added Exchange Items List */}
+                    {exchangeItems.length > 0 && (
+                      <div className="space-y-2.5 pt-1.5 border-t border-[var(--border-subtle)]">
+                        {exchangeItems.map((exItem, idx) => {
+                          const originalItem = menuItems.find((m) => m.id === exItem.menu_item_id)
+                            || (activeCatalog || []).find((m: any) => m.id === exItem.menu_item_id);
+                          const hasAltUnits = originalItem && originalItem.alternate_units && (originalItem.alternate_units as any[]).length > 0;
+                          const currentUnit = exItem.selected_unit || originalItem?.unit_label || "piece";
+
+                          return (
+                            <div
+                              key={`ex-${idx}-${exItem.menu_item_id}`}
+                              className="rounded-2xl border border-emerald-500/30 bg-emerald-500/5 p-3.5 flex items-center justify-between text-sm transition shadow-xs"
+                            >
+                              <div className="flex-1 min-w-0 pr-3">
+                                <p className="font-black text-[var(--text-primary)] truncate text-base">{exItem.item_name}</p>
+                                <p className="font-mono text-sm text-[var(--text-secondary)] font-medium mt-0.5">
+                                  ₹{exItem.unit_price.toFixed(2)} per {currentUnit}
+                                </p>
+                              </div>
+
+                              <div className="flex items-center gap-3 shrink-0">
+                                <div className="flex items-center gap-1.5">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateExchangeItemQty(idx, exItem.quantity - 1)}
+                                    className="h-9 w-9 flex items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:border-emerald-400 text-[var(--text-secondary)] transition cursor-pointer"
+                                    title="Decrease exchange quantity"
+                                  >
+                                    <Minus className="h-4 w-4" />
+                                  </button>
+
+                                  <DecimalQtyInput
+                                    value={exItem.quantity}
+                                    min={0.001}
+                                    placeholder="1"
+                                    onChange={(val) => handleUpdateExchangeItemQty(idx, val)}
+                                    onRemove={() => handleRemoveExchangeItem(idx)}
+                                    className="w-20 h-9 rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-1.5 text-center font-mono text-base font-black text-emerald-400 focus:border-emerald-400 focus:outline-none focus:ring-2 focus:ring-emerald-400/30"
+                                    title="Editable exchange quantity (supports decimals)"
+                                  />
+
+                                  <button
+                                    type="button"
+                                    onClick={() => handleUpdateExchangeItemQty(idx, exItem.quantity + 1)}
+                                    className="h-9 w-9 flex items-center justify-center rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] hover:border-emerald-400 text-[var(--text-secondary)] transition cursor-pointer"
+                                    title="Increase exchange quantity"
+                                  >
+                                    <Plus className="h-4 w-4" />
+                                  </button>
+
+                                  {/* Unit Selector or Badge */}
+                                  {hasAltUnits ? (
+                                    <select
+                                      value={currentUnit}
+                                      onChange={(e) => {
+                                        const newUnit = e.target.value;
+                                        const factor = getUnitFactor(originalItem, newUnit);
+                                        const basePrice = exItem.base_unit_price ?? exItem.unit_price;
+                                        const baseMrp = exItem.base_mrp ?? exItem.mrp ?? basePrice;
+                                        const newPrice = factor > 0 ? basePrice / factor : basePrice;
+                                        const newMrp = factor > 0 ? Math.max(baseMrp / factor, newPrice) : Math.max(baseMrp, newPrice);
+
+                                        setExchangeItems((prev) =>
+                                          prev.map((item, i) =>
+                                            i === idx ? {
+                                              ...item,
+                                              selected_unit: newUnit,
+                                              unit_price: newPrice,
+                                              mrp: newMrp,
+                                              base_unit_price: basePrice,
+                                              base_mrp: baseMrp,
+                                            } : item
+                                          )
+                                        );
+                                      }}
+                                      className="h-9 text-xs font-bold bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl px-2 text-[var(--text-primary)] focus:outline-none focus:border-emerald-400 cursor-pointer"
+                                      title="Change exchange unit"
+                                    >
+                                      <option value={originalItem.unit_label || "piece"}>{originalItem.unit_label || "piece"}</option>
+                                      {(originalItem.alternate_units as any[]).map((au: any) => (
+                                        <option key={au.unit_label} value={au.unit_label}>{au.unit_label}</option>
+                                      ))}
+                                    </select>
+                                  ) : (
+                                    <span className="h-9 flex items-center text-xs font-bold text-[var(--text-secondary)] px-2.5 bg-[var(--bg-surface)] border border-[var(--border-strong)] rounded-xl uppercase tracking-wider">
+                                      {currentUnit}
+                                    </span>
+                                  )}
+                                </div>
+
+                                <span className="font-mono font-black text-base w-24 text-right text-[var(--text-primary)]">
+                                  ₹{(exItem.quantity * exItem.unit_price).toFixed(2)}
+                                </span>
+
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveExchangeItem(idx)}
+                                  className="text-[var(--text-muted)] hover:text-rose-400 p-2 rounded-xl hover:bg-rose-500/15 transition cursor-pointer"
+                                  title="Remove exchange item"
+                                >
+                                  <X className="h-4.5 w-4.5" />
+                                </button>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                )}
+
                 {/* Return Reason & Refund Method */}
-                <div className="grid grid-cols-2 gap-3 pt-2">
+                <div className="grid grid-cols-2 gap-4 pt-1">
                   <div>
-                    <label className="block text-[11px] font-bold text-[var(--text-muted)] mb-1">Return Reason</label>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Return Reason</label>
                     <select
                       value={returnReason}
                       onChange={(e) => setReturnReason(e.target.value)}
-                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2 text-xs font-semibold text-[var(--text-primary)]"
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2.5 px-3.5 text-sm font-bold text-[var(--text-primary)] focus:border-sky-400 outline-none"
                     >
                       <option value="DEFECTIVE_PRODUCT">Defective / Damaged</option>
                       <option value="EXPIRED_ITEM">Expired Item</option>
@@ -1208,11 +2086,11 @@ export function CustomerReturnsModal({
                   </div>
 
                   <div>
-                    <label className="block text-[11px] font-bold text-[var(--text-muted)] mb-1">Refund Method</label>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">Refund Method</label>
                     <select
                       value={refundMethod}
                       onChange={(e) => setRefundMethod(e.target.value as any)}
-                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2 text-xs font-semibold text-[var(--text-primary)]"
+                      className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] py-2.5 px-3.5 text-sm font-bold text-[var(--text-primary)] focus:border-sky-400 outline-none"
                     >
                       <option value="CASH">Cash Refund</option>
                       <option value="UPI">UPI Refund</option>
@@ -1223,17 +2101,17 @@ export function CustomerReturnsModal({
 
                 {/* Store Credit Voucher Explanation Banner */}
                 {refundMethod === "STORE_CREDIT" && (
-                  <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-3.5 space-y-2 text-xs">
-                    <div className="flex items-center gap-2 font-bold text-sky-400">
-                      <Wallet className="h-4 w-4" />
+                  <div className="rounded-2xl border border-sky-500/40 bg-sky-500/10 p-4 space-y-2.5 text-sm shadow-xs">
+                    <div className="flex items-center gap-2 font-bold text-sky-400 text-sm">
+                      <Wallet className="h-5 w-5" />
                       <span>Store Credit Voucher Selected</span>
                     </div>
-                    <p className="text-[var(--text-secondary)] text-[11px] leading-relaxed">
+                    <p className="text-[var(--text-secondary)] text-xs leading-relaxed">
                       No cash will be dispensed from the cash drawer. The net refund amount of{" "}
                       <span className="font-mono font-bold text-sky-400">₹{rawRefundOwed.toFixed(2)}</span> will be safely deposited into the customer's store credit wallet.
                     </p>
                     {customerAnalytics && customerAnalytics.credit_balance < 0 && (
-                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-2.5 text-[11px] text-amber-300 flex items-start gap-2">
+                      <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-300 flex items-start gap-2.5">
                         <AlertCircle className="h-4 w-4 flex-shrink-0 mt-0.5 text-amber-400" />
                         <div>
                           <p className="font-bold">Automatic Debt Clearance:</p>
@@ -1249,8 +2127,8 @@ export function CustomerReturnsModal({
                       </div>
                     )}
                     {!isCustomerLinked && (
-                      <p className="text-rose-400 font-bold text-[11px] flex items-center gap-1">
-                        <AlertCircle className="h-3.5 w-3.5" />
+                      <p className="text-rose-400 font-bold text-xs flex items-center gap-1.5">
+                        <AlertCircle className="h-4 w-4" />
                         Please enter customer mobile number above to issue Store Credit.
                       </p>
                     )}
@@ -1259,34 +2137,78 @@ export function CustomerReturnsModal({
 
                 {/* Denomination Note Tapping Section (CASH Mode) */}
                 {refundMethod === "CASH" && (
-                  <div className="pt-2 border-t border-[var(--border-subtle)] space-y-4">
+                  <div ref={cashSectionRef} className="pt-2 border-t border-[var(--border-subtle)] space-y-4">
                     <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
                       {/* Outward Cash Section (Cash Given to Customer) */}
-                      <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3 space-y-2.5">
-                        <div className="flex justify-between items-center text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">
+                      <div
+                        ref={outwardDeckRef}
+                        onClick={() => {
+                          setActiveCashDeck("OUTWARD");
+                          scrollToCashDeck("OUTWARD");
+                        }}
+                        className={`rounded-2xl border p-4 space-y-3 shadow-xs transition-all cursor-pointer ${
+                          activeCashDeck === "OUTWARD"
+                            ? "border-sky-500 ring-2 ring-sky-500/50 bg-sky-500/5 shadow-sky-500/10 shadow-lg"
+                            : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] opacity-75 hover:opacity-100"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center text-sm font-black uppercase tracking-wider">
                           <span className="flex items-center gap-2 text-[var(--text-primary)]">
                             {isNetRefund ? "Refund Given (Outward)" : "Change Given Back (Outward)"}
+                            {activeCashDeck === "OUTWARD" ? (
+                              <span className="text-[10px] font-mono font-bold text-sky-400 bg-sky-500/15 border border-sky-500/40 px-2 py-0.5 rounded-md animate-pulse">
+                                kbd active [space ⇄]
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono text-[var(--text-muted)] border border-[var(--border-subtle)] px-1.5 py-0.5 rounded">
+                                click or [space]
+                              </span>
+                            )}
                           </span>
-                          <span className="font-mono text-sm font-black text-sky-400">Total: ₹{refundDenomTotal}</span>
+                          <span className="font-mono text-base font-black text-sky-400">Total: ₹{refundDenomTotal}</span>
                         </div>
 
-                        {remainingNeededOutward > 0 && (
-                          <div className="text-center bg-[var(--bg-surface)] rounded-xl py-1.5 border border-[var(--border-strong)]">
-                            <span className="font-mono text-xs font-bold text-[var(--text-secondary)]">
-                              Need <span className="text-lg font-black text-sky-400">₹{remainingNeededOutward.toFixed(2)}</span> more
+                        {remainingNeededOutward > 0 ? (
+                          <div className="flex items-center justify-between bg-[var(--bg-surface)] rounded-xl py-2 px-3.5 border border-[var(--border-strong)]">
+                            <span className="font-mono text-sm font-bold text-[var(--text-secondary)]">
+                              Need <span className="text-xl font-black text-sky-400">₹{remainingNeededOutward.toFixed(2)}</span> more
+                            </span>
+                            {hasDecimalOutward && (
+                              <button
+                                type="button"
+                                onClick={() => setIsRoundOffActive(prev => !prev)}
+                                className={`rounded-xl px-3 py-1.5 text-xs font-black font-mono transition flex items-center gap-1 shadow-xs cursor-pointer ${
+                                  isRoundOffActive
+                                    ? "bg-amber-500 text-slate-950 font-black ring-2 ring-amber-500/40"
+                                    : "bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25"
+                                }`}
+                                title="Round off net return sum to nearest rupee"
+                              >
+                                <span>⚡ {isRoundOffActive ? `Rounded: ₹${roundedTargetOutward.toFixed(2)}` : `Round Off (${deltaLabelOutward})`}</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : targetRefundAmt > 0 && refundDenomTotal > 0 && (refundDenomTotal - inwardDenomTotal === targetRefundAmt) ? (
+                          <div className="flex items-center justify-between bg-emerald-500/15 rounded-xl py-2 px-3.5 border border-emerald-500/40 text-emerald-300 animate-in fade-in duration-200">
+                            <span className="font-mono text-sm font-black flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                              <span>Net Dispense Satisfied: <span className="text-xl font-black text-emerald-200">₹{targetRefundAmt.toFixed(2)}</span></span>
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md border border-emerald-500/30">
+                              Exact Change ✓
                             </span>
                           </div>
-                        )}
+                        ) : null}
 
                         {/* Quick Auto-Tap Shortcuts Bar */}
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                          <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] whitespace-nowrap">
+                        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                          <span className="text-xs uppercase font-bold text-[var(--text-muted)] whitespace-nowrap">
                             Quick Auto-Tap:
                           </span>
                           <button
                             type="button"
                             onClick={() => handleAutoTapOutwardExact(targetRefundAmt)}
-                            className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-mono font-bold text-sky-400 hover:border-sky-400 hover:bg-sky-500/10 transition whitespace-nowrap"
+                            className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2.5 py-1 text-xs font-mono font-black text-sky-400 hover:border-sky-400 hover:bg-sky-500/10 transition whitespace-nowrap cursor-pointer"
                             title="Auto-fill exact note breakdown"
                           >
                             Exact ₹{targetRefundAmt.toFixed(2)}
@@ -1295,16 +2217,29 @@ export function CustomerReturnsModal({
                             <button
                               type="button"
                               onClick={() => handleAutoTapOutwardExact(smallestSingleNoteForOutward)}
-                              className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-mono font-bold text-[var(--text-primary)] hover:border-sky-400 hover:text-sky-400 transition whitespace-nowrap"
+                              className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2.5 py-1 text-xs font-mono font-black text-[var(--text-primary)] hover:border-sky-400 hover:text-sky-400 transition whitespace-nowrap cursor-pointer"
                               title={`Auto-fill single ₹${smallestSingleNoteForOutward} note`}
                             >
                               1× ₹{smallestSingleNoteForOutward} Note
                             </button>
                           )}
+                          {hasDecimalOutward && (
+                            <button
+                              type="button"
+                              onClick={() => setIsRoundOffActive(prev => !prev)}
+                              className={`rounded-xl px-2.5 py-1 text-xs font-mono font-black transition whitespace-nowrap cursor-pointer ${
+                                isRoundOffActive
+                                  ? "bg-amber-500 text-slate-950 font-black"
+                                  : "border border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20"
+                              }`}
+                            >
+                              ⚡ {isRoundOffActive ? "Rounded Active" : `Round Off (${deltaLabelOutward})`}
+                            </button>
+                          )}
                         </div>
 
                         {/* 3x3 Grid */}
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-3 gap-2.5">
                           {DENOMINATIONS.map((d) => {
                             const isSmartHighlight = smartHighlightedDenoms.has(d);
                             const count = refundCashDenoms[d] || 0;
@@ -1316,7 +2251,9 @@ export function CustomerReturnsModal({
                                     ? "border-sky-500 bg-sky-500 text-white ring-2 ring-sky-500/30 shadow-md"
                                     : isSmartHighlight
                                       ? "border-sky-500 bg-sky-500/10 text-sky-400 ring-2 ring-sky-500/50 shadow-sm scale-[1.02] hover:bg-sky-500/20"
-                                      : "border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-70 hover:opacity-100 hover:border-[var(--text-muted)]"
+                                      : activeCashDeck === "OUTWARD"
+                                        ? "border-sky-500/50 bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-sky-400 hover:bg-sky-500/10"
+                                        : "border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-70 hover:opacity-100 hover:border-[var(--text-muted)]"
                                 }`}
                               >
                                 {count > 0 && (
@@ -1326,21 +2263,25 @@ export function CustomerReturnsModal({
                                       e.stopPropagation();
                                       handleRefundDenomChange(d, -1);
                                     }}
-                                    className="flex items-center justify-center px-1.5 hover:bg-black/20 transition-colors border-r border-white/20 rounded-l-md"
-                                    title={`Remove 1× ₹${d}`}
+                                    className="flex items-center justify-center px-2 hover:bg-black/20 transition-colors border-r border-white/20 rounded-l-md cursor-pointer"
+                                    title={`Remove 1× ₹${d} (Shift+${DENOM_KEY_MAP[d]})`}
                                   >
-                                    <X className="w-3 h-3" />
+                                    <X className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                                 <button
                                   type="button"
                                   onClick={() => handleRefundDenomChange(d, 1)}
-                                  className="flex-1 py-2.5 px-2 text-center text-base"
+                                  className="flex-1 py-3 px-2 text-center text-lg cursor-pointer flex items-center justify-center gap-1.5"
+                                  title={`Add 1× ₹${d} (Numpad ${DENOM_KEY_MAP[d]})`}
                                 >
-                                  ₹{d}
+                                  <span className="text-[11px] font-mono font-medium opacity-50 px-1 py-0.5 rounded bg-black/15 border border-white/10">
+                                    {DENOM_KEY_MAP[d]}
+                                  </span>
+                                  <span>₹{d}</span>
                                 </button>
                                 {count > 0 && (
-                                  <span className="absolute -top-1.5 -right-1.5 flex h-[24px] w-[24px] items-center justify-center rounded-full bg-slate-950 text-white text-[11px] font-black border border-white pointer-events-none">
+                                  <span className="absolute -top-1.5 -right-1.5 flex h-[26px] w-[26px] items-center justify-center rounded-full bg-slate-950 text-white text-xs font-black border border-white pointer-events-none shadow-md">
                                     {count}
                                   </span>
                                 )}
@@ -1351,8 +2292,8 @@ export function CustomerReturnsModal({
 
                         {/* Active Breakdown Chips */}
                         {activeOutwardNotesList.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-[var(--border-subtle)]">
-                            <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] mr-1">
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border-subtle)]">
+                            <span className="text-xs uppercase font-bold text-[var(--text-muted)] mr-1">
                               Breakdown:
                             </span>
                             {activeOutwardNotesList.map(([denomStr, count]) => {
@@ -1360,13 +2301,13 @@ export function CustomerReturnsModal({
                               return (
                                 <span
                                   key={`outward-chip-${denomStr}`}
-                                  className="inline-flex items-center gap-1 rounded-md bg-[var(--bg-surface)] border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-mono font-bold text-[var(--text-primary)]"
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-1 text-xs font-mono font-bold text-[var(--text-primary)]"
                                 >
                                   ₹{denomStr} × {count}
                                   <button
                                     type="button"
                                     onClick={() => handleRefundDenomChange(denomNum, -1)}
-                                    className="ml-0.5 text-[var(--text-muted)] hover:text-rose-400"
+                                    className="ml-0.5 text-[var(--text-muted)] hover:text-rose-400 cursor-pointer"
                                   >
                                     ×
                                   </button>
@@ -1376,7 +2317,7 @@ export function CustomerReturnsModal({
                             <button
                               type="button"
                               onClick={handleResetOutwardNotes}
-                              className="ml-auto text-[10px] font-bold text-rose-400 hover:underline"
+                              className="ml-auto text-xs font-bold text-rose-400 hover:underline cursor-pointer"
                             >
                               Clear
                             </button>
@@ -1385,31 +2326,75 @@ export function CustomerReturnsModal({
                       </div>
 
                       {/* Inward Cash Section (Cash Received from Customer) */}
-                      <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3 space-y-2.5">
-                        <div className="flex justify-between items-center text-xs font-bold text-[var(--text-muted)] uppercase tracking-wider">
+                      <div
+                        ref={inwardDeckRef}
+                        onClick={() => {
+                          setActiveCashDeck("INWARD");
+                          scrollToCashDeck("INWARD");
+                        }}
+                        className={`rounded-2xl border p-4 space-y-3 shadow-xs transition-all cursor-pointer ${
+                          activeCashDeck === "INWARD"
+                            ? "border-emerald-500 ring-2 ring-emerald-500/50 bg-emerald-500/5 shadow-emerald-500/10 shadow-lg"
+                            : "border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] opacity-75 hover:opacity-100"
+                        }`}
+                      >
+                        <div className="flex justify-between items-center text-sm font-black uppercase tracking-wider">
                           <span className="flex items-center gap-2 text-[var(--text-primary)]">
                             {isNetRefund ? "Change / Cash Received (Inward)" : "Cash Received from Customer (Inward)"}
+                            {activeCashDeck === "INWARD" ? (
+                              <span className="text-[10px] font-mono font-bold text-emerald-400 bg-emerald-500/15 border border-emerald-500/40 px-2 py-0.5 rounded-md animate-pulse">
+                                kbd active [space ⇄]
+                              </span>
+                            ) : (
+                              <span className="text-[10px] font-mono text-[var(--text-muted)] border border-[var(--border-subtle)] px-1.5 py-0.5 rounded">
+                                click or [space]
+                              </span>
+                            )}
                           </span>
-                          <span className="font-mono text-sm font-black text-emerald-400">Total: ₹{inwardDenomTotal}</span>
+                          <span className="font-mono text-base font-black text-emerald-400">Total: ₹{inwardDenomTotal}</span>
                         </div>
 
-                        {remainingNeededInward > 0 && (
-                          <div className="text-center bg-[var(--bg-surface)] rounded-xl py-1.5 border border-[var(--border-strong)]">
-                            <span className="font-mono text-xs font-bold text-[var(--text-secondary)]">
-                              Need <span className="text-lg font-black text-emerald-400">₹{remainingNeededInward.toFixed(2)}</span> more
+                        {remainingNeededInward > 0 ? (
+                          <div className="flex items-center justify-between bg-[var(--bg-surface)] rounded-xl py-2 px-3.5 border border-[var(--border-strong)]">
+                            <span className="font-mono text-sm font-bold text-[var(--text-secondary)]">
+                              Need <span className="text-xl font-black text-emerald-400">₹{remainingNeededInward.toFixed(2)}</span> more
+                            </span>
+                            {hasDecimalInward && (
+                              <button
+                                type="button"
+                                onClick={() => setIsRoundOffActive(prev => !prev)}
+                                className={`rounded-xl px-3 py-1.5 text-xs font-black font-mono transition flex items-center gap-1 shadow-xs cursor-pointer ${
+                                  isRoundOffActive
+                                    ? "bg-amber-500 text-slate-950 font-black ring-2 ring-amber-500/40"
+                                    : "bg-amber-500/15 text-amber-300 border border-amber-500/40 hover:bg-amber-500/25"
+                                }`}
+                                title="Round off net exchange collection to nearest rupee"
+                              >
+                                <span>⚡ {isRoundOffActive ? `Rounded: ₹${roundedTargetInward.toFixed(2)}` : `Round Off (${deltaLabelInward})`}</span>
+                              </button>
+                            )}
+                          </div>
+                        ) : targetCollectionAmt > 0 && inwardDenomTotal > 0 && (inwardDenomTotal - refundDenomTotal === targetCollectionAmt) ? (
+                          <div className="flex items-center justify-between bg-emerald-500/15 rounded-xl py-2 px-3.5 border border-emerald-500/40 text-emerald-300 animate-in fade-in duration-200">
+                            <span className="font-mono text-sm font-black flex items-center gap-2">
+                              <CheckCircle2 className="w-5 h-5 text-emerald-400 shrink-0" />
+                              <span>Net Collection Satisfied: <span className="text-xl font-black text-emerald-200">₹{targetCollectionAmt.toFixed(2)}</span></span>
+                            </span>
+                            <span className="text-xs font-bold uppercase tracking-wider bg-emerald-500/20 text-emerald-300 px-2.5 py-1 rounded-md border border-emerald-500/30">
+                              Exact Cash ✓
                             </span>
                           </div>
-                        )}
+                        ) : null}
 
                         {/* Quick Auto-Tap Shortcuts Bar */}
-                        <div className="flex items-center gap-1.5 overflow-x-auto pb-0.5">
-                          <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] whitespace-nowrap">
+                        <div className="flex items-center gap-2 overflow-x-auto pb-0.5">
+                          <span className="text-xs uppercase font-bold text-[var(--text-muted)] whitespace-nowrap">
                             Quick Auto-Tap:
                           </span>
                           <button
                             type="button"
                             onClick={() => handleAutoTapInwardExact(targetCollectionAmt > 0 ? targetCollectionAmt : remainingNeededInward)}
-                            className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-mono font-bold text-emerald-400 hover:border-emerald-400 hover:bg-emerald-500/10 transition whitespace-nowrap"
+                            className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2.5 py-1 text-xs font-mono font-black text-emerald-400 hover:border-emerald-400 hover:bg-emerald-500/10 transition whitespace-nowrap cursor-pointer"
                             title="Auto-fill exact note breakdown"
                           >
                             Exact ₹{(targetCollectionAmt > 0 ? targetCollectionAmt : remainingNeededInward).toFixed(2)}
@@ -1418,16 +2403,29 @@ export function CustomerReturnsModal({
                             <button
                               type="button"
                               onClick={() => handleAutoTapInwardExact(smallestSingleNoteForInward)}
-                              className="rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-0.5 text-[10px] font-mono font-bold text-[var(--text-primary)] hover:border-emerald-400 hover:text-emerald-400 transition whitespace-nowrap"
+                              className="rounded-xl bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2.5 py-1 text-xs font-mono font-black text-[var(--text-primary)] hover:border-emerald-400 hover:text-emerald-400 transition whitespace-nowrap cursor-pointer"
                               title={`Auto-fill single ₹${smallestSingleNoteForInward} note`}
                             >
                               1× ₹{smallestSingleNoteForInward} Note
                             </button>
                           )}
+                          {hasDecimalInward && (
+                            <button
+                              type="button"
+                              onClick={() => setIsRoundOffActive(prev => !prev)}
+                              className={`rounded-xl px-2.5 py-1 text-xs font-mono font-black transition whitespace-nowrap cursor-pointer ${
+                                isRoundOffActive
+                                  ? "bg-amber-500 text-slate-950 font-black"
+                                  : "border border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20"
+                              }`}
+                            >
+                              ⚡ {isRoundOffActive ? "Rounded Active" : `Round Off (${deltaLabelInward})`}
+                            </button>
+                          )}
                         </div>
 
                         {/* 3x3 Grid */}
-                        <div className="grid grid-cols-3 gap-2">
+                        <div className="grid grid-cols-3 gap-2.5">
                           {DENOMINATIONS.map((d) => {
                             const isSmartHighlight = smartHighlightedInwardDenoms.has(d);
                             const count = inwardCashDenoms[d] || 0;
@@ -1439,7 +2437,9 @@ export function CustomerReturnsModal({
                                     ? "border-emerald-500 bg-emerald-500 text-white ring-2 ring-emerald-500/30 shadow-md"
                                     : isSmartHighlight
                                       ? "border-emerald-500 bg-emerald-500/10 text-emerald-400 ring-2 ring-emerald-500/50 shadow-sm scale-[1.02] hover:bg-emerald-500/20"
-                                      : "border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-70 hover:opacity-100 hover:border-[var(--text-muted)]"
+                                      : activeCashDeck === "INWARD"
+                                        ? "border-emerald-500/50 bg-[var(--bg-surface)] text-[var(--text-primary)] hover:border-emerald-400 hover:bg-emerald-500/10"
+                                        : "border-[var(--border-strong)] bg-[var(--bg-surface)] text-[var(--text-muted)] opacity-70 hover:opacity-100 hover:border-[var(--text-muted)]"
                                 }`}
                               >
                                 {count > 0 && (
@@ -1449,20 +2449,25 @@ export function CustomerReturnsModal({
                                       e.stopPropagation();
                                       handleInwardDenomChange(d, -1);
                                     }}
-                                    className="flex items-center justify-center px-1.5 hover:bg-black/20 transition-colors border-r border-white/20 rounded-l-md"
+                                    className="flex items-center justify-center px-2 hover:bg-black/20 transition-colors border-r border-white/20 rounded-l-md cursor-pointer"
+                                    title={`Remove 1× ₹${d} (Shift+${DENOM_KEY_MAP[d]})`}
                                   >
-                                    <X className="w-3 h-3" />
+                                    <X className="w-3.5 h-3.5" />
                                   </button>
                                 )}
                                 <button
                                   type="button"
                                   onClick={() => handleInwardDenomChange(d, 1)}
-                                  className="flex-1 py-2.5 px-2 text-center text-base"
+                                  className="flex-1 py-3 px-2 text-center text-lg cursor-pointer flex items-center justify-center gap-1.5"
+                                  title={`Add 1× ₹${d} (Numpad ${DENOM_KEY_MAP[d]})`}
                                 >
-                                  ₹{d}
+                                  <span className="text-[11px] font-mono font-medium opacity-50 px-1 py-0.5 rounded bg-black/15 border border-white/10">
+                                    {DENOM_KEY_MAP[d]}
+                                  </span>
+                                  <span>₹{d}</span>
                                 </button>
                                 {count > 0 && (
-                                  <span className="absolute -top-1.5 -right-1.5 flex h-[24px] w-[24px] items-center justify-center rounded-full bg-slate-950 text-white text-[11px] font-black border border-white pointer-events-none">
+                                  <span className="absolute -top-1.5 -right-1.5 flex h-[26px] w-[26px] items-center justify-center rounded-full bg-slate-950 text-white text-xs font-black border border-white pointer-events-none shadow-md">
                                     {count}
                                   </span>
                                 )}
@@ -1473,8 +2478,8 @@ export function CustomerReturnsModal({
 
                         {/* Active Breakdown Chips */}
                         {activeInwardNotesList.length > 0 && (
-                          <div className="flex flex-wrap items-center gap-1.5 pt-1.5 border-t border-[var(--border-subtle)]">
-                            <span className="text-[10px] uppercase font-bold text-[var(--text-muted)] mr-1">
+                          <div className="flex flex-wrap items-center gap-2 pt-2 border-t border-[var(--border-subtle)]">
+                            <span className="text-xs uppercase font-bold text-[var(--text-muted)] mr-1">
                               Breakdown:
                             </span>
                             {activeInwardNotesList.map(([denomStr, count]) => {
@@ -1482,13 +2487,13 @@ export function CustomerReturnsModal({
                               return (
                                 <span
                                   key={`inward-chip-${denomStr}`}
-                                  className="inline-flex items-center gap-1 rounded-md bg-[var(--bg-surface)] border border-[var(--border-strong)] px-1.5 py-0.5 text-[10px] font-mono font-bold text-[var(--text-primary)]"
+                                  className="inline-flex items-center gap-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] px-2 py-1 text-xs font-mono font-bold text-[var(--text-primary)]"
                                 >
                                   ₹{denomStr} × {count}
                                   <button
                                     type="button"
                                     onClick={() => handleInwardDenomChange(denomNum, -1)}
-                                    className="ml-0.5 text-[var(--text-muted)] hover:text-rose-400"
+                                    className="ml-0.5 text-[var(--text-muted)] hover:text-rose-400 cursor-pointer"
                                   >
                                     ×
                                   </button>
@@ -1498,7 +2503,7 @@ export function CustomerReturnsModal({
                             <button
                               type="button"
                               onClick={handleResetInwardNotes}
-                              className="ml-auto text-[10px] font-bold text-rose-400 hover:underline"
+                              className="ml-auto text-xs font-bold text-rose-400 hover:underline cursor-pointer"
                             >
                               Clear
                             </button>
@@ -1510,78 +2515,110 @@ export function CustomerReturnsModal({
                 )}
 
                 {/* Summary Balance Card */}
-                <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3.5 space-y-2 text-xs font-mono">
-                  <div className="flex justify-between text-[var(--text-muted)]">
+                <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-4 space-y-2.5 text-sm font-mono shadow-xs">
+                  <div className="flex justify-between items-center text-[var(--text-secondary)]">
                     <span>Return Items Total:</span>
-                    <span className="font-bold text-sky-400">₹{returnCreditTotal.toFixed(2)}</span>
+                    <span className="font-bold text-base text-sky-400">₹{returnCreditTotal.toFixed(2)}</span>
                   </div>
                   {exchangeItemsTotal > 0 && (
-                    <div className="flex justify-between text-[var(--text-muted)]">
+                    <div className="flex justify-between items-center text-[var(--text-secondary)]">
                       <span>Exchange Items Total:</span>
-                      <span className="font-bold text-[var(--text-primary)]">₹{exchangeItemsTotal.toFixed(2)}</span>
+                      <span className="font-bold text-base text-[var(--text-primary)]">₹{exchangeItemsTotal.toFixed(2)}</span>
                     </div>
                   )}
-                  <div className="flex justify-between items-center text-[var(--text-muted)]">
+                  <div className="flex justify-between items-center text-[var(--text-secondary)]">
                     <span>Net Transaction Base:</span>
-                    <span className="font-bold text-[var(--text-primary)]">
-                      {isNetRefund ? `Refund Owed: ₹${rawRefundOwed.toFixed(2)}` : `Payable by Customer: ₹${rawAdditionalPayable.toFixed(2)}`}
-                    </span>
+                    <div className="flex items-center gap-2.5">
+                      <span className="font-bold text-base text-[var(--text-primary)]">
+                        {isNetRefund ? `Refund Owed: ₹${rawRefundOwed.toFixed(2)}` : `Payable by Customer: ₹${rawAdditionalPayable.toFixed(2)}`}
+                      </span>
+                      {hasDecimal && (
+                        <button
+                          type="button"
+                          onClick={() => setIsRoundOffActive(prev => !prev)}
+                          className={`rounded-xl px-2.5 py-1 text-xs font-mono font-black transition whitespace-nowrap cursor-pointer flex items-center gap-1 ${
+                            isRoundOffActive
+                              ? "bg-amber-500 text-slate-950 font-black shadow-xs ring-2 ring-amber-400"
+                              : "border border-amber-500/40 text-amber-300 bg-amber-500/10 hover:bg-amber-500/20"
+                          }`}
+                          title="Toggle round off to nearest rupee"
+                        >
+                          ⚡ {isRoundOffActive ? `Rounded: ₹${(isNetRefund ? roundedTargetOutward : roundedTargetInward).toFixed(2)}` : `Round Off (${isNetRefund ? deltaLabelOutward : deltaLabelInward})`}
+                        </button>
+                      )}
+                    </div>
                   </div>
 
                   {/* Wallet Adjustments in Breakdown */}
                   {refundDebtToSettle > 0 && (
-                    <div className="flex justify-between text-emerald-400 text-[11px]">
+                    <div className="flex justify-between text-emerald-400 text-xs font-bold">
                       <span>Less Debt Settled from Refund:</span>
-                      <span className="font-bold">-₹{refundDebtToSettle.toFixed(2)}</span>
+                      <span>-₹{refundDebtToSettle.toFixed(2)}</span>
                     </div>
                   )}
                   {cashedOutCredit > 0 && (
-                    <div className="flex justify-between text-amber-400 text-[11px]">
+                    <div className="flex justify-between text-amber-400 text-xs font-bold">
                       <span>Add Store Credit Cash-Out:</span>
-                      <span className="font-bold">+₹{cashedOutCredit.toFixed(2)}</span>
+                      <span>+₹{cashedOutCredit.toFixed(2)}</span>
                     </div>
                   )}
                   {appliedCredit > 0 && (
-                    <div className="flex justify-between text-emerald-400 text-[11px]">
+                    <div className="flex justify-between text-emerald-400 text-xs font-bold">
                       <span>Less Store Credit Applied:</span>
-                      <span className="font-bold">-₹{appliedCredit.toFixed(2)}</span>
+                      <span>-₹{appliedCredit.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {isRoundOffActive && Math.abs(activeRoundOff) > 0.001 && (
+                    <div className="flex justify-between text-amber-400 text-xs font-bold">
+                      <span>Round Off Adjustment:</span>
+                      <span>{activeRoundOff > 0 ? "+" : ""}₹{activeRoundOff.toFixed(2)}</span>
                     </div>
                   )}
                   {/* Live Net Cash Tapped Status */}
                   {refundMethod === "CASH" && (refundDenomTotal > 0 || inwardDenomTotal > 0) && (
-                    <div className="flex justify-between items-center text-xs border-t border-[var(--border-subtle)] pt-1.5 font-bold font-mono">
-                      <span className="text-[var(--text-muted)]">
+                    <div className="flex justify-between items-center text-sm border-t border-[var(--border-subtle)] pt-2 font-bold font-mono">
+                      <span className="text-[var(--text-secondary)]">
                         {isNetRefund ? "Net Cash Dispensed (Out - In):" : "Net Cash Received (In - Out):"}
                       </span>
-                      <span className={
-                        (isNetRefund ? (refundDenomTotal - inwardDenomTotal === targetRefundAmt) : (inwardDenomTotal - refundDenomTotal === targetCollectionAmt))
-                          ? "text-emerald-400 font-black"
-                          : "text-amber-400 font-black"
-                      }>
-                        ₹{Math.abs(refundDenomTotal - inwardDenomTotal).toFixed(2)}
-                        {isNetRefund && (refundDenomTotal - inwardDenomTotal !== targetRefundAmt) && (
-                          <span className="text-[10px] font-normal text-amber-400/80 ml-1">
-                            ({refundDenomTotal - inwardDenomTotal > targetRefundAmt ? `₹${(refundDenomTotal - inwardDenomTotal - targetRefundAmt).toFixed(2)} extra given` : `₹${(targetRefundAmt - (refundDenomTotal - inwardDenomTotal)).toFixed(2)} short`})
+                      {netSatisfactionStatus.isSatisfied && (netSatisfactionStatus.reason === "EXACT_CASH" || netSatisfactionStatus.reason === "BALANCED_CREDIT" || netSatisfactionStatus.reason === "BALANCED_DEBT") ? (
+                        <div className="flex items-center gap-2">
+                          <span className="text-emerald-400 font-black text-base font-mono">
+                            ₹{Math.abs(refundDenomTotal - inwardDenomTotal).toFixed(2)}
                           </span>
-                        )}
-                        {!isNetRefund && (inwardDenomTotal - refundDenomTotal !== targetCollectionAmt) && (
-                          <span className="text-[10px] font-normal text-amber-400/80 ml-1">
-                            ({inwardDenomTotal - refundDenomTotal > targetCollectionAmt ? `₹${(inwardDenomTotal - refundDenomTotal - targetCollectionAmt).toFixed(2)} extra paid` : `₹${(targetCollectionAmt - (inwardDenomTotal - refundDenomTotal)).toFixed(2)} short`})
+                          <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-black bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 animate-in fade-in">
+                            <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                            Satisfied
                           </span>
-                        )}
-                      </span>
+                        </div>
+                      ) : (
+                        <span className="text-amber-400 font-black text-base font-mono">
+                          ₹{Math.abs(refundDenomTotal - inwardDenomTotal).toFixed(2)}
+                          {isNetRefund && (refundDenomTotal - inwardDenomTotal !== targetRefundAmt) && (
+                            <span className="text-xs font-semibold text-amber-400/80 ml-1.5 font-sans">
+                              ({refundDenomTotal - inwardDenomTotal > targetRefundAmt ? `₹${(refundDenomTotal - inwardDenomTotal - targetRefundAmt).toFixed(2)} extra given` : `₹${(targetRefundAmt - (refundDenomTotal - inwardDenomTotal)).toFixed(2)} short`})
+                            </span>
+                          )}
+                          {!isNetRefund && (inwardDenomTotal - refundDenomTotal !== targetCollectionAmt) && (
+                            <span className="text-xs font-semibold text-amber-400/80 ml-1.5 font-sans">
+                              ({inwardDenomTotal - refundDenomTotal > targetCollectionAmt ? `₹${(inwardDenomTotal - refundDenomTotal - targetCollectionAmt).toFixed(2)} extra paid` : `₹${(targetCollectionAmt - (inwardDenomTotal - refundDenomTotal)).toFixed(2)} short`})
+                            </span>
+                          )}
+                        </span>
+                      )}
                     </div>
                   )}
 
-                  <div className="flex justify-between items-center border-t border-[var(--border-subtle)] pt-2 font-bold font-sans text-xs">
-                    <span className="text-[var(--text-primary)]">
+                  <div className="flex justify-between items-center border-t border-[var(--border-subtle)] pt-2.5 font-bold font-sans">
+                    <span className="text-[var(--text-primary)] text-sm">
                       {refundMethod === "STORE_CREDIT"
                         ? "Total Store Credit Awarded:"
                         : isNetRefund
                         ? "Net Cash to Dispense to Customer:"
                         : "Net Cash to Collect from Customer:"}
                     </span>
-                    <span className="font-mono text-base font-black text-sky-400">
+                    <span className={`font-mono text-2xl font-black transition-colors ${
+                      netSatisfactionStatus.isSatisfied ? "text-emerald-400" : "text-sky-400"
+                    }`}>
                       ₹{refundMethod === "STORE_CREDIT"
                         ? rawRefundOwed.toFixed(2)
                         : isNetRefund
@@ -1589,10 +2626,47 @@ export function CustomerReturnsModal({
                         : targetCollectionAmt.toFixed(2)}
                     </span>
                   </div>
+
+                  {/* Visual Status Indicator: Visible as soon as net is satisfied */}
+                  {netSatisfactionStatus.isSatisfied ? (
+                    <div className="flex items-center justify-between p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 animate-in fade-in duration-200 shadow-sm mt-1">
+                      <div className="flex items-center gap-2.5">
+                        <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-slate-950 font-black">
+                          <Check className="h-3.5 w-3.5 stroke-[3]" />
+                        </div>
+                        <div>
+                          <span className="font-bold text-sm block text-emerald-200 leading-tight">
+                            Net Transaction Satisfied
+                          </span>
+                          <span className="text-xs text-emerald-300/80 block font-mono">
+                            {netSatisfactionStatus.label}
+                          </span>
+                        </div>
+                      </div>
+                      <span className="px-2.5 py-1 rounded-lg bg-emerald-500/25 border border-emerald-500/40 text-emerald-200 text-xs font-black tracking-wider uppercase flex items-center gap-1">
+                        Ready ↵
+                      </span>
+                    </div>
+                  ) : (
+                    refundMethod === "CASH" && (refundDenomTotal > 0 || inwardDenomTotal > 0) && (
+                      <div className="flex items-center justify-between p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs font-mono mt-1">
+                        <div className="flex items-center gap-2">
+                          <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                          <span>
+                            {netSatisfactionStatus.reason === "CASH_SHORT"
+                              ? `Cash ${isNetRefund ? "refund" : "payment"} short by ₹${netSatisfactionStatus.diff?.toFixed(2)}`
+                              : netSatisfactionStatus.reason === "CASH_EXTRA"
+                              ? `Extra ₹${netSatisfactionStatus.diff?.toFixed(2)} cash given`
+                              : netSatisfactionStatus.label}
+                          </span>
+                        </div>
+                      </div>
+                    )
+                  )}
                 </div>
 
                 {/* --- CUSTOMER WALLET & CASH ADJUSTMENTS --- */}
-                {isCustomerLinked && customerAnalytics ? (
+                {isCustomerLinked && customerAnalytics && (
                   <div className="space-y-3 mt-3 border-t border-[var(--border-subtle)] pt-3">
                     {/* Live Wallet Balance UI */}
                     {(() => {
@@ -1643,32 +2717,32 @@ export function CustomerReturnsModal({
                       const isModified = Math.abs(projectedBalance - (customerAnalytics.credit_balance || 0)) > 0.001;
 
                       return (
-                        <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3 flex items-center justify-between shadow-sm">
-                          <div className="flex items-center gap-2.5">
-                            <Wallet className="h-4 w-4 text-sky-400" />
+                        <div className="rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-3.5 flex items-center justify-between shadow-sm">
+                          <div className="flex items-center gap-3">
+                            <Wallet className="h-5 w-5 text-sky-400" />
                             <div>
-                              <span className="text-xs font-bold text-[var(--text-primary)] block">
+                              <span className="text-sm font-bold text-[var(--text-primary)] block">
                                 Customer Wallet
                               </span>
-                              <span className="text-[10px] text-[var(--text-muted)] font-mono">
+                              <span className="text-xs text-[var(--text-muted)] font-mono font-medium">
                                 {customerAnalytics.customer_name || effectiveCustomerName || "Customer"} • {customerAnalytics.customer_phone || effectiveCustomerPhone}
                               </span>
                             </div>
                           </div>
                           <div className="text-right">
-                            <div className="text-[10px] text-[var(--text-muted)] font-semibold">
+                            <div className="text-xs text-[var(--text-muted)] font-bold mb-0.5">
                               {isModified ? "Projected Balance After Return:" : "Current Balance:"}
                             </div>
                             {projectedBalance > 0.001 ? (
-                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-emerald-400"}`}>
-                                ₹{projectedBalance.toFixed(2)} <span className={`text-[10px] ${isModified ? "text-amber-400/80" : "text-emerald-500/80"}`}>(Cr)</span>
+                              <span className={`font-mono text-base font-black transition-colors ${isModified ? "text-amber-400" : "text-emerald-400"}`}>
+                                ₹{projectedBalance.toFixed(2)} <span className={`text-xs font-bold ${isModified ? "text-amber-400/80" : "text-emerald-500/80"}`}>(Cr)</span>
                               </span>
                             ) : projectedBalance < -0.001 ? (
-                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-rose-400"}`}>
-                                -₹{Math.abs(projectedBalance).toFixed(2)} <span className={`text-[10px] ${isModified ? "text-amber-400/80" : "text-rose-500/80"}`}>(Dr / Udhaar)</span>
+                              <span className={`font-mono text-base font-black transition-colors ${isModified ? "text-amber-400" : "text-rose-400"}`}>
+                                -₹{Math.abs(projectedBalance).toFixed(2)} <span className={`text-xs font-bold ${isModified ? "text-amber-400/80" : "text-rose-500/80"}`}>(Dr / Udhaar)</span>
                               </span>
                             ) : (
-                              <span className={`font-mono text-sm font-black transition-colors ${isModified ? "text-amber-400" : "text-[var(--text-muted)]"}`}>
+                              <span className={`font-mono text-base font-black transition-colors ${isModified ? "text-amber-400" : "text-[var(--text-muted)]"}`}>
                                 ₹0.00
                               </span>
                             )}
@@ -1679,24 +2753,24 @@ export function CustomerReturnsModal({
 
                     {/* Options when Refund Method is NOT Store Credit */}
                     {refundMethod !== "STORE_CREDIT" && (
-                      <div className="space-y-2">
+                      <div className="space-y-2.5">
                         {/* NET REFUND CASES */}
                         {isNetRefund ? (
                           <>
                             {/* Case A: Customer has debt, allow settling debt from refund */}
                             {customerAnalytics.credit_balance < 0 && (
-                              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
+                              <label className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
                                 <input
                                   type="checkbox"
                                   checked={settleDebit}
                                   onChange={(e) => setSettleDebit(e.target.checked)}
-                                  className="mt-0.5 accent-emerald-500"
+                                  className="mt-1 h-4 w-4 rounded accent-emerald-500"
                                 />
-                                <div className="text-xs">
-                                  <span className="font-bold text-emerald-400 block">
+                                <div className="space-y-0.5">
+                                  <span className="text-sm font-bold text-emerald-400 block">
                                     Settle ₹{Math.min(rawRefundOwed, Math.abs(customerAnalytics.credit_balance)).toFixed(2)} of existing Debt (Udhaar)
                                   </span>
-                                  <span className="text-[11px] text-emerald-400/80">
+                                  <span className="text-xs text-emerald-400/90 font-medium block">
                                     Deduct up to outstanding debt from the refund amount instead of giving cash.
                                   </span>
                                 </div>
@@ -1705,9 +2779,9 @@ export function CustomerReturnsModal({
 
                             {/* Case B: Customer has store credit, allow cashing out */}
                             {customerAnalytics.credit_balance > 0 && (
-                              <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-2.5 flex items-center gap-2 text-xs border border-[var(--border-strong)]">
-                                <span className="font-bold text-[var(--text-muted)] text-[11px]">Cash Out Store Credit:</span>
-                                <div className="flex items-center gap-1.5 ml-auto">
+                              <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-3 flex items-center justify-between gap-3 border border-[var(--border-strong)]">
+                                <span className="font-bold text-[var(--text-secondary)] text-xs uppercase tracking-wider">Cash Out Store Credit:</span>
+                                <div className="flex items-center gap-2">
                                   <input
                                     type="number"
                                     min="0"
@@ -1715,12 +2789,12 @@ export function CustomerReturnsModal({
                                     value={creditCashedOut}
                                     onChange={(e) => setCreditCashedOut(e.target.value)}
                                     placeholder="₹0"
-                                    className="w-20 px-2 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)] font-mono font-bold text-xs"
+                                    className="w-24 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)] font-mono font-bold text-sm"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => setCreditCashedOut(customerAnalytics.credit_balance.toString())}
-                                    className="text-[10px] bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 font-bold px-2 py-1 rounded-md transition"
+                                    className="text-xs bg-sky-500/20 text-sky-400 hover:bg-sky-500/30 font-black px-3 py-1.5 rounded-md transition"
                                   >
                                     MAX
                                   </button>
@@ -1735,18 +2809,18 @@ export function CustomerReturnsModal({
                               if (netCashGiven < targetRefundAmt && targetRefundAmt > 0) {
                                 const unpaid = targetRefundAmt - netCashGiven;
                                 return (
-                                  <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer hover:bg-sky-500/15 transition">
+                                  <label className="flex items-start gap-3 p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer hover:bg-sky-500/15 transition">
                                     <input
                                       type="checkbox"
                                       checked={autoConvertCredit}
                                       onChange={(e) => setAutoConvertCredit(e.target.checked)}
-                                      className="mt-0.5 accent-sky-500"
+                                      className="mt-1 h-4 w-4 rounded accent-sky-500"
                                     />
-                                    <div className="text-xs">
-                                      <span className="font-bold text-sky-400 block">
+                                    <div className="space-y-0.5">
+                                      <span className="text-sm font-bold text-sky-400 block">
                                         Convert remaining ₹{unpaid.toFixed(2)} refund to Store Credit
                                       </span>
-                                      <span className="text-[11px] text-sky-400/80">
+                                      <span className="text-xs text-sky-400/90 font-medium block">
                                         Dispensed ₹{netCashGiven.toFixed(2)} cash. Save the remaining change in customer's store credit.
                                       </span>
                                     </div>
@@ -1757,18 +2831,18 @@ export function CustomerReturnsModal({
                               if (netCashGiven > targetRefundAmt) {
                                 const extraCash = netCashGiven - targetRefundAmt;
                                 return (
-                                  <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition">
+                                  <label className="flex items-start gap-3 p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 cursor-pointer hover:bg-rose-500/15 transition">
                                     <input
                                       type="checkbox"
                                       checked={autoRecordExtraChangeAsDebt}
                                       onChange={(e) => setAutoRecordExtraChangeAsDebt(e.target.checked)}
-                                      className="mt-0.5 accent-rose-500"
+                                      className="mt-1 h-4 w-4 rounded accent-rose-500"
                                     />
-                                    <div className="text-xs">
-                                      <span className="font-bold text-rose-400 block">
+                                    <div className="space-y-0.5">
+                                      <span className="text-sm font-bold text-rose-400 block">
                                         Record extra ₹{extraCash.toFixed(2)} cash given as Debt (Udhaar)
                                       </span>
-                                      <span className="text-[11px] text-rose-400/80">
+                                      <span className="text-xs text-rose-400/90 font-medium block">
                                         Gave customer more cash than owed. Add the excess to their debt balance.
                                       </span>
                                     </div>
@@ -1783,9 +2857,9 @@ export function CustomerReturnsModal({
                           <>
                             {/* Case A: Apply Store Credit towards exchange */}
                             {customerAnalytics.credit_balance > 0 && (
-                              <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-2.5 flex items-center gap-2 text-xs border border-[var(--border-strong)]">
-                                <span className="font-bold text-[var(--text-muted)] text-[11px]">Apply Store Credit:</span>
-                                <div className="flex items-center gap-1.5 ml-auto">
+                              <div className="rounded-xl bg-[var(--bg-surface-elevated)] p-3 flex items-center justify-between gap-3 border border-[var(--border-strong)]">
+                                <span className="font-bold text-[var(--text-secondary)] text-xs uppercase tracking-wider">Apply Store Credit:</span>
+                                <div className="flex items-center gap-2">
                                   <input
                                     type="number"
                                     min="0"
@@ -1793,12 +2867,12 @@ export function CustomerReturnsModal({
                                     value={applyCreditAmount}
                                     onChange={(e) => setApplyCreditAmount(e.target.value)}
                                     placeholder="₹0"
-                                    className="w-20 px-2 py-1 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)] font-mono font-bold text-xs"
+                                    className="w-24 px-3 py-1.5 rounded-lg bg-[var(--bg-surface)] border border-[var(--border-strong)] text-[var(--text-primary)] font-mono font-bold text-sm"
                                   />
                                   <button
                                     type="button"
                                     onClick={() => setApplyCreditAmount(Math.min(customerAnalytics.credit_balance, rawAdditionalPayable).toString())}
-                                    className="text-[10px] bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 font-bold px-2 py-1 rounded-md transition"
+                                    className="text-xs bg-emerald-500/20 text-emerald-400 hover:bg-emerald-500/30 font-black px-3 py-1.5 rounded-md transition"
                                   >
                                     MAX
                                   </button>
@@ -1808,18 +2882,18 @@ export function CustomerReturnsModal({
 
                             {/* Case B: Settle old debt alongside exchange */}
                             {customerAnalytics.credit_balance < 0 && (
-                              <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer hover:bg-sky-500/15 transition">
+                              <label className="flex items-start gap-3 p-3 rounded-xl bg-sky-500/10 border border-sky-500/30 cursor-pointer hover:bg-sky-500/15 transition">
                                 <input
                                   type="checkbox"
                                   checked={settleDebit}
                                   onChange={(e) => setSettleDebit(e.target.checked)}
-                                  className="mt-0.5 accent-sky-500"
+                                  className="mt-1 h-4 w-4 rounded accent-sky-500"
                                 />
-                                <div className="text-xs">
-                                  <span className="font-bold text-sky-400 block">
+                                <div className="space-y-0.5">
+                                  <span className="text-sm font-bold text-sky-400 block">
                                     Collect &amp; Settle ₹{Math.abs(customerAnalytics.credit_balance).toFixed(2)} of old Debt (Udhaar)
                                   </span>
-                                  <span className="text-[11px] text-sky-400/80">
+                                  <span className="text-xs text-sky-400/90 font-medium block">
                                     Collect customer's outstanding debt alongside this exchange payment.
                                   </span>
                                 </div>
@@ -1833,18 +2907,18 @@ export function CustomerReturnsModal({
                               if (netCashPaid < targetCollectionAmt && targetCollectionAmt > 0) {
                                 const shortfall = targetCollectionAmt - netCashPaid;
                                 return (
-                                  <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 cursor-pointer hover:bg-amber-500/15 transition">
+                                  <label className="flex items-start gap-3 p-3 rounded-xl bg-amber-500/10 border border-amber-500/30 cursor-pointer hover:bg-amber-500/15 transition">
                                     <input
                                       type="checkbox"
                                       checked={autoRecordDebitOnShortfall}
                                       onChange={(e) => setAutoRecordDebitOnShortfall(e.target.checked)}
-                                      className="mt-0.5 accent-amber-500"
+                                      className="mt-1 h-4 w-4 rounded accent-amber-500"
                                     />
-                                    <div className="text-xs">
-                                      <span className="font-bold text-amber-400 block">
+                                    <div className="space-y-0.5">
+                                      <span className="text-sm font-bold text-amber-400 block">
                                         Record ₹{shortfall.toFixed(2)} shortfall as Debt (Udhaar)
                                       </span>
-                                      <span className="text-[11px] text-amber-400/80">
+                                      <span className="text-xs text-amber-400/90 font-medium block">
                                         Customer paid less cash than required. Record remaining balance as udhaar.
                                       </span>
                                     </div>
@@ -1855,18 +2929,18 @@ export function CustomerReturnsModal({
                               if (netCashPaid > targetCollectionAmt) {
                                 const extraCash = netCashPaid - targetCollectionAmt;
                                 return (
-                                  <label className="flex items-start gap-2.5 p-2.5 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
+                                  <label className="flex items-start gap-3 p-3 rounded-xl bg-emerald-500/10 border border-emerald-500/30 cursor-pointer hover:bg-emerald-500/15 transition">
                                     <input
                                       type="checkbox"
                                       checked={autoConvertCredit}
                                       onChange={(e) => setAutoConvertCredit(e.target.checked)}
-                                      className="mt-0.5 accent-emerald-500"
+                                      className="mt-1 h-4 w-4 rounded accent-emerald-500"
                                     />
-                                    <div className="text-xs">
-                                      <span className="font-bold text-emerald-400 block">
+                                    <div className="space-y-0.5">
+                                      <span className="text-sm font-bold text-emerald-400 block">
                                         Convert ₹{extraCash.toFixed(2)} extra cash into Store Credit
                                       </span>
-                                      <span className="text-[11px] text-emerald-400/80">
+                                      <span className="text-xs text-emerald-400/90 font-medium block">
                                         Customer paid extra cash and did not take change. Add to their wallet.
                                       </span>
                                     </div>
@@ -1880,46 +2954,228 @@ export function CustomerReturnsModal({
                       </div>
                     )}
                   </div>
-                ) : (
-                  /* When customer is not yet linked or no phone entered */
-                  <div className="rounded-2xl border border-dashed border-[var(--border-strong)] p-3 text-center space-y-1.5 mt-3">
-                    <p className="text-xs font-semibold text-[var(--text-muted)]">
-                      Customer mobile number not linked.
-                    </p>
-                    <button
-                      type="button"
-                      onClick={() => setShowPhonePrompt(true)}
-                      className="text-xs text-sky-400 hover:text-sky-300 font-bold underline cursor-pointer"
-                    >
-                      + Link customer mobile to use Store Credit &amp; Udhaar
-                    </button>
-                  </div>
                 )}
               </div>
             )}
 
             {/* Footer Action */}
-            <div className="pt-3 border-t border-[var(--border-subtle)] flex items-center justify-between flex-shrink-0">
+            <div className="pt-4 border-t border-[var(--border-subtle)] flex items-center justify-between flex-shrink-0">
               <button
                 type="button"
                 onClick={onClose}
-                className="rounded-xl border border-[var(--border-strong)] px-4 py-2 text-xs font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] transition"
+                className="rounded-2xl border border-[var(--border-strong)] px-6 py-3 text-sm font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
-                disabled={returnCreditTotal <= 0}
+                disabled={returnCreditTotal <= 0 || isSubmitting}
                 onClick={handleSubmitReturn}
-                className="rounded-xl bg-sky-500 px-5 py-2 text-xs font-bold text-white shadow-md hover:bg-sky-600 transition disabled:opacity-50 flex items-center gap-1.5"
+                className={`rounded-2xl px-7 py-3.5 text-base font-black text-white shadow-xl transition flex items-center gap-2 cursor-pointer disabled:opacity-50 ${
+                  netSatisfactionStatus.isSatisfied
+                    ? "bg-emerald-500 hover:bg-emerald-600 shadow-emerald-500/25 ring-2 ring-emerald-400/40"
+                    : "bg-sky-500 hover:bg-sky-600"
+                }`}
               >
-                <RotateCcw className="h-4 w-4" />
-                <span>Process Return &amp; Restock</span>
+                {isSubmitting ? (
+                  <RotateCcw className="h-5 w-5 animate-spin" />
+                ) : netSatisfactionStatus.isSatisfied ? (
+                  <CheckCircle2 className="h-5 w-5 text-white" />
+                ) : (
+                  <RotateCcw className="h-5 w-5" />
+                )}
+                <span>{isSubmitting ? "Processing Return..." : "Process Return & Restock"}</span>
+                {returnCreditTotal > 0 && !isSubmitting && (
+                  <span className="ml-1 opacity-75 font-mono text-xs bg-black/20 px-1.5 py-0.5 rounded border border-white/20">
+                    ↵ Enter
+                  </span>
+                )}
               </button>
             </div>
           </div>
         </div>
       </div>
+
+      {/* Link Customer Modal Dialog */}
+      {showPhonePrompt && (
+        <div className="fixed inset-0 z-[150] flex items-center justify-center bg-black/80 backdrop-blur-xs p-4">
+          <div
+            className="w-full max-w-md bg-[var(--bg-surface-elevated)] border border-[var(--border-strong)] rounded-3xl p-6 shadow-2xl space-y-5"
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              if (e.key === "Escape") {
+                e.preventDefault();
+                lastPhonePromptCloseTime.current = Date.now();
+                setShowPhonePrompt(false);
+              }
+            }}
+          >
+            <div className="flex items-center justify-between border-b border-[var(--border-subtle)] pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="p-2.5 rounded-2xl bg-sky-500/15 text-sky-400">
+                  <UserPlus className="h-6 w-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-[var(--text-primary)]">Link Customer</h3>
+                  <p className="text-xs text-[var(--text-muted)]">Required for Store Credit &amp; Udhaar records</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  lastPhonePromptCloseTime.current = Date.now();
+                  setShowPhonePrompt(false);
+                }}
+                className="p-2 rounded-xl text-[var(--text-muted)] hover:text-[var(--text-primary)] hover:bg-[var(--bg-surface)] transition cursor-pointer"
+              >
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Customer Mobile */}
+              <div className="relative" ref={suggestionsRef}>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">
+                  Customer Mobile (10 digits) *
+                </label>
+                <input
+                  type="tel"
+                  maxLength={10}
+                  autoFocus
+                  placeholder="e.g. 9876543210"
+                  value={customerPhoneOverride}
+                  onChange={(e) => handlePhoneInputChange(e.target.value)}
+                  onFocus={() => {
+                    const currentVal = customerPhoneOverride.trim();
+                    if (currentVal.length >= 2) {
+                      setShowSuggestions(true);
+                      if (customerSuggestions.length === 0) {
+                        void handlePhoneInputChange(currentVal);
+                      }
+                    }
+                  }}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "ArrowDown" && showSuggestions && customerSuggestions.length > 0) {
+                      e.preventDefault();
+                      setHighlightedSuggestionIndex((prev) => Math.min(prev + 1, customerSuggestions.length - 1));
+                    } else if (e.key === "ArrowUp" && showSuggestions && customerSuggestions.length > 0) {
+                      e.preventDefault();
+                      setHighlightedSuggestionIndex((prev) => Math.max(prev - 1, -1));
+                    } else if (e.key === "Enter") {
+                      e.preventDefault();
+                      if (showSuggestions && highlightedSuggestionIndex >= 0 && highlightedSuggestionIndex < customerSuggestions.length) {
+                        handleSelectCustomerSuggestion(customerSuggestions[highlightedSuggestionIndex]);
+                      } else {
+                        handleSaveAndLinkCustomer();
+                      }
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      if (showSuggestions) {
+                        setShowSuggestions(false);
+                      } else {
+                        lastPhonePromptCloseTime.current = Date.now();
+                        setShowPhonePrompt(false);
+                      }
+                    }
+                  }}
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-base font-mono font-bold text-[var(--text-primary)] focus:border-sky-400 focus:outline-none"
+                />
+                {customerPhoneOverride && customerPhoneOverride.length < 10 && (
+                  <span className="text-xs text-rose-400 block mt-1 font-medium">
+                    Min 10 digits ({customerPhoneOverride.length}/10)
+                  </span>
+                )}
+
+                {/* Suggestions dropdown */}
+                {showSuggestions && customerSuggestions.length > 0 && (
+                  <div className="absolute left-0 top-full mt-1.5 z-50 w-full rounded-2xl border border-[var(--border-strong)] bg-[var(--bg-surface-elevated)] p-2 shadow-2xl max-h-56 overflow-y-auto space-y-1.5">
+                    {customerSuggestions.map((s, i) => (
+                      <button
+                        key={i}
+                        type="button"
+                        onMouseDown={(e) => e.preventDefault()}
+                        onClick={() => handleSelectCustomerSuggestion(s)}
+                        onMouseEnter={() => setHighlightedSuggestionIndex(i)}
+                        className={`w-full text-left rounded-xl px-3 py-2 text-sm transition cursor-pointer flex items-center justify-between gap-3 ${
+                          highlightedSuggestionIndex === i
+                            ? "bg-sky-500/20 border border-sky-500/40 text-white"
+                            : "hover:bg-[var(--bg-surface)] text-[var(--text-primary)] border border-transparent"
+                        }`}
+                      >
+                        <div className="flex items-center gap-2.5 min-w-0">
+                          <div className="h-7 w-7 rounded-full bg-sky-500/15 text-sky-400 flex items-center justify-center font-bold text-xs shrink-0">
+                            {(s.name || "C").charAt(0).toUpperCase()}
+                          </div>
+                          <div className="min-w-0">
+                            <p className="font-bold truncate text-[var(--text-primary)] text-sm">{s.name || "Customer"}</p>
+                            <p className="font-mono text-xs text-[var(--text-muted)]">{s.phone}</p>
+                          </div>
+                        </div>
+                        {typeof s.credit_balance === "number" && s.credit_balance !== 0 && (
+                          <span className={`text-xs font-mono font-bold px-2 py-0.5 rounded-lg shrink-0 ${
+                            s.credit_balance > 0
+                              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+                              : "bg-rose-500/15 text-rose-400 border border-rose-500/30"
+                          }`}>
+                            {s.credit_balance > 0 ? `+₹${s.credit_balance.toFixed(2)} Cr` : `-₹${Math.abs(s.credit_balance).toFixed(2)} Debt`}
+                          </span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Customer Name */}
+              <div>
+                <label className="block text-xs font-bold uppercase tracking-wider text-[var(--text-secondary)] mb-1.5">
+                  Customer Name (Optional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. Rahul Sharma"
+                  value={customerNameOverride}
+                  onChange={(e) => setCustomerNameOverride(e.target.value)}
+                  onKeyDown={(e) => {
+                    e.stopPropagation();
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      handleSaveAndLinkCustomer();
+                    } else if (e.key === "Escape") {
+                      e.preventDefault();
+                      lastPhonePromptCloseTime.current = Date.now();
+                      setShowPhonePrompt(false);
+                    }
+                  }}
+                  className="w-full rounded-xl border border-[var(--border-strong)] bg-[var(--bg-surface)] px-3.5 py-2.5 text-sm font-semibold text-[var(--text-primary)] focus:border-sky-400 focus:outline-none"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-3 pt-3 border-t border-[var(--border-subtle)]">
+              <button
+                type="button"
+                onClick={() => {
+                  lastPhonePromptCloseTime.current = Date.now();
+                  setShowPhonePrompt(false);
+                }}
+                className="px-4 py-2 text-sm font-bold text-[var(--text-muted)] hover:text-[var(--text-primary)] rounded-xl border border-[var(--border-strong)] transition cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                disabled={customerPhoneOverride.replace(/\D/g, "").length < 10}
+                onClick={handleSaveAndLinkCustomer}
+                className="px-5 py-2 text-sm font-black text-white bg-sky-500 hover:bg-sky-600 rounded-xl transition shadow-md disabled:opacity-50 cursor-pointer"
+              >
+                Save &amp; Link
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

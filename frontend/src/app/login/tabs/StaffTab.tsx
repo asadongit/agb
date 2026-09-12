@@ -282,9 +282,7 @@ export function StaffTab({
               <option value="SUPERADMIN">Superadmin</option>
               <option value="OUTLET_ADMIN">Outlet Admin</option>
               <option value="MANAGER">Manager</option>
-              <option value="FLOOR_STAFF">Floor Staff</option>
               <option value="CASHIER">Cashier</option>
-              <option value="WAITER">Waiter</option>
               <option value="DELIVERY_BOY">Delivery Boy</option>
               <option value="STAFF">General Staff</option>
             </select>
@@ -294,11 +292,13 @@ export function StaffTab({
               className="text-xs rounded-lg border border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-2.5 py-1.5 font-medium text-[var(--text-primary)]"
             >
               <option value="">All Actions</option>
-              <option value="STAFF CREATED">Staff Created</option>
-              <option value="STAFF PIN_LOGGED_IN">PIN Login</option>
-              <option value="BILL DELETED">Bill Deleted</option>
-              <option value="ORDER CREATED">Order Created</option>
-              <option value="INVENTORY UPDATED">Inventory Updated</option>
+              <option value="staff_pin_logged_in">PIN Login</option>
+              <option value="pin_quick_switch">PIN Quick-Switch</option>
+              <option value="bill_deleted">Bill Deleted</option>
+              <option value="staff_created">Staff Created</option>
+              <option value="staff_updated">Staff Updated</option>
+              <option value="staff_deactivated">Staff Deactivated</option>
+              <option value="staff_pin_updated">PIN Updated</option>
             </select>
             <select
               value={auditDateFilter}
@@ -348,7 +348,7 @@ export function StaffTab({
                     <td className="p-3.5 font-bold text-[var(--text-primary)]">{log.staff_name || "System / Admin"}</td>
                     <td className="p-3.5">
                       <span className="inline-block rounded-full bg-[var(--accent-brand)]/10 px-2.5 py-0.5 text-[10px] font-bold text-[var(--accent-brand)] uppercase">
-                        {log.action_type.replace("_", " ")}
+                        {log.action_type.replace(/_/g, " ")}
                       </span>
                     </td>
                     <td className="p-3.5 font-mono text-[11px] text-[var(--text-muted)]">

@@ -335,27 +335,41 @@ async def list_staff_audit_log_endpoint(
     db: DBSession,
     staff_id: uuid.UUID | None = None,
     action_type: str | None = None,
-    role: RoleEnum | None = None,
+    role: str | None = None,
+    outlet_id: uuid.UUID | None = None,
     from_date: datetime | None = None,
     to_date: datetime | None = None,
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
 ):
     """Get paginated staff audit trail."""
+    target_outlet_id = outlet_id or current_user.outlet_id
     stmt = (
         select(StaffAuditLog)
         .join(StaffAuditLog.staff, isouter=True)
         .options(selectinload(StaffAuditLog.staff))
-        .where(StaffAuditLog.outlet_id == current_user.outlet_id)
     )
+    if target_outlet_id:
+        stmt = stmt.where(StaffAuditLog.outlet_id == target_outlet_id)
 
     if staff_id:
         stmt = stmt.where(StaffAuditLog.staff_id == staff_id)
-    if action_type:
-        stmt = stmt.where(StaffAuditLog.action_type == action_type)
-    if role:
+    if action_type and action_type.strip():
+        clean_action = action_type.strip().lower().replace(" ", "_")
+        stmt = stmt.where(func.lower(StaffAuditLog.action_type) == clean_action)
+    if role and role.strip():
         from app.models.user import User
-        stmt = stmt.where(User.role == role)
+        from sqlalchemy import String
+        clean_role = role.strip().upper()
+        role_match = None
+        for r_item in RoleEnum:
+            if r_item.value.upper() == clean_role:
+                role_match = r_item
+                break
+        if role_match:
+            stmt = stmt.where(User.role == role_match)
+        else:
+            stmt = stmt.where(func.upper(func.cast(User.role, String)) == clean_role)
     if from_date:
         stmt = stmt.where(StaffAuditLog.created_at >= from_date)
     if to_date:

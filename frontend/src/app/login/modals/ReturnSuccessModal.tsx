@@ -10,6 +10,7 @@ type ReturnSuccessModalProps = {
   returnData: ReturnPdfData | null;
   restaurantName?: string;
   restaurant?: any;
+  menuItemsMap?: Record<string, any>;
 };
 
 export function ReturnSuccessModal({
@@ -18,15 +19,16 @@ export function ReturnSuccessModal({
   returnData,
   restaurantName = "ApnaGreen Basket",
   restaurant,
+  menuItemsMap,
 }: ReturnSuccessModalProps) {
   if (!isOpen || !returnData) return null;
 
   const handleView = () => {
-    generateReturnReceiptPDF(returnData, restaurantName, restaurant, "view");
+    generateReturnReceiptPDF(returnData, restaurantName, restaurant, "view", menuItemsMap);
   };
 
   const handleDownload = () => {
-    generateReturnReceiptPDF(returnData, restaurantName, restaurant, "download");
+    generateReturnReceiptPDF(returnData, restaurantName, restaurant, "download", menuItemsMap);
   };
 
   const origBillText =
@@ -76,18 +78,53 @@ export function ReturnSuccessModal({
               Returned Line Items:
             </span>
             <div className="max-h-32 overflow-y-auto space-y-1 pr-1">
-              {(returnData.returned_items || []).map((item, idx) => (
-                <div key={idx} className="flex justify-between items-center text-xs font-mono text-[var(--text-primary)]">
-                  <span>
-                    {item.item_name} × {item.quantity}
-                  </span>
-                  <span className="font-bold text-sky-400">
-                    ₹{(item.line_refund !== undefined ? Number(item.line_refund) : item.quantity * Number(item.unit_price)).toFixed(2)}
-                  </span>
-                </div>
-              ))}
+              {(returnData.returned_items || []).map((item, idx) => {
+                const itemUnit = item.selected_unit || (item as any).unit || (item as any).unit_label || (item.menu_item_id && menuItemsMap?.[item.menu_item_id]?.unit_label) || "";
+                return (
+                  <div key={idx} className="flex justify-between items-center text-xs font-mono text-[var(--text-primary)]">
+                    <span>
+                      {item.item_name} × {item.quantity} {itemUnit}
+                    </span>
+                    <span className="font-bold text-sky-400">
+                      ₹{(item.line_refund !== undefined ? Number(item.line_refund) : item.quantity * Number(item.unit_price)).toFixed(2)}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
+
+          {/* Exchange Items List if present */}
+          {returnData.exchange_items && returnData.exchange_items.length > 0 && (
+            <div className="space-y-1.5 pt-1">
+              <span className="text-[11px] font-bold text-emerald-400 uppercase tracking-wider block">
+                Exchanged Line Items:
+              </span>
+              <div className="max-h-24 overflow-y-auto space-y-1 pr-1">
+                {returnData.exchange_items.map((item: any, idx: number) => {
+                  const itemUnit = item.selected_unit || item.unit || item.unit_label || (item.menu_item_id && menuItemsMap?.[item.menu_item_id]?.unit_label) || "";
+                  return (
+                    <div key={idx} className="flex justify-between items-center text-xs font-mono text-[var(--text-primary)]">
+                      <span>
+                        {item.item_name} × {item.quantity} {itemUnit}
+                      </span>
+                      <span className="font-bold text-emerald-400">
+                        ₹{Number(item.line_total || item.quantity * Number(item.unit_price)).toFixed(2)}
+                      </span>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {/* Round Off Adjustment */}
+          {returnData.round_off !== undefined && Math.abs(returnData.round_off) > 0.001 && (
+            <div className="flex justify-between text-xs font-mono text-amber-400 pt-1 border-t border-[var(--border-subtle)]">
+              <span>Round Off:</span>
+              <span className="font-bold">{returnData.round_off > 0 ? "+" : ""}₹{Number(returnData.round_off).toFixed(2)}</span>
+            </div>
+          )}
 
           {/* Total Net Refund */}
           <div className="pt-2 border-t border-[var(--border-subtle)] flex justify-between items-center">

@@ -147,6 +147,18 @@ export function useAdminAuth() {
         }
       }
 
+      // Transient retry for GET requests (e.g. during dev server reload)
+      if ((!options?.method || options.method.toUpperCase() === "GET") && response.status >= 500 && response.status <= 504) {
+        await new Promise((resolve) => setTimeout(resolve, 350));
+        response = await fetch(`${apiBase}${path}`, {
+          ...options,
+          headers: {
+            ...authHeaders,
+            ...(options?.headers || {}),
+          },
+        });
+      }
+
       return parseApiResponse<T>(response);
     },
     [authHeaders, tryRefreshToken]
