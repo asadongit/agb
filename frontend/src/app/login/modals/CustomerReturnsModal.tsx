@@ -1374,21 +1374,61 @@ export function CustomerReturnsModal({
       <div className="w-full h-full max-w-none max-h-none flex flex-col rounded-none border-none bg-[var(--bg-surface)] overflow-hidden relative">
         
         {/* Header */}
-        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-6 py-4 flex-shrink-0">
-          <div className="flex items-center gap-3.5">
-            <div className="rounded-2xl bg-purple-500/10 p-3 shadow-sm border border-purple-500/20">
-              <RotateCcw className="h-7 w-7 text-purple-400" />
+        <div className="flex items-center justify-between border-b border-[var(--border-subtle)] bg-[var(--bg-surface-elevated)] px-6 py-3.5 flex-shrink-0 gap-4">
+          <div className="flex items-center gap-3.5 min-w-0">
+            <div className="rounded-2xl bg-purple-500/10 p-2.5 shadow-sm border border-purple-500/20 shrink-0">
+              <RotateCcw className="h-6 w-6 text-purple-400" />
             </div>
-            <div>
-              <h2 className="font-display text-2xl font-black tracking-tight text-[var(--text-primary)]">Customer Returns & Exchanges</h2>
-              <p className="text-sm text-[var(--text-secondary)] mt-0.5 tracking-wide">
+            <div className="min-w-0">
+              <h2 className="font-display text-xl font-black tracking-tight text-[var(--text-primary)] truncate">Customer Returns & Exchanges</h2>
+              <p className="text-xs text-[var(--text-secondary)] mt-0.5 tracking-wide truncate">
                 Process returns, issue store credit, or direct exchange.
               </p>
             </div>
           </div>
+
+          {/* Prominent Live Financial Summary Header (Return Total, Exchange Total, Net Flow) */}
+          <div className="hidden sm:flex items-center gap-3 bg-[var(--bg-surface)] px-4 py-2 rounded-2xl border border-[var(--border-subtle)] shadow-xs shrink-0">
+            {/* Return Total */}
+            <div className="flex flex-col items-end pr-3 border-r border-[var(--border-subtle)]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-rose-500 flex items-center gap-1">
+                <ArrowDownRight className="h-3 w-3" /> Return Total
+              </span>
+              <span className="font-mono text-base font-extrabold text-rose-500">
+                ₹{returnCreditTotal.toFixed(2)}
+              </span>
+            </div>
+
+            {/* Exchange Total */}
+            <div className="flex flex-col items-end pr-3 border-r border-[var(--border-subtle)]">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-sky-500 flex items-center gap-1">
+                <ArrowUpRight className="h-3 w-3" /> Exchange Total
+              </span>
+              <span className="font-mono text-base font-extrabold text-sky-500">
+                ₹{exchangeItemsTotal.toFixed(2)}
+              </span>
+            </div>
+
+            {/* Net Settlement */}
+            <div className="flex flex-col items-end pl-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-[var(--text-muted)]">
+                {isNetRefund ? "Net Refund (Mart Owes)" : netBalance > 0 ? "Net Payable (Customer Pays)" : "Net Difference"}
+              </span>
+              <span className={`font-mono text-lg font-black ${
+                isNetRefund 
+                  ? "text-emerald-500" 
+                  : netBalance > 0 
+                  ? "text-amber-500" 
+                  : "text-[var(--text-primary)]"
+              }`}>
+                {isNetRefund ? `₹${rawRefundOwed.toFixed(2)}` : netBalance > 0 ? `₹${rawAdditionalPayable.toFixed(2)}` : "₹0.00"}
+              </span>
+            </div>
+          </div>
+
           <button
             onClick={onClose}
-            className="rounded-xl p-2.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition cursor-pointer"
+            className="rounded-xl p-2.5 text-[var(--text-muted)] hover:bg-[var(--bg-surface)] hover:text-[var(--text-primary)] transition cursor-pointer shrink-0"
           >
             <X className="h-6 w-6" />
           </button>

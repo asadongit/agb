@@ -369,6 +369,22 @@ class TopReturnedItem(StrictSchema):
     total_refund_amount: float
 
 
+class ReturnLedgerEntry(StrictSchema):
+    return_number: str
+    return_id: str
+    order_id: str | None = None
+    customer_name: str | None = None
+    customer_phone: str | None = None
+    item_name: str
+    menu_item_id: str | None = None
+    quantity: float
+    selected_unit: str | None = None
+    unit_price: float
+    line_refund: float
+    reason: str = ""
+    created_at: str
+
+
 class CustomerReturnReportResponse(BaseResponse):
     from_date: str
     to_date: str
@@ -377,6 +393,7 @@ class CustomerReturnReportResponse(BaseResponse):
     return_rate_pct: float
     top_returned_items: list[TopReturnedItem]
     returns: list[CustomerReturnRow]
+    return_ledger: list[ReturnLedgerEntry] = []
 
 
 class DenominationBreakdown(StrictSchema):
@@ -600,6 +617,7 @@ class CustomerReturnReportResponse(BaseResponse):
     return_rate_pct: float
     top_returned_items: list[TopReturnedItem]
     returns: list[CustomerReturnRow]
+    return_ledger: list[ReturnLedgerEntry] = []
 
 
 class DenominationBreakdown(StrictSchema):
@@ -738,6 +756,7 @@ class SupplierSpendResponse(BaseResponse):
 
 class OutletEarningsResponse(StrictSchema):
     gross_revenue: float
+    total_customer_returns: float = 0.0
     total_loyalty_discounts: float
     total_credit_applied: float
     total_udhaar_given: float

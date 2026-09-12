@@ -69,10 +69,21 @@ class CustomerReturn(Base):
     customer_balance: Mapped[Decimal | None] = mapped_column(
         Numeric(10, 2), nullable=True
     )
+    exchange_items: Mapped[list[dict]] = mapped_column(JSON, nullable=False, default=list)
+    total_exchange_amount: Mapped[Decimal] = mapped_column(
+        Numeric(10, 2), nullable=False, default=Decimal("0.00"), server_default="0.00"
+    )
+    exchange_order_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("orders.id", ondelete="SET NULL"),
+        nullable=True,
+        index=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
 
     # Relationships
     outlet: Mapped[Outlet] = relationship("Outlet")
-    order: Mapped[Order | None] = relationship("Order")
+    order: Mapped[Order | None] = relationship("Order", foreign_keys=[order_id])
+    exchange_order: Mapped[Order | None] = relationship("Order", foreign_keys=[exchange_order_id])

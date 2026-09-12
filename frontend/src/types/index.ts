@@ -327,9 +327,27 @@ export type PurchaseReturnReportResponse = components["schemas"]["PurchaseReturn
 export type NewCustomerBucket = components["schemas"]["NewCustomerBucket"];
 export type NewCustomerReportResponse = components["schemas"]["NewCustomerReportResponse"];
 
+export interface ReturnLedgerEntry {
+  return_number: string;
+  return_id: string;
+  order_id?: string | null;
+  customer_name?: string | null;
+  customer_phone?: string | null;
+  item_name: string;
+  menu_item_id?: string | null;
+  quantity: number;
+  selected_unit?: string | null;
+  unit_price: number;
+  line_refund: number;
+  reason: string;
+  created_at: string;
+}
+
 export type CustomerReturnRow = components["schemas"]["CustomerReturnRow"];
 export type TopReturnedItem = components["schemas"]["TopReturnedItem"];
-export type CustomerReturnReportResponse = components["schemas"]["CustomerReturnReportResponse"];
+export type CustomerReturnReportResponse = Omit<components["schemas"]["CustomerReturnReportResponse"], "return_ledger"> & {
+  return_ledger?: ReturnLedgerEntry[];
+};
 
 export type DenominationBreakdown = components["schemas"]["DenominationBreakdown"];
 export type CashFlowByType = components["schemas"]["CashFlowByType"];
@@ -381,7 +399,9 @@ export type LoyaltyReportResponse = components["schemas"]["LoyaltyReportResponse
 
 export type SupplierSpendRow = components["schemas"]["SupplierSpendRow"];
 export type SupplierSpendResponse = components["schemas"]["SupplierSpendResponse"];
-export type OutletEarningsResponse = components["schemas"]["OutletEarningsResponse"];
+export type OutletEarningsResponse = components["schemas"]["OutletEarningsResponse"] & {
+  total_customer_returns?: number;
+};
 
 // Enums for UI
 export type AnalyticsMainTab =

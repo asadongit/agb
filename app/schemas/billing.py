@@ -128,6 +128,8 @@ class CustomerReturnResponse(BaseResponse):
     returned_items: list[dict]
     exchange_items: list[dict] = Field(default_factory=list)
     total_refund_amount: float
+    total_exchange_amount: float = 0.0
+    exchange_order_id: str | None = None
     net_balance: float
     round_off: float = 0.0
     refund_payment_method: str

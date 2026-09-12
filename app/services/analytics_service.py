@@ -64,6 +64,7 @@ from app.schemas.analytics import (
     NewCustomerReportResponse, NewCustomerDetail,
     CustomerReturnRow,
     TopReturnedItem,
+    ReturnLedgerEntry,
     CustomerReturnReportResponse,
     DenominationBreakdown,
     CashFlowByType,
@@ -1589,8 +1590,10 @@ async def get_customer_return_analytics(
             CustomerReturn.id,
             CustomerReturn.return_number,
             CustomerReturn.order_id,
-            Order.customer_name,
-            Order.customer_phone,
+            Order.customer_name.label("order_customer_name"),
+            Order.customer_phone.label("order_customer_phone"),
+            CustomerReturn.customer_name.label("return_customer_name"),
+            CustomerReturn.customer_phone.label("return_customer_phone"),
             CustomerReturn.returned_items,
             CustomerReturn.total_refund_amount,
             CustomerReturn.refund_payment_method,
@@ -1609,6 +1612,7 @@ async def get_customer_return_analytics(
     rows = res.all()
 
     returns = []
+    return_ledger = []
     tot_ref = 0.0
     item_stats = {}
     
@@ -1616,18 +1620,21 @@ async def get_customer_return_analytics(
         amt = float(r.total_refund_amount or 0)
         tot_ref += amt
         ritems = r.returned_items if isinstance(r.returned_items, list) else []
+        c_name = r.return_customer_name or r.order_customer_name
+        c_phone = r.return_customer_phone or r.order_customer_phone
+        created_at_str = r.created_at.isoformat() if hasattr(r.created_at, "isoformat") else str(r.created_at)
         
         returns.append(
             CustomerReturnRow(
                 return_id=str(r.id),
                 return_number=r.return_number or "",
                 order_id=str(r.order_id) if r.order_id else None,
-                customer_name=r.customer_name,
-                customer_phone=r.customer_phone,
+                customer_name=c_name,
+                customer_phone=c_phone,
                 items_returned=len(ritems),
                 total_refund_amount=round(amt, 2),
                 refund_payment_method=r.refund_payment_method.value if hasattr(r.refund_payment_method, "value") else str(r.refund_payment_method),
-                created_at=r.created_at.isoformat() if hasattr(r.created_at, "isoformat") else str(r.created_at)
+                created_at=created_at_str
             )
         )
         
@@ -1635,6 +1642,7 @@ async def get_customer_return_analytics(
             iname = item.get("item_name", "Unknown")
             iqty = float(item.get("quantity", 0))
             iuprice = float(item.get("unit_price", 0))
+            ilrefund = float(item.get("line_refund", 0)) if item.get("line_refund") is not None else round(iqty * iuprice, 2)
             iamt = iqty * iuprice
             
             if iname not in item_stats:
@@ -1643,8 +1651,26 @@ async def get_customer_return_analytics(
             item_stats[iname]["qty"] += iqty
             item_stats[iname]["amt"] += iamt
 
+            return_ledger.append(
+                ReturnLedgerEntry(
+                    return_number=r.return_number or "",
+                    return_id=str(r.id),
+                    order_id=str(r.order_id) if r.order_id else None,
+                    customer_name=c_name,
+                    customer_phone=c_phone,
+                    item_name=iname,
+                    menu_item_id=str(item.get("menu_item_id")) if item.get("menu_item_id") else None,
+                    quantity=round(iqty, 3),
+                    selected_unit=item.get("selected_unit"),
+                    unit_price=round(iuprice, 2),
+                    line_refund=round(ilrefund, 2),
+                    reason=item.get("reason", "") or "",
+                    created_at=created_at_str,
+                )
+            )
+
     top_items = []
-    for k, v in sorted(item_stats.items(), key=lambda x: x[1]["amt"], reverse=True)[:10]:
+    for k, v in sorted(item_stats.items(), key=lambda x: x[1]["amt"], reverse=True):
         top_items.append(
             TopReturnedItem(
                 item_name=k,
@@ -1671,7 +1697,8 @@ async def get_customer_return_analytics(
         total_refund_amount=round(tot_ref, 2),
         return_rate_pct=rr_pct,
         top_returned_items=top_items,
-        returns=returns
+        returns=returns,
+        return_ledger=return_ledger,
     )
 
 
@@ -2648,6 +2675,7 @@ async def get_day_book(
         Order.payment_method,
         Order.customer_name,
         Order.customer_phone,
+        Order.source,
     ).where(
         Order.outlet_id == outlet_id, Order.created_at >= start_utc, Order.created_at <= end_utc,
         Order.status.in_(SETTLED_STATUSES)
@@ -2660,11 +2688,14 @@ async def get_day_book(
         tot_sales += amt
         cust_name = (r.customer_name or "").strip() or "Walk-in"
         cust_phone = (r.customer_phone or "").strip() or None
+        source_val = r.source.value if hasattr(r.source, "value") else str(r.source or "")
+        entry_type = "EXCHANGE_SALE" if source_val == "EXCHANGE" else "SALE"
+        desc = f"Exchange Sale via {pm}" if source_val == "EXCHANGE" else f"Bill via {pm}"
         entries.append({
             "ts": ensure_naive_utc(r.created_at) or start_utc,
-            "type": "SALE",
+            "type": entry_type,
             "ref": r.basket_number or "",
-            "desc": f"Bill via {pm}",
+            "desc": desc,
             "dr": 0.0,
             "cr": amt,
             "entity_name": cust_name,
@@ -2848,6 +2879,7 @@ async def get_outlet_earnings_report(
     orders = result.scalars().all()
 
     gross_revenue = 0.0
+    total_customer_returns = 0.0
     total_loyalty_discounts = 0.0
     total_credit_applied = 0.0
     total_udhaar_given = 0.0
@@ -2863,6 +2895,7 @@ async def get_outlet_earnings_report(
         "credit_applied": 0.0,
         "loyalty_value_redeemed": 0.0,
         "gross_revenue": 0.0,
+        "customer_returns": 0.0,
         "net_paid": 0.0
     })
 
@@ -2909,6 +2942,11 @@ async def get_outlet_earnings_report(
         date_str = r.created_at.strftime("%Y-%m-%d")
         chart_dict[date_str]["date"] = date_str
         
+        ret_amt = float(r.total_refund_amount or 0)
+        total_customer_returns += ret_amt
+        chart_dict[date_str]["customer_returns"] += ret_amt
+        chart_dict[date_str]["net_paid"] -= ret_amt
+
         ca = float(getattr(r, "credit_applied", 0) or 0)
         da = float(getattr(r, "debit_applied", 0) or 0)
         ds = float(getattr(r, "debt_settled", 0) or 0)
@@ -2928,6 +2966,7 @@ async def get_outlet_earnings_report(
 
     net_drawer_earnings = (
         gross_revenue
+        - total_customer_returns
         - total_credit_applied
         - total_udhaar_given
         + total_udhaar_recovered
@@ -2940,6 +2979,7 @@ async def get_outlet_earnings_report(
 
     return OutletEarningsResponse(
         gross_revenue=gross_revenue,
+        total_customer_returns=total_customer_returns,
         total_loyalty_discounts=total_loyalty_discounts,
         total_credit_applied=total_credit_applied,
         total_udhaar_given=total_udhaar_given,

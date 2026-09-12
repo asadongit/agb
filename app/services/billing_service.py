@@ -1336,6 +1336,61 @@ async def process_customer_return(
     net_balance = float(net_refund_amount)
     return_num = f"RET-{uuid.uuid4().hex[:6].upper()}"
 
+    # Create a real Order for exchange items so inventory is deducted and sales/revenue are tracked
+    exchange_order = None
+    if exchange_items_summary and total_exchange_amount > 0:
+        exchange_basket = f"EXC-{return_num}"
+        exchange_order = Order(
+            id=uuid.uuid4(),
+            outlet_id=outlet_id,
+            basket_number=exchange_basket,
+            customer_name=customer_name,
+            customer_phone=customer_phone,
+            subtotal_amount=total_exchange_amount,
+            total_amount=total_exchange_amount,
+            tax_amount=Decimal("0.00"),
+            status=OrderStatusEnum.COMPLETED,
+            source="EXCHANGE",
+            payment_method=data.refund_payment_method or "CASH",
+            payment_reference=f"EXCHANGE [{return_num}]",
+            is_auto_verified=True,
+            created_by_staff_id=_get_user_id(staff_user) if staff_user else None,
+            finalized_at=utc_now(),
+            paid_at=utc_now(),
+        )
+        db.add(exchange_order)
+        await db.flush()
+
+        for ex_s in exchange_items_summary:
+            m_uuid = uuid.UUID(ex_s["menu_item_id"]) if ex_s.get("menu_item_id") else None
+            m_item = await db.get(MenuItem, m_uuid) if m_uuid else None
+            resolved_unit = await _resolve_item_unit(db, ex_s.get("selected_unit"), m_item)
+            b_uuid = uuid.UUID(ex_s["selected_batch_id"]) if ex_s.get("selected_batch_id") else None
+
+            oi = OrderItem(
+                id=uuid.uuid4(),
+                order_id=exchange_order.id,
+                menu_item_id=m_uuid,
+                selected_batch_id=b_uuid,
+                item_name=ex_s["item_name"],
+                quantity=Decimal(str(ex_s["quantity"])),
+                selected_unit=resolved_unit,
+                unit_price=Decimal(str(ex_s["unit_price"])),
+                mrp=Decimal(str(ex_s.get("mrp") or ex_s["unit_price"])),
+                tax_rate=Decimal(str(m_item.tax_rate)) if m_item and m_item.tax_rate is not None else Decimal("0.00"),
+                tax_category=m_item.tax_category if m_item and m_item.tax_category else "GST 0%",
+                line_total=Decimal(str(ex_s["line_total"])),
+            )
+            db.add(oi)
+
+        await db.flush()
+
+        # Trigger inventory auto-deduction for the exchange order
+        try:
+            await process_order_auto_deduction(db, exchange_order)
+        except Exception as e:
+            logger.warning("Failed to auto-deduct inventory for exchange order %s: %s", exchange_order.id, e)
+
     # Process Customer Wallet (Store Credit/Debt) & Loyalty Points deduction
     customer = None
     if customer_phone:
@@ -1472,7 +1527,10 @@ async def process_customer_return(
         customer_name=customer_name,
         customer_phone=customer_phone,
         returned_items=returned_items_summary,
+        exchange_items=exchange_items_summary,
         total_refund_amount=final_refund_recorded,
+        total_exchange_amount=total_exchange_amount,
+        exchange_order_id=exchange_order.id if exchange_order else None,
         refund_payment_method=data.refund_payment_method or "CASH",
         notes=final_notes if 'final_notes' in locals() else data.notes,
         credit_applied=data.apply_credit,
@@ -1557,6 +1615,8 @@ async def process_customer_return(
         "customer_name": customer_name,
         "customer_phone": customer_phone,
         "total_refund_amount": float(final_refund_recorded),
+        "total_exchange_amount": float(total_exchange_amount),
+        "exchange_order_id": str(exchange_order.id) if exchange_order else None,
         "net_balance": net_balance,
         "round_off": float(round_off_dec),
         "returned_items": returned_items_summary,
@@ -1604,7 +1664,10 @@ async def list_customer_returns(db: AsyncSession, outlet_id: uuid.UUID) -> list[
             "customer_name": ret.customer_name,
             "customer_phone": ret.customer_phone,
             "returned_items": ret.returned_items,
+            "exchange_items": getattr(ret, "exchange_items", []) or [],
             "total_refund_amount": float(ret.total_refund_amount),
+            "total_exchange_amount": float(getattr(ret, "total_exchange_amount", 0) or 0),
+            "exchange_order_id": str(ret.exchange_order_id) if getattr(ret, "exchange_order_id", None) else None,
             "net_balance": float(ret.total_refund_amount),
             "refund_payment_method": ret.refund_payment_method,
             "notes": ret.notes,

@@ -4,6 +4,7 @@ import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip as RechartsToolti
 
 type OutletEarningsData = {
   gross_revenue: number;
+  total_customer_returns?: number;
   total_loyalty_discounts: number;
   total_credit_applied: number;
   total_udhaar_given: number;
@@ -38,6 +39,14 @@ export function OutletEarningsReport({ data, isLoading }: { data: OutletEarnings
                 </td>
                 <td className="py-3 text-right font-mono font-bold text-[var(--text-primary)]">
                   ₹{data.gross_revenue.toFixed(2)}
+                </td>
+              </tr>
+              <tr>
+                <td className="py-3 text-[var(--text-muted)] flex items-center gap-2">
+                  <TrendingDown className="h-4 w-4 text-rose-500" /> Customer Returns (Refunds)
+                </td>
+                <td className="py-3 text-right font-mono text-rose-500">
+                  -₹{(data.total_customer_returns || 0).toFixed(2)}
                 </td>
               </tr>
               <tr>
@@ -120,6 +129,7 @@ export function OutletEarningsReport({ data, isLoading }: { data: OutletEarnings
                   
                   <Line type="monotone" dataKey="udhaar_given" name="Udhaar Given" stroke="#f43f5e" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
                   <Line type="monotone" dataKey="udhaar_recovered" name="Udhaar Recovered" stroke="#0ea5e9" strokeWidth={2} dot={{ r: 3 }} activeDot={{ r: 5 }} />
+                  <Line type="monotone" dataKey="customer_returns" name="Customer Returns" stroke="#ef4444" strokeWidth={2} strokeDasharray="4 4" dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="loyalty_value_redeemed" name="Loyalty Discount" stroke="#a855f7" strokeWidth={2} dot={{ r: 3 }} />
                   <Line type="monotone" dataKey="credit_cashed_out" name="Credit Cashed Out" stroke="#eab308" strokeWidth={2} dot={{ r: 3 }} />
                 </LineChart>
